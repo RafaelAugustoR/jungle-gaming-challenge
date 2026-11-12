@@ -71,7 +71,7 @@ async function opening(em: EntityManager, walletId: string, fault?: string) {
     `select id from wagering.accounts where currency = 'BRL' and kind = 'OPENING'`,
   );
   await em.execute(
-    `insert into wagering.openings(id, wallet_id, currency, amount) values (?, ?, 'BRL', 100.00)`,
+    `insert into wagering.transactions(id, wallet_id, currency, amount, kind, status) values (?, ?, 'BRL', 100.00, 'OPENING', 'PROCESSED')`,
     [transaction, walletId],
   );
   await checkpoint('opening');
@@ -112,7 +112,7 @@ integration(
       await expect(orm.em.fork().transactional((em) => opening(em, id, step))).rejects.toThrow();
       for (const [table, field] of [
         ['wallets', 'id'],
-        ['openings', 'wallet_id'],
+        ['transactions', 'wallet_id'],
         ['journal', 'wallet_id'],
         ['outbox', 'aggregate_id'],
       ]) {

@@ -1,59 +1,69 @@
 import { Money } from '../../../shared/domain/money';
-export interface JournalProps {
+import { DomainError } from '../../../shared/domain/errors/domain-error';
+
+export interface JournalState {
   id: string;
   walletId: string;
   transactionId: string;
+  playerAccountId: string;
   debitAccountId: string;
   creditAccountId: string;
   amount: string;
   currency: string;
   balanceBefore: string;
   balanceAfter: string;
-  direction: 'CREDIT' | 'DEBIT';
   walletVersion: number;
 }
+export type JournalProps = JournalState & { direction: 'CREDIT' | 'DEBIT' };
 export class JournalEntry {
-  private constructor(private readonly state: Readonly<JournalProps>) {
+  private constructor(private readonly state: Readonly<JournalState>) {
     Object.freeze(this);
   }
   static create(
-    input: Omit<JournalProps, 'id' | 'amount' | 'currency' | 'balanceBefore' | 'balanceAfter'> & {
+    input: Omit<JournalState, 'id' | 'amount' | 'currency' | 'balanceBefore' | 'balanceAfter'> & {
       money: Money;
       balanceBefore: Money;
       balanceAfter: Money;
     },
   ): JournalEntry {
     const { money, balanceBefore, balanceAfter, ...props } = input;
-    return JournalEntry.rehydrate({
-      ...props,
-      id: crypto.randomUUID(),
-      amount: money.toProps().amount,
-      currency: money.currency,
-      balanceBefore: JournalEntry.sameCurrency(money, balanceBefore).toProps().amount,
-      balanceAfter: JournalEntry.sameCurrency(money, balanceAfter).toProps().amount,
-    });
-  }
-  private static sameCurrency(money: Money, other: Money) {
-    if (money.currency !== other.currency) throw new Error('CURRENCY_MISMATCH');
-    return other;
-  }
-  static rehydrate(props: JournalProps): JournalEntry {
-    const money = Money.create(props.amount, props.currency);
-    const before = Money.create(props.balanceBefore, props.currency);
-    const after = Money.create(props.balanceAfter, props.currency);
-    const expected = props.direction === 'CREDIT' ? before.add(money) : before.subtract(money);
+    if (money.currency !== balanceBefore.currency || money.currency !== balanceAfter.currency)
+      throw new DomainError('CURRENCY_MISMATCH');
     if (
       money.isZero() ||
-      !['CREDIT', 'DEBIT'].includes(props.direction) ||
+      money.isNegative() ||
       props.debitAccountId === props.creditAccountId ||
-      expected.toProps().amount !== after.toProps().amount ||
+      ![props.debitAccountId, props.creditAccountId].includes(props.playerAccountId) ||
       !Number.isSafeInteger(props.walletVersion) ||
-      props.walletVersion < 1
+      props.walletVersion < 1 ||
+      balanceBefore.isNegative() ||
+      balanceAfter.isNegative()
     )
-      throw new Error('UNBALANCED_JOURNAL');
-    return new JournalEntry(Object.freeze({ ...props }));
+      throw new DomainError('UNBALANCED_JOURNAL');
+    const expected =
+      props.creditAccountId === props.playerAccountId
+        ? balanceBefore.add(money)
+        : balanceBefore.subtract(money);
+    if (expected.toProps().amount !== balanceAfter.toProps().amount)
+      throw new DomainError('UNBALANCED_JOURNAL');
+    return new JournalEntry(
+      Object.freeze({
+        ...props,
+        id: crypto.randomUUID(),
+        amount: money.toProps().amount,
+        currency: money.currency,
+        balanceBefore: balanceBefore.toProps().amount,
+        balanceAfter: balanceAfter.toProps().amount,
+      }),
+    );
+  }
+  static rehydrate(state: JournalState): JournalEntry {
+    return new JournalEntry(Object.freeze({ ...state }));
+  }
+  get direction(): 'CREDIT' | 'DEBIT' {
+    return this.state.creditAccountId === this.state.playerAccountId ? 'CREDIT' : 'DEBIT';
   }
   toProps(): JournalProps {
-    return { ...this.state };
+    return { ...this.state, direction: this.direction };
   }
 }

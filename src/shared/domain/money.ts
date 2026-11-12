@@ -1,4 +1,5 @@
 import Decimal from 'decimal.js';
+import { DomainError } from './errors/domain-error';
 
 const Exact = Decimal.clone({ precision: 40 });
 const MAX = '9999999999999999.99';
@@ -20,21 +21,26 @@ export class Money {
       !/^(0|[1-9]\d*)\.\d{2}$/.test(amount) ||
       !/^[A-Z]{3}$/.test(currency)
     )
-      throw new Error('INVALID_PAYLOAD');
+      throw new DomainError('INVALID_PAYLOAD');
     return Money.exact(new Exact(amount), currency);
   }
   static rehydrate(props: MoneyProps): Money {
-    if (typeof props.amount === 'string' && props.amount.startsWith('-')) {
-      return Money.create(props.amount.slice(1), props.currency).negate();
+    // PostgreSQL NUMERIC may omit trailing zeros. Reject excess scale before formatting.
+    if (
+      typeof props.amount !== 'string' ||
+      !/^-?(0|[1-9]\d*)(\.\d{1,2})?$/.test(props.amount) ||
+      !/^[A-Z]{3}$/.test(props.currency)
+    ) {
+      throw new DomainError('INVALID_PAYLOAD');
     }
-    return Money.create(props.amount, props.currency);
+    return Money.exact(new Exact(props.amount), props.currency);
   }
   private static exact(value: Decimal, currency: string): Money {
-    if (value.abs().gt(MAX)) throw new Error('AMOUNT_LIMIT_EXCEEDED');
+    if (value.abs().gt(MAX)) throw new DomainError('AMOUNT_LIMIT_EXCEEDED');
     return new Money(value, currency);
   }
   private compatible(other: Money) {
-    if (this.currency !== other.currency) throw new Error('CURRENCY_MISMATCH');
+    if (this.currency !== other.currency) throw new DomainError('CURRENCY_MISMATCH');
   }
   add(other: Money): Money {
     this.compatible(other);

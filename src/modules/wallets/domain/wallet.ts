@@ -1,40 +1,93 @@
 import { Money } from '../../../shared/domain/money';
+import { DomainError } from '../../../shared/domain/errors/domain-error';
+import type { EventContext } from '../../../shared/domain/events/integration-event';
+import { JournalEntry } from './journal-entry';
+import { WalletBalanceChanged } from './events/wallet-balance-changed';
 
 export interface WalletProps {
   id: string;
   playerId: string;
+  accountId: string;
   currency: string;
   balance: string;
   version: number;
 }
+export interface OpenWallet {
+  playerId: string;
+  initialBalance: Money;
+  accountId: string;
+  counterpartAccountId: string;
+  occurredAt: string;
+  context: EventContext;
+}
 export class Wallet {
-  private constructor(private readonly state: Readonly<WalletProps>) {
+  private constructor(
+    readonly id: string,
+    readonly playerId: string,
+    readonly accountId: string,
+    readonly balance: Money,
+    readonly version: number,
+  ) {
     Object.freeze(this);
   }
-  static create(playerId: string, balance: Money): Wallet {
-    return Wallet.rehydrate({
+  static open(input: OpenWallet) {
+    if (!input.playerId.trim() || input.playerId.length > 128 || input.initialBalance.isNegative())
+      throw new DomainError('INVALID_PAYLOAD');
+    const wallet = new Wallet(
+      crypto.randomUUID(),
+      input.playerId,
+      input.accountId,
+      input.initialBalance,
+      1,
+    );
+    if (wallet.balance.isZero()) return { wallet };
+    const transaction = Object.freeze({
       id: crypto.randomUUID(),
-      playerId,
-      balance: balance.toProps().amount,
-      currency: balance.currency,
-      version: 1,
+      walletId: wallet.id,
+      currency: wallet.currency,
+      amount: wallet.balance.toProps().amount,
+      kind: 'OPENING' as const,
+      status: 'PROCESSED' as const,
+      createdAt: input.occurredAt,
     });
+    const entry = JournalEntry.create({
+      walletId: wallet.id,
+      transactionId: transaction.id,
+      playerAccountId: wallet.accountId,
+      debitAccountId: input.counterpartAccountId,
+      creditAccountId: wallet.accountId,
+      money: wallet.balance,
+      balanceBefore: Money.create('0.00', wallet.currency),
+      balanceAfter: wallet.balance,
+      walletVersion: wallet.version,
+    });
+    return {
+      wallet,
+      transaction,
+      entry,
+      event: WalletBalanceChanged.from(entry, input.occurredAt, input.context),
+    };
   }
   static rehydrate(props: WalletProps): Wallet {
-    if (Money.rehydrate({ amount: props.balance, currency: props.currency }).isNegative()) {
-      throw new Error('INVALID_PAYLOAD');
-    }
-    if (
-      !props.playerId.trim() ||
-      props.playerId.length > 128 ||
-      !Number.isSafeInteger(props.version) ||
-      props.version < 1 ||
-      !/^[0-9a-f-]{36}$/.test(props.id)
-    )
-      throw new Error('INVALID_PAYLOAD');
-    return new Wallet(Object.freeze({ ...props }));
+    return new Wallet(
+      props.id,
+      props.playerId,
+      props.accountId,
+      Money.rehydrate({ amount: props.balance, currency: props.currency }),
+      props.version,
+    );
+  }
+  get currency(): string {
+    return this.balance.currency;
   }
   toProps(): WalletProps {
-    return { ...this.state };
+    return {
+      id: this.id,
+      playerId: this.playerId,
+      accountId: this.accountId,
+      currency: this.currency,
+      balance: this.balance.toProps().amount,
+      version: this.version,
+    };
   }
 }

@@ -8,7 +8,6 @@ import {
   Post,
   Query,
   Req,
-  UseFilters,
   UseGuards,
 } from '@nestjs/common';
 import {
@@ -17,35 +16,58 @@ import {
   HumanRole,
   type Principal,
 } from '../../identity/identity.module';
-import { ApiErrorFilter } from '../../../shared/rest/api-error';
+import { WalletRepository } from '../infrastructure/persistence/wallet-repository';
+import {
+  parseCreateWallet,
+  parseWalletId,
+  parseLedgerQuery,
+  walletResponse,
+  ledgerResponse,
+} from './wallet-contract';
 import { Wallets } from '../application/wallets';
 
 @Controller('wallets')
 @UseGuards(Identity)
-@UseFilters(ApiErrorFilter)
 @HumanRole('viewer')
 class WalletsController {
   constructor(@Inject(Wallets) private readonly wallets: Wallets) {}
   @Post()
   @HumanRole('demo-operator')
-  create(@Body() body: unknown, @Req() request: { principal: Principal; correlationId: string }) {
-    return this.wallets.create(body, {
-      actorId: request.principal.subject,
-      correlationId: request.correlationId,
-    });
+  async create(
+    @Body() body: unknown,
+    @Req() request: { principal: Principal; correlationId: string },
+  ) {
+    return walletResponse(
+      await this.wallets.create(parseCreateWallet(body), {
+        actorId: request.principal.subject,
+        correlationId: request.correlationId,
+      }),
+    );
   }
   @Get(':walletId')
-  get(@Param('walletId') id: string) {
-    return this.wallets.get(id);
+  async get(@Param('walletId') id: string) {
+    return walletResponse(await this.wallets.get(parseWalletId(id)));
   }
   @Get(':walletId/ledger')
-  ledger(
+  async ledger(
     @Param('walletId') id: string,
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ) {
-    return this.wallets.ledger(id, cursor, limit);
+    parseWalletId(id);
+    return ledgerResponse(id, await this.wallets.ledger(id, parseLedgerQuery(id, cursor, limit)));
   }
 }
-@Module({ imports: [IdentityModule], controllers: [WalletsController], providers: [Wallets] })
+@Module({
+  imports: [IdentityModule],
+  controllers: [WalletsController],
+  providers: [
+    WalletRepository,
+    {
+      provide: Wallets,
+      inject: [WalletRepository],
+      useFactory: (repository: WalletRepository) => new Wallets(repository),
+    },
+  ],
+})
 export class WalletsModule {}

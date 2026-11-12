@@ -44,6 +44,7 @@ services:
       target: runtime
     environment: &backend-env
       DATABASE_URL: postgresql://jungle_runtime:runtime-demo-only@postgres:5432/jungle
+      PROVIDER_CLIENTS: ${PROVIDER_CLIENTS:-}
       KEYCLOAK_ISSUER: http://localhost:18080/realms/jungle
       KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
       SQS_ENDPOINT: http://sqs:4566

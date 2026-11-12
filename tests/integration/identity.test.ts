@@ -15,6 +15,11 @@ beforeAll(async () => {
       DATABASE_URL: 'postgresql://invalid:invalid@localhost:1/invalid',
       SQS_ENDPOINT: 'http://localhost:1',
     }),
+    providerClients: {
+      'provider-a': 'provider-a',
+      'provider-b': 'provider-b',
+      'arcade-machine': 'arcade-provider',
+    },
     keycloakIssuer: issuer.url.origin,
     keycloakJwksUrl: issuer.url.href,
   });
@@ -84,4 +89,17 @@ test('malformed JSON returns the stable payload error and correlation ID', async
     code: 'INVALID_PAYLOAD',
     correlationId: response.headers.get('X-Correlation-Id'),
   });
+});
+
+test('configured provider clients are bound to their providerId instead of client name', async () => {
+  const mismatched = await post(
+    await signed({ azp: 'arcade-machine', providerId: 'other-provider' }),
+  );
+  expect(mismatched.status).toBe(403);
+  expect(await mismatched.json()).toMatchObject({ code: 'PROVIDER_IDENTITY_MISMATCH' });
+  const provider = await post(
+    await signed({ azp: 'arcade-machine', providerId: 'arcade-provider' }),
+  );
+  expect(provider.status).toBe(403);
+  expect(await provider.json()).toMatchObject({ code: 'FORBIDDEN' });
 });

@@ -1,6 +1,7 @@
 export interface AppConfig {
   port: number;
   keycloakIssuer: string;
+  providerClients: Readonly<Record<string, string>>;
   keycloakJwksUrl: string;
   databaseUrl: string;
   sqsEndpoint: string;
@@ -37,7 +38,30 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     }
     return value;
   };
+  let providerClients: Record<string, string>;
+  try {
+    const parsed: unknown = JSON.parse(
+      env.PROVIDER_CLIENTS || '{"provider-a":"provider-a","provider-b":"provider-b"}',
+    );
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      Object.entries(parsed).some(
+        ([client, provider]) =>
+          client === 'jungle-console' ||
+          !client.trim() ||
+          typeof provider !== 'string' ||
+          !provider.trim(),
+      )
+    )
+      throw new Error();
+    providerClients = Object.freeze({ ...parsed }) as Readonly<Record<string, string>>;
+  } catch {
+    throw new Error('Invalid PROVIDER_CLIENTS');
+  }
   return {
+    providerClients,
     keycloakIssuer: urlWithDefault('KEYCLOAK_ISSUER', 'http://localhost:18080/realms/jungle'),
     keycloakJwksUrl: urlWithDefault(
       'KEYCLOAK_JWKS_URL',

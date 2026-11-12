@@ -45,7 +45,7 @@ A Issue #3 entrega autenticação, criação/consulta de wallet e ledger de aber
 
 ### Login e contratos
 
-O navegador usa o adaptador oficial Keycloak com Authorization Code + PKCE S256. Tokens permanecem em memória. A API verifica assinatura RS256, issuer, audience `jungle-api`, expiração, cliente e perfis. Os clientes de máquina `provider-a` e `provider-b` usam Client Credentials e claims `providerId` distintos; não acessam wallets/ledger. Segredos locais respectivos: `provider-a-demo-only` e `provider-b-demo-only`. Não usar essas credenciais fora da demonstração local.
+O navegador usa o adaptador oficial Keycloak com Authorization Code + PKCE S256. Tokens permanecem em memória. A API verifica assinatura RS256, issuer, audience `jungle-api`, expiração, cliente e perfis. Os clientes de máquina `provider-a` e `provider-b` usam Client Credentials e claims `providerId` distintos; não acessam wallets/ledger. O mapeamento de cliente para providerId vem de `PROVIDER_CLIENTS` (JSON; exemplo em `.env.example`), também repassado pelo Compose. O backend não mantém uma lista fixa de provedores no guard. Segredos locais respectivos: `provider-a-demo-only` e `provider-b-demo-only`. Não usar essas credenciais fora da demonstração local.
 
 `POST /wallets` exige demo-operator e recebe:
 
@@ -75,7 +75,9 @@ CHROME_PATH=/usr/bin/google-chrome bun run test:browser
 
 O teste de navegador exige a API/console do Compose na porta 3000. `CONSOLE_URL` permite escolher outra URL já autorizada no realm. As integrações usam bancos descartáveis e não deixam wallets no banco de demonstração; o teste de navegador cria dados fictícios no console. `build` verifica tipos e gera `frontend/dist` com Bun. Prettier está fixado no lockfile; use `bunx prettier --write caminho/do/arquivo` para formatar os arquivos alterados. O Docker também gera os assets, sem servidor frontend separado.
 
-Veja [evidências da Issue #3](docs/evidence/issue-3/README.md) e [ARCHITECTURE.md](ARCHITECTURE.md).
+A migration 0003 preserva aberturas existentes e generaliza transações, cadeia contábil e view do ledger. O downgrade se recusa a descartar transações de jogos; executá-lo requer banco descartável ou dados compatíveis. Os testes SQL de BET/WIN verificam a base contábil, sem disponibilizar endpoints de apostas neste ticket.
+
+Veja [tratamento da revisão](docs/evidence/issue-3/review-follow-up.md) e [evidências da Issue #3](docs/evidence/issue-3/README.md) e [ARCHITECTURE.md](ARCHITECTURE.md).
 
 ## Documentação
 

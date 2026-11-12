@@ -48,3 +48,18 @@ test('signed internal Money rehydrates without accepting negatives as submission
   expect(() => Money.create('-1.25', 'BRL')).toThrow('INVALID_PAYLOAD');
   expect(() => Money.rehydrate({ amount: '-0.001', currency: 'BRL' })).toThrow('INVALID_PAYLOAD');
 });
+
+test('Money rehydrates exact PostgreSQL NUMERIC text without rounding', () => {
+  for (const [stored, amount] of [
+    ['100', '100.00'],
+    ['1.2', '1.20'],
+    ['-1.2', '-1.20'],
+    ['0', '0.00'],
+  ]) {
+    expect(Money.rehydrate({ amount: stored!, currency: 'BRL' }).toProps().amount).toBe(amount!);
+  }
+  for (const amount of ['0.001', '-0.001', '1e2', 'NaN', 'Infinity', ' 1.00']) {
+    expect(() => Money.rehydrate({ amount, currency: 'BRL' })).toThrow('INVALID_PAYLOAD');
+  }
+  expect(() => Money.create('1.2', 'BRL')).toThrow('INVALID_PAYLOAD');
+});

@@ -13,7 +13,9 @@ import type { AppConfig } from '../../config/config';
 import { apiError } from '../../shared/rest/api-error';
 
 export const HumanRole = (role: 'viewer' | 'demo-operator') => SetMetadata('humanRole', role);
-export type Principal = { subject: string; roles: string[]; providerId?: string };
+export type Principal =
+  | { kind: 'human'; subject: string; roles: string[] }
+  | { kind: 'provider'; subject: string; providerId: string };
 @Injectable()
 export class Identity implements CanActivate {
   private readonly keys;
@@ -40,10 +42,19 @@ export class Identity implements CanActivate {
       const roles = Array.isArray(realm?.roles)
         ? realm.roles.filter((role): role is string => typeof role === 'string')
         : [];
-      if (payload.azp === 'jungle-console') principal = { subject: payload.sub!, roles };
-      else if (payload.azp === 'provider-a' || payload.azp === 'provider-b') {
-        if (payload.providerId !== payload.azp) throw apiError(403, 'PROVIDER_IDENTITY_MISMATCH');
-        principal = { subject: payload.sub!, roles: [], providerId: payload.azp };
+      if (payload.azp === 'jungle-console')
+        principal = { kind: 'human', subject: payload.sub!, roles };
+      else if (
+        typeof payload.azp === 'string' &&
+        Object.hasOwn(this.config.providerClients, payload.azp)
+      ) {
+        if (payload.providerId !== this.config.providerClients[payload.azp])
+          throw apiError(403, 'PROVIDER_IDENTITY_MISMATCH');
+        principal = {
+          kind: 'provider',
+          subject: payload.sub!,
+          providerId: this.config.providerClients[payload.azp]!,
+        };
       } else throw apiError(403, 'FORBIDDEN');
     } catch (error) {
       if (error instanceof errors.JOSEError && error.code !== 'ERR_JWKS_TIMEOUT')
@@ -55,7 +66,8 @@ export class Identity implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (principal.providerId || !principal.roles.includes(role)) throw apiError(403, 'FORBIDDEN');
+    if (principal.kind !== 'human' || !principal.roles.includes(role))
+      throw apiError(403, 'FORBIDDEN');
     request.principal = principal;
     return true;
   }

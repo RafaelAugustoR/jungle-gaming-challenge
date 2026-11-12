@@ -147,7 +147,7 @@ integration('wallet HTTP validates payloads, missing wallets and cursor limits',
   for (const query of ['limit=0', 'limit=101', 'limit=abc', 'cursor=garbage']) {
     expect(
       (await fetch(`${base}/wallets/${crypto.randomUUID()}/ledger?${query}`, { headers })).status,
-    ).toBe(query.startsWith('cursor') ? 404 : 400);
+    ).toBe(400);
   }
 });
 
@@ -163,7 +163,7 @@ integration(
     const counts = async () =>
       (
         await database.owner.em.execute(
-          `select (select count(*) from wagering.wallets)::int wallets, (select count(*) from wagering.accounts)::int accounts, (select count(*) from wagering.openings)::int openings, (select count(*) from wagering.journal)::int journal, (select count(*) from wagering.outbox)::int outbox`,
+          `select (select count(*) from wagering.wallets)::int wallets, (select count(*) from wagering.accounts)::int accounts, (select count(*) from wagering.transactions)::int transactions, (select count(*) from wagering.journal)::int journal, (select count(*) from wagering.outbox)::int outbox`,
         )
       )[0];
     const before = await counts();
@@ -185,5 +185,33 @@ integration(
       balance: { amount: '9999999999999999.99', currency: 'BRL' },
       version: 1,
     });
+  },
+);
+
+integration(
+  'unrelated unique violations stay internal errors instead of wallet conflicts',
+  async () => {
+    const token = await humanToken('demo-operator');
+    await database.owner.em
+      .execute(`create function wagering.test_unique_failure() returns trigger language plpgsql as $$ begin raise exception 'internal collision detail' using errcode='23505', constraint='journal_transaction_id_key'; end $$;
+    create trigger test_unique_failure before insert on wagering.accounts for each statement execute function wagering.test_unique_failure();`);
+    try {
+      const response = await fetch(`${base}/wallets`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          playerId: crypto.randomUUID(),
+          initialBalance: { amount: '1.00', currency: 'BRL' },
+        }),
+      });
+      expect(response.status).toBe(500);
+      const body = await response.json();
+      expect(body).toMatchObject({ code: 'INTERNAL_ERROR', message: 'Unexpected error' });
+      expect(JSON.stringify(body)).not.toContain('internal collision detail');
+    } finally {
+      await database.owner.em.execute(
+        'drop trigger test_unique_failure on wagering.accounts; drop function wagering.test_unique_failure()',
+      );
+    }
   },
 );

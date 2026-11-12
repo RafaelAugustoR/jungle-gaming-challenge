@@ -2,6 +2,7 @@ import {
   IntegrationEvent,
   type EventContext,
 } from '../../../../shared/domain/events/integration-event';
+import type { JournalEntry } from '../journal-entry';
 import type { MoneyProps } from '../../../../shared/domain/money';
 export interface WalletBalanceChangedData {
   walletId: string;
@@ -18,7 +19,20 @@ export class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedD
   private constructor(data: WalletBalanceChangedData, occurredAt: string, context: EventContext) {
     super(data.walletId, occurredAt, context, Object.freeze(data));
   }
-  static create(data: WalletBalanceChangedData, occurredAt: string, context: EventContext) {
-    return new WalletBalanceChanged(data, occurredAt, context);
+  static from(entry: JournalEntry, occurredAt: string, context: EventContext) {
+    const props = entry.toProps();
+    return new WalletBalanceChanged(
+      {
+        walletId: props.walletId,
+        transactionId: props.transactionId,
+        direction: entry.direction,
+        money: { amount: props.amount, currency: props.currency },
+        balanceBefore: { amount: props.balanceBefore, currency: props.currency },
+        balanceAfter: { amount: props.balanceAfter, currency: props.currency },
+        walletVersion: props.walletVersion,
+      },
+      occurredAt,
+      context,
+    );
   }
 }

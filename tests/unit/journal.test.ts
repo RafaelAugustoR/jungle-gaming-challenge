@@ -7,11 +7,12 @@ test('journal factory preserves an exact balanced credit and rehydrate does not 
     walletId: crypto.randomUUID(),
     transactionId: crypto.randomUUID(),
     debitAccountId: crypto.randomUUID(),
-    creditAccountId: crypto.randomUUID(),
+    creditAccountId: 'player',
+    playerAccountId: 'player',
     money: Money.create('100.00', 'BRL'),
     balanceBefore: Money.create('0.00', 'BRL'),
     balanceAfter: Money.create('100.00', 'BRL'),
-    direction: 'CREDIT',
+
     walletVersion: 1,
   });
   expect(entry.toProps()).toMatchObject({
@@ -29,10 +30,11 @@ test('journal rejects mismatched currency, incorrect arithmetic, self transfer a
     transactionId: crypto.randomUUID(),
     debitAccountId: 'debit',
     creditAccountId: 'credit',
+    playerAccountId: 'credit',
     money: Money.create('100.00', 'BRL'),
     balanceBefore: Money.create('0.00', 'BRL'),
     balanceAfter: Money.create('100.00', 'BRL'),
-    direction: 'CREDIT' as const,
+
     walletVersion: 1,
   };
   expect(() =>
@@ -47,4 +49,20 @@ test('journal rejects mismatched currency, incorrect arithmetic, self transfer a
   expect(() => JournalEntry.create({ ...input, money: Money.create('0.00', 'BRL') })).toThrow(
     'UNBALANCED_JOURNAL',
   );
+});
+
+test('journal derives player direction from the account pair', () => {
+  const entry = JournalEntry.create({
+    walletId: crypto.randomUUID(),
+    transactionId: crypto.randomUUID(),
+    playerAccountId: 'player',
+    debitAccountId: 'player',
+    creditAccountId: 'gaming',
+    money: Money.create('20.00', 'BRL'),
+    balanceBefore: Money.create('100.00', 'BRL'),
+    balanceAfter: Money.create('80.00', 'BRL'),
+    walletVersion: 2,
+  });
+  expect(entry.direction).toBe('DEBIT');
+  expect(entry.toProps().balanceAfter).toBe('80.00');
 });
