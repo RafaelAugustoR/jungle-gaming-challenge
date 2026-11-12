@@ -16,7 +16,8 @@ jobs:
       - run: bun run typecheck
       - run: cp .env.example .env
       - run: bun test tests/unit
-      - run: docker compose up -d --wait postgres sqs keycloak provision
+      - run: docker compose up -d --wait postgres sqs keycloak
+      - run: docker compose run --rm provision
       - run: bun run test:integration
       - run: docker compose up -d --build --wait api
       - run: curl --fail http://localhost:3000/health/ready
