@@ -14,7 +14,7 @@ jobs:
       - run: bun run build
       - run: docker compose up -d --wait postgres sqs keycloak
       - run: INTEGRATION=1 bun test
-      - run: docker compose up -d --build api
+      - run: docker compose up -d --build --wait api
       - run: curl --fail --retry 15 --retry-connrefused --retry-delay 2 http://localhost:3000/health/ready
       - if: failure()
         run: docker compose logs --tail=100
