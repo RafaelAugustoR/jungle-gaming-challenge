@@ -75,7 +75,7 @@ CHROME_PATH=/usr/bin/google-chrome bun run test:browser
 
 O teste de navegador exige a API/console do Compose na porta 3000. `CONSOLE_URL` permite escolher outra URL já autorizada no realm. As integrações usam bancos descartáveis e não deixam wallets no banco de demonstração; o teste de navegador cria dados fictícios no console. `build` verifica tipos e gera `frontend/dist` com Bun. Prettier está fixado no lockfile; use `bunx prettier --write caminho/do/arquivo` para formatar os arquivos alterados. O Docker também gera os assets, sem servidor frontend separado.
 
-A migration 0003 preserva aberturas existentes e generaliza transações, cadeia contábil e view do ledger. O downgrade se recusa a descartar transações de jogos; executá-lo requer banco descartável ou dados compatíveis. Os testes SQL de BET/WIN verificam a base contábil, sem disponibilizar endpoints de apostas neste ticket.
+Como o PR ainda não foi mergeado, a migration financeira 0002 foi consolidada: cria diretamente transações, cadeia contábil e view do ledger, sem tabela intermediária de aberturas. Up/down/up é validado em banco descartável; bancos locais com o histórico anterior à consolidação devem ser recriados. Neste recorte T02 só se persistem registros finais PROCESSED, imutáveis; estados pendentes, failure_code, processed_at, transições e respectivos grants ficam para T03 antes de serem utilizados. Os testes SQL de BET/WIN verificam a base contábil, sem disponibilizar endpoints de apostas neste ticket.
 
 Veja [tratamento da revisão](docs/evidence/issue-3/review-follow-up.md) e [evidências da Issue #3](docs/evidence/issue-3/README.md) e [ARCHITECTURE.md](ARCHITECTURE.md).
 

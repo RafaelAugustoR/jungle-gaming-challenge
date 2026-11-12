@@ -30,7 +30,6 @@ async function movement(
   after: string,
   version: number,
   omitEvent = false,
-  legacyEnvelope = false,
   reverseDirection = false,
 ) {
   const transaction = crypto.randomUUID();
@@ -59,25 +58,10 @@ async function movement(
     ],
   );
   const eventId = crypto.randomUUID();
-  const payload = legacyEnvelope
-    ? {
-        eventId,
-        aggregateId: owner.id,
-        eventType: 'WalletBalanceChanged',
-        version: 1,
-        data: {
-          walletId: owner.id,
-          transactionId: transaction,
-          direction: 'CREDIT',
-          walletVersion: version,
-          balanceAfter: { amount: after, currency: 'BRL' },
-        },
-      }
-    : {};
   if (!omitEvent)
     await em.execute(
       `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload) values(?,?,?,?,'WalletBalanceChanged',?::jsonb)`,
-      [eventId, owner.id, transaction, version, JSON.stringify(payload)],
+      [eventId, owner.id, transaction, version, '{}'],
     );
   await em.execute(`update wagering.wallets set balance=?,version=? where id=?`, [
     after,
@@ -176,41 +160,46 @@ integration(
   },
 );
 
-integration('migration down/up preserves an existing opening and its ledger/outbox', async () => {
-  const fixture = await disposableDatabase();
-  try {
-    const owner = await fixture.owner.em.fork().transactional(async (em) => {
-      const owner = await wallet(em);
-      await movement(em, owner, 'OPENING', '0.00', '100.00', 1, false, true);
-      return owner;
-    });
-    await fixture.owner.getMigrator().down();
-    expect(
-      (
-        await fixture.owner.em.execute('select kind from wagering.openings where wallet_id=?', [
-          owner.id,
-        ])
-      )[0].kind,
-    ).toBe('OPENING');
-    await fixture.owner.getMigrator().up();
-    expect(
-      await fixture.owner.em.execute(
-        'select kind,direction,balance_after::text from wagering.wallet_ledger where wallet_id=?',
-        [owner.id],
-      ),
-    ).toEqual([{ kind: 'OPENING', direction: 'CREDIT', balance_after: '100.00' }]);
-    expect(
-      (
+integration(
+  'consolidated financial migration reverses completely and has no legacy opening objects',
+  async () => {
+    const fixture = await disposableDatabase();
+    try {
+      const exists = async () =>
+        (
+          await fixture.owner.em.execute(
+            "select to_regclass('wagering.transactions') as transactions, to_regclass('wagering.openings') as openings, to_regprocedure('wagering.validate_opening()') as legacy",
+          )
+        )[0];
+      expect(await exists()).toEqual({
+        transactions: 'wagering.transactions',
+        openings: null,
+        legacy: null,
+      });
+      await fixture.owner.getMigrator().down();
+      expect(await exists()).toEqual({ transactions: null, openings: null, legacy: null });
+      await fixture.owner.getMigrator().up();
+      expect(await exists()).toEqual({
+        transactions: 'wagering.transactions',
+        openings: null,
+        legacy: null,
+      });
+      const owner = await fixture.owner.em.fork().transactional(async (em) => {
+        const owner = await wallet(em);
+        await movement(em, owner, 'OPENING', '0.00', '100.00', 1);
+        return owner;
+      });
+      expect(
         await fixture.owner.em.execute(
-          'select count(*)::int n from wagering.outbox where aggregate_id=?',
+          'select kind,direction,balance_after::text from wagering.wallet_ledger where wallet_id=?',
           [owner.id],
-        )
-      )[0].n,
-    ).toBe(1);
-  } finally {
-    await fixture.close();
-  }
-});
+        ),
+      ).toEqual([{ kind: 'OPENING', direction: 'CREDIT', balance_after: '100.00' }]);
+    } finally {
+      await fixture.close();
+    }
+  },
+);
 
 integration('transaction kinds cannot reverse their defined debit or credit effect', async () => {
   for (const [kind, after] of [
@@ -222,8 +211,37 @@ integration('transaction kinds cannot reverse their defined debit or credit effe
       database.owner.em.fork().transactional(async (em) => {
         const owner = await wallet(em);
         await movement(em, owner, 'OPENING', '0.00', '100.00', 1);
-        await movement(em, owner, kind!, '100.00', after!, 2, false, false, true);
+        await movement(em, owner, kind!, '100.00', after!, 2, false, true);
       }),
     ).rejects.toMatchObject({ code: '23514' });
   }
 });
+
+integration(
+  'T02 persists final processed records rather than stranded pending transactions',
+  async () => {
+    const id = await database.owner.em.fork().transactional(async (em) => {
+      const owner = await wallet(em);
+      const id = crypto.randomUUID();
+      await em.execute(
+        `insert into wagering.transactions(id,wallet_id,currency,amount,kind) values(?,?,'BRL',0,'WIN')`,
+        [id, owner.id],
+      );
+      return id;
+    });
+    expect(
+      (
+        await database.owner.em.execute('select status from wagering.transactions where id=?', [id])
+      )[0].status,
+    ).toBe('PROCESSED');
+    await expect(
+      database.owner.em.fork().transactional(async (em) => {
+        const owner = await wallet(em);
+        await em.execute(
+          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status) values(?,?,'BRL',0,'WIN','PENDING')`,
+          [crypto.randomUUID(), owner.id],
+        );
+      }),
+    ).rejects.toMatchObject({ code: '23514' });
+  },
+);

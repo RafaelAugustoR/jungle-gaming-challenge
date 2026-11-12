@@ -39,17 +39,17 @@ test('Wallet.open produces one financial fact shared by journal and event, or no
   });
   expect(result.wallet.balance.toProps()).toEqual({ amount: '123.45', currency: 'BRL' });
   expect(result.wallet.version).toBe(1);
-  expect(result.entry!.toProps()).toMatchObject({
+  expect(result.opening!.entry.toProps()).toMatchObject({
     direction: 'CREDIT',
     balanceBefore: '0.00',
     balanceAfter: '123.45',
     walletVersion: 1,
   });
-  expect(result.event!.toJSON()).toMatchObject({
+  expect(result.opening!.event.toJSON()).toMatchObject({
     aggregateId: result.wallet.id,
     correlationId: 'opening-correlation',
     data: {
-      transactionId: result.entry!.toProps().transactionId,
+      transactionId: result.opening!.entry.toProps().transactionId,
       money: { amount: '123.45', currency: 'BRL' },
       balanceBefore: { amount: '0.00', currency: 'BRL' },
       balanceAfter: { amount: '123.45', currency: 'BRL' },
@@ -64,7 +64,5 @@ test('Wallet.open produces one financial fact shared by journal and event, or no
     occurredAt: '2026-11-12T12:00:00.000Z',
     context: { correlationId: 'zero' },
   });
-  expect(zero.entry).toBeUndefined();
-  expect(zero.event).toBeUndefined();
-  expect(zero.transaction).toBeUndefined();
+  expect(zero.opening).toBeUndefined();
 });

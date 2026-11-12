@@ -20,6 +20,24 @@ export interface OpenWallet {
   occurredAt: string;
   context: EventContext;
 }
+export interface OpeningTransaction {
+  readonly id: string;
+  readonly walletId: string;
+  readonly currency: string;
+  readonly amount: string;
+  readonly kind: 'OPENING';
+  readonly status: 'PROCESSED';
+  readonly createdAt: string;
+}
+export interface WalletOpening {
+  readonly transaction: OpeningTransaction;
+  readonly entry: JournalEntry;
+  readonly event: WalletBalanceChanged;
+}
+export interface WalletOpenResult {
+  readonly wallet: Wallet;
+  readonly opening?: WalletOpening;
+}
 export class Wallet {
   private constructor(
     readonly id: string,
@@ -30,7 +48,7 @@ export class Wallet {
   ) {
     Object.freeze(this);
   }
-  static open(input: OpenWallet) {
+  static open(input: OpenWallet): WalletOpenResult {
     if (!input.playerId.trim() || input.playerId.length > 128 || input.initialBalance.isNegative())
       throw new DomainError('INVALID_PAYLOAD');
     const wallet = new Wallet(
@@ -63,9 +81,11 @@ export class Wallet {
     });
     return {
       wallet,
-      transaction,
-      entry,
-      event: WalletBalanceChanged.from(entry, input.occurredAt, input.context),
+      opening: Object.freeze({
+        transaction,
+        entry,
+        event: WalletBalanceChanged.from(entry, input.occurredAt, input.context),
+      }),
     };
   }
   static rehydrate(props: WalletProps): Wallet {

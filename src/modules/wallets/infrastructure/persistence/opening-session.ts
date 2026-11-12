@@ -1,6 +1,6 @@
 import type { EntityManager } from '@mikro-orm/postgresql';
 import type { WalletSession, WalletContext } from '../../application/wallet-store';
-import type { Wallet } from '../../domain/wallet';
+import type { WalletOpenResult } from '../../domain/wallet';
 
 export class PostgresWalletSession implements WalletSession {
   constructor(private readonly em: EntityManager) {}
@@ -13,7 +13,7 @@ export class PostgresWalletSession implements WalletSession {
     const [clock] = await this.em.execute<{ now: Date }[]>('select clock_timestamp() as now');
     return { counterpartAccountId: counterpart.id, occurredAt: new Date(clock!.now).toISOString() };
   }
-  async saveOpening(result: ReturnType<typeof Wallet.open>, context: WalletContext): Promise<void> {
+  async saveOpening(result: WalletOpenResult, context: WalletContext): Promise<void> {
     const wallet = result.wallet.toProps();
     await this.em.execute(`insert into wagering.accounts(id,currency,kind) values(?,?,'PLAYER')`, [
       wallet.accountId,
@@ -30,9 +30,9 @@ export class PostgresWalletSession implements WalletSession {
         wallet.accountId,
       ],
     );
-    if (result.transaction && result.entry && result.event) {
-      const transaction = result.transaction;
-      const entry = result.entry.toProps();
+    if (result.opening) {
+      const { transaction, entry: journalEntry, event: balanceEvent } = result.opening;
+      const entry = journalEntry.toProps();
       await this.em.execute(
         `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,created_at) values(?,?,?,?,?,?,?)`,
         [
@@ -61,7 +61,7 @@ export class PostgresWalletSession implements WalletSession {
           transaction.createdAt,
         ],
       );
-      const event = result.event.toJSON();
+      const event = balanceEvent.toJSON();
       await this.em.execute(
         `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at) values(?,?,?,?,?,?::jsonb,?)`,
         [

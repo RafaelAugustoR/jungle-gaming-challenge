@@ -1,5 +1,5 @@
 import type { Money } from '../../../shared/domain/money';
-import type { Wallet } from '../domain/wallet';
+import type { Wallet, WalletOpenResult } from '../domain/wallet';
 export interface CreateWalletCommand {
   playerId: string;
   initialBalance: Money;
@@ -32,5 +32,5 @@ export interface LedgerQuery {
 
 export interface WalletSession {
   openingResources(currency: string): Promise<{ counterpartAccountId: string; occurredAt: string }>;
-  saveOpening(result: ReturnType<typeof Wallet.open>, context: WalletContext): Promise<void>;
+  saveOpening(result: WalletOpenResult, context: WalletContext): Promise<void>;
 }
