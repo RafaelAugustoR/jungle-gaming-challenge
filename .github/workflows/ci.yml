@@ -1,5 +1,8 @@
 name: CI
-on: [push, pull_request]
+on:
+  push:
+    branches: [main]
+  pull_request:
 jobs:
   verify:
     runs-on: ubuntu-latest
@@ -12,10 +15,10 @@ jobs:
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
       - run: bun run build
-      - run: docker compose up -d --wait postgres sqs keycloak
-      - run: INTEGRATION=1 bun test
+      - run: docker compose up -d --wait postgres sqs
+      - run: bun run test:integration
       - run: docker compose up -d --build --wait api
-      - run: curl --fail --retry 15 --retry-connrefused --retry-delay 2 http://localhost:3000/health/ready
+      - run: curl --fail http://localhost:3000/health/ready
       - if: failure()
         run: docker compose logs --tail=100
       - if: always()
