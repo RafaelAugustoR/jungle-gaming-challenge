@@ -7,7 +7,5 @@ export function createSqsClient(config: AppConfig) {
     endpoint: config.sqsEndpoint,
     credentials: config.awsAccessKeyId && config.awsSecretAccessKey
       ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey } : undefined,
-    maxAttempts: 1,
-    requestHandler: { connectionTimeout: config.probeTimeoutMs, requestTimeout: config.probeTimeoutMs },
   });
 }

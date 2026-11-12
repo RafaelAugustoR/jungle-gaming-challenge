@@ -11,7 +11,7 @@ export function openDatabase(config: AppConfig) {
     extensions: [Migrator],
     connect: false,
     pool: { min: 0, max: 5, acquireTimeoutMillis: 10000 },
-    driverOptions: { connection: { connectionTimeoutMillis: config.probeTimeoutMs } },
+    driverOptions: { connection: { connectionTimeoutMillis: config.databaseConnectTimeoutMs } },
     migrations: { path: resolve(import.meta.dir, '../../migrations'), glob: '!(*.d).{js,ts}', snapshot: false },
   });
 }

@@ -6,6 +6,7 @@ export interface AppConfig {
   awsAccessKeyId?: string;
   awsSecretAccessKey?: string;
   probeTimeoutMs: number;
+  databaseConnectTimeoutMs: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const integer = (key: string, fallback: string, max: number) => {
@@ -27,6 +28,7 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     awsRegion: env.AWS_REGION || 'us-east-1',
     awsAccessKeyId: env.AWS_ACCESS_KEY_ID,
     awsSecretAccessKey: env.AWS_SECRET_ACCESS_KEY,
+    databaseConnectTimeoutMs: integer('DATABASE_CONNECT_TIMEOUT_MS', '5000', 60000),
     probeTimeoutMs: integer('PROBE_TIMEOUT_MS', '2000', 30000),
   };
 }

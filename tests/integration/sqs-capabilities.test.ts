@@ -36,3 +36,19 @@ integration('FIFO deduplicates, visibility can be released, and maxReceiveCount 
     sqs.destroy();
   }
 }, 30000);
+
+
+integration('shared SQS client permits long polling beyond the readiness deadline', async () => {
+  const sqs = createSqsClient(loadConfig());
+  let queue: string | undefined;
+  try {
+    queue = (await sqs.send(new CreateQueueCommand({ QueueName: `poll-${crypto.randomUUID()}.fifo`, Attributes: { FifoQueue: 'true' } }))).QueueUrl;
+    const start = performance.now();
+    const result = await sqs.send(new ReceiveMessageCommand({ QueueUrl: queue, WaitTimeSeconds: 5 }));
+    expect(result.Messages ?? []).toHaveLength(0);
+    expect(performance.now() - start).toBeGreaterThanOrEqual(4500);
+  } finally {
+    if (queue) await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+    sqs.destroy();
+  }
+}, 15000);
