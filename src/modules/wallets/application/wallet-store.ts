@@ -21,11 +21,16 @@ export interface LedgerEntryView {
   createdAt: string;
 }
 export interface WalletStore {
-  open(command: CreateWalletCommand, context: WalletContext): Promise<Wallet>;
+  transaction<T>(work: (session: WalletSession) => Promise<T>): Promise<T>;
   find(id: string): Promise<Wallet | undefined>;
   ledger(id: string, after: number, upper: number, limit: number): Promise<LedgerEntryView[]>;
 }
 export interface LedgerQuery {
   limit: number;
   cursor?: { after: number; upper: number };
+}
+
+export interface WalletSession {
+  openingResources(currency: string): Promise<{ counterpartAccountId: string; occurredAt: string }>;
+  saveOpening(result: ReturnType<typeof Wallet.open>, context: WalletContext): Promise<void>;
 }

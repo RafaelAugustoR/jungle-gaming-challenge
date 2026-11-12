@@ -31,9 +31,10 @@ async function movement(
   version: number,
   omitEvent = false,
   legacyEnvelope = false,
+  reverseDirection = false,
 ) {
   const transaction = crypto.randomUUID();
-  const debit = kind === 'BET';
+  const debit = (kind === 'BET') !== reverseDirection;
   const amount = kind === 'BET' ? '20.00' : kind === 'OPENING' ? '100.00' : '5.00';
   const [counter] = await em.execute<{ id: string }[]>(
     `select id from wagering.accounts where currency='BRL' and kind=?`,
@@ -208,5 +209,21 @@ integration('migration down/up preserves an existing opening and its ledger/outb
     ).toBe(1);
   } finally {
     await fixture.close();
+  }
+});
+
+integration('transaction kinds cannot reverse their defined debit or credit effect', async () => {
+  for (const [kind, after] of [
+    ['BET', '120.00'],
+    ['WIN', '95.00'],
+    ['REFUND', '95.00'],
+  ]) {
+    await expect(
+      database.owner.em.fork().transactional(async (em) => {
+        const owner = await wallet(em);
+        await movement(em, owner, 'OPENING', '0.00', '100.00', 1);
+        await movement(em, owner, kind!, '100.00', after!, 2, false, false, true);
+      }),
+    ).rejects.toMatchObject({ code: '23514' });
   }
 });

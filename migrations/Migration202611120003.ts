@@ -59,6 +59,9 @@ export class Migration202611120003 extends Migration {
         if t.status <> 'PROCESSED' or t.kind = 'LOSS' then raise exception 'TRANSACTION_NOT_FINANCIAL' using errcode = '23514'; end if;
         if w.account_id not in (j.debit_account_id, j.credit_account_id) then raise exception 'PLAYER_PARTY_REQUIRED' using errcode = '23514'; end if;
         is_credit := j.credit_account_id = w.account_id;
+        if (t.kind = 'BET' and is_credit) or (t.kind in ('WIN','REFUND') and not is_credit) then
+          raise exception 'TRANSACTION_DIRECTION_MISMATCH' using errcode = '23514';
+        end if;
         counterpart := case when is_credit then j.debit_account_id else j.credit_account_id end;
         if not exists(select from wagering.accounts where id = counterpart and kind = case when t.kind = 'OPENING' then 'OPENING' else 'GAMING' end)
           or j.balance_after <> j.balance_before + (case when is_credit then j.amount else -j.amount end) then

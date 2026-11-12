@@ -20,3 +20,5 @@ Base da revisão: `5aec466`; escopo continua sendo Issue #3 / T02. Avaliados os 
 A migration inicial é mantida como histórico; a evolução está em 0003 para não apagar dados de quem já executou o PR. Downgrade rejeita dados de jogos em vez de descartá-los. Regras de transição/idempotência de apostas, processamento SQS e publicação da outbox permanecem nos tickets planejados.
 
 Validação por interfaces aprovadas: métodos públicos de domínio; HTTP/JWT/Keycloak; constraints e migrations em PostgreSQL real; cenário existente no navegador. Resultado final e CI serão registrados no PR após execução.
+
+Revisão adicional (Standards/Spec): corrigida a coordenação financeira para que `Wallets.create` invoque `Wallet.open` dentro da sessão transacional e persista o resultado pela porta. Também adicionada a proteção SQL contra direção invertida de BET/WIN/REFUND, com regressão que falhou antes da correção. Nenhum apontamento desta revisão permanece pendente.
