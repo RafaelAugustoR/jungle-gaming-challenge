@@ -7,12 +7,6 @@ jobs:
   verify:
     runs-on: ubuntu-latest
     timeout-minutes: 15
-    env:
-      DATABASE_URL: postgresql://jungle:local-demo-only@127.0.0.1:55439/jungle
-      SQS_ENDPOINT: http://127.0.0.1:4566
-      AWS_REGION: us-east-1
-      AWS_ACCESS_KEY_ID: test
-      AWS_SECRET_ACCESS_KEY: test
     steps:
       - uses: actions/checkout@v4
       - uses: oven-sh/setup-bun@v2
@@ -20,7 +14,8 @@ jobs:
           bun-version: 1.3.14
       - run: bun install --frozen-lockfile
       - run: bun run typecheck
-      - run: bun run build
+      - run: cp .env.example .env
+      - run: bun test tests/unit
       - run: docker compose up -d --wait postgres sqs
       - run: bun run test:integration
       - run: docker compose up -d --build --wait api
