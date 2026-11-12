@@ -11,6 +11,6 @@ export function openDatabase() {
     connect: false,
     pool: { min: 0, max: 5, acquireTimeoutMillis: 2000 },
     driverOptions: { connection: { connectionTimeoutMillis: 2000, statement_timeout: 2000 } },
-    migrations: { migrationsList: [Migration202611120001] },
+    migrations: { migrationsList: [Migration202611120001], snapshot: false },
   });
 }

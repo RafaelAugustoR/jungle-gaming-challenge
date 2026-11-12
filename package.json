@@ -11,7 +11,7 @@
     "test": "bun test",
     "migrate:up": "bun scripts/migrate.ts up",
     "migrate:down": "bun scripts/migrate.ts down",
-    "test:integration": "bun test tests/integration"
+    "test:integration": "INTEGRATION=1 bun test tests/integration"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",

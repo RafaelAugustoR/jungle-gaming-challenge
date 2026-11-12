@@ -30,7 +30,13 @@ services:
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: local-demo-only
-    ports: ["127.0.0.1:8080:8080"]
+      KC_HEALTH_ENABLED: "true"
+    ports: ["127.0.0.1:18080:8080"]
+    healthcheck:
+      test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
+      interval: 3s
+      timeout: 3s
+      retries: 60
   api:
     build:
       context: .

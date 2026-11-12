@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { CreateQueueCommand, DeleteQueueCommand, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand } from '@aws-sdk/client-sqs';
+import { CreateQueueCommand, DeleteQueueCommand, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import { createSqsClient } from '../../src/config/sqs';
 import { openDatabase } from '../../src/config/orm';
 import { createApplication } from '../../src/bootstrap/application';
@@ -40,6 +40,9 @@ integration('SQS FIFO delivers and acknowledges an actual message', async () => 
     const result = await sqs.send(new ReceiveMessageCommand({ QueueUrl: queue, WaitTimeSeconds: 2 }));
     expect(result.Messages?.[0]?.Body).toBe(body);
     await sqs.send(new DeleteMessageCommand({ QueueUrl: queue, ReceiptHandle: result.Messages?.[0]?.ReceiptHandle }));
+    const attributes = await sqs.send(new GetQueueAttributesCommand({ QueueUrl: queue, AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'] }));
+    expect(attributes.Attributes?.ApproximateNumberOfMessages).toBe('0');
+    expect(attributes.Attributes?.ApproximateNumberOfMessagesNotVisible).toBe('0');
     expect((await sqs.send(new ReceiveMessageCommand({ QueueUrl: queue }))).Messages ?? []).toHaveLength(0);
   } finally {
     if (queue) await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));

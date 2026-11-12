@@ -12,7 +12,7 @@ curl --fail http://localhost:3000/health/live
 curl --fail http://localhost:3000/health/ready
 ```
 
-A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 8080. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Keycloak inicia em modo de desenvolvimento com `admin` / `local-demo-only`; integração de login será implementada na Issue #3.
+A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Keycloak inicia em modo de desenvolvimento com `admin` / `local-demo-only`; integração de login será implementada na Issue #3.
 
 ```sh
 bun install --frozen-lockfile
