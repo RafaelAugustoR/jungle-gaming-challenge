@@ -1,6 +1,6 @@
 # Especificação — Distributed Wagering Processor
 
-Status: ready-for-agent. Implementação não iniciada; nenhum critério abaixo está marcado como cumprido.
+Status: implementação incremental. Bootstrap (#2) e abertura autenticada de wallet (#3) têm evidências próprias; a matriz continua sendo o contrato completo, sem presumir entregas dos próximos tickets.
 
 Fonte normativa: [README da Jungle Gaming](https://github.com/junglegaming/backend-challenge), consultado em 2026-11-11. Decisões do grill estão nas ADRs 0001–0017. Legenda: **R** = exigência do README; **A** = decisão aprovada; **D** = detalhamento técnico desta especificação, não apresentado como aprovação anterior.
 
@@ -173,7 +173,7 @@ Testes observam comportamento por essas interfaces. SQL direto é intencional no
 
 ### Matriz de requisitos e evidências
 
-Todas as evidências estão **planejadas**, não executadas.
+A matriz abaixo define a evidência exigida para a entrega completa. Evidências executadas do recorte #3: [relatório e screenshots](evidence/issue-3/README.md). Requisitos de wagering, workers e reconciliação ainda não estão concluídos.
 
 | ID | Origem | Critério de aceite / decisão | Teste e evidência exigidos |
 | --- | --- | --- | --- |

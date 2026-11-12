@@ -26,7 +26,8 @@ services:
       retries: 30
   keycloak:
     image: quay.io/keycloak/keycloak:26.0.7
-    command: ["start-dev"]
+    command: ["start-dev", "--import-realm"]
+    volumes: ["./infra/keycloak/jungle-realm.json:/opt/keycloak/data/import/jungle-realm.json:ro"]
     environment:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: local-demo-only
@@ -42,7 +43,9 @@ services:
       context: .
       target: runtime
     environment: &backend-env
-      DATABASE_URL: postgresql://jungle:local-demo-only@postgres:5432/jungle
+      DATABASE_URL: postgresql://jungle_runtime:runtime-demo-only@postgres:5432/jungle
+      KEYCLOAK_ISSUER: http://localhost:18080/realms/jungle
+      KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
       SQS_ENDPOINT: http://sqs:4566
       AWS_REGION: us-east-1
       AWS_ACCESS_KEY_ID: test
@@ -57,14 +60,26 @@ services:
       postgres: { condition: service_healthy }
       sqs: { condition: service_healthy }
       migrate: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+  provision:
+    image: postgres:16.6-alpine
+    environment:
+      PGPASSWORD: local-demo-only
+    entrypoint: ["psql", "-h", "postgres", "-U", "jungle", "-d", "jungle", "-v", "ON_ERROR_STOP=1", "-f", "/runtime.sql"]
+    volumes: ["./infra/postgres/runtime.sql:/runtime.sql:ro"]
+    depends_on:
+      postgres: { condition: service_healthy }
   migrate:
     build:
       context: .
       target: runtime
     command: ["bun", "scripts/migrate.ts", "up"]
-    environment: *backend-env
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql://jungle:local-demo-only@postgres:5432/jungle
     depends_on:
       postgres: { condition: service_healthy }
+      provision: { condition: service_completed_successfully }
   tests:
     profiles: ["test"]
     build:
@@ -72,9 +87,13 @@ services:
       target: test
     environment:
       <<: *backend-env
+      DATABASE_URL: postgresql://jungle:local-demo-only@postgres:5432/jungle
+      KEYCLOAK_ISSUER: http://keycloak:8080/realms/jungle
       INTEGRATION: "1"
     depends_on:
       postgres: { condition: service_healthy }
       sqs: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+      provision: { condition: service_completed_successfully }
 volumes:
   postgres-data:

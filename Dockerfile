@@ -8,6 +8,8 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY migrations ./migrations
+COPY frontend ./frontend
+RUN bun scripts/build-frontend.ts
 COPY tests ./tests
 CMD ["bun", "test"]
 
@@ -17,6 +19,8 @@ COPY tsconfig.json ./
 COPY src ./src
 COPY scripts ./scripts
 COPY migrations ./migrations
+COPY frontend ./frontend
+RUN bun scripts/build-frontend.ts
 USER bun
 EXPOSE 3000
 CMD ["bun", "src/bootstrap/main.ts"]

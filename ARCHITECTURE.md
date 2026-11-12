@@ -2,7 +2,7 @@
 
 ## Bootstrap — Issue #2
 
-The backend and tests execute the same TypeScript sources directly with Bun 1.3.14. TypeScript remains the mandatory strict typecheck (`build` is a compatibility alias for typecheck); no separate transpiled runtime exists. MikroORM 6.6.17 owns migrations, discovered from the migrations directory without a manual list.
+The backend and tests execute the same TypeScript sources directly with Bun 1.3.14. TypeScript remains the mandatory strict typecheck (`build` checks types and bundles the browser console); no separate transpiled runtime exists. MikroORM 6.6.17 owns migrations, discovered from the migrations directory without a manual list.
 
 LocalStack 4.0.3 is pinned to an account-free release. MiniStack was considered as the alternative permitted by the challenge; the chosen release is validated against FIFO deduplication, visibility release and automatic DLQ redrive, in addition to send/receive/delete. This is evidence of the required emulator capabilities, not a claim that every SQS feature is equivalent to AWS. Older local images require reassessment before hosted deployment.
 
@@ -21,3 +21,15 @@ Keycloak is started here; realm configuration, application authentication and hu
 - [LocalStack SQS](https://docs.localstack.cloud/aws/services/sqs/)
 - [Approved specification](docs/spec.md)
 - [Architecture decisions](docs/adr/)
+
+## Authenticated wallet opening — Issue #3
+
+Identity verifies JWTs with jose and Keycloak JWKS. Public console assets and health routes remain available before login; wallet routes enforce human roles on the backend. The public client uses the official keycloak-js adapter, PKCE S256 and in-memory tokens. Human role inheritance is configured in the imported realm; each provider has its own confidential client and fixed providerId claim. A trusted issuer and audience are mandatory before claims become a principal.
+
+Wallet, Money and JournalEntry have private constructors, factories and rehydrate methods. They depend on neither NestJS nor MikroORM. Financial requests use an EntityManager fork and one transaction. Persistence uses explicit SQL through MikroORM to preserve PostgreSQL NUMERIC strings, deferred constraints and exact journal semantics. No identity map or connection session is shared between requests. Opening and gaming counterpart accounts are distinct and have no materialized balance or per-wallet update/lock. The BRL counterpart accounts are seeded in the migration.
+
+A single journal row represents the pair: debit counterpart, credit player, one positive amount and one currency. The player ledger is a view over that fact. Composite foreign keys enforce currencies and transaction context. Deferred constraint triggers check the wallet balance/version against its opening and the applicable outbox event at commit. Runtime cannot UPDATE/DELETE/TRUNCATE the journal, and immutable triggers also protect owner writes. Only the separate migration owner can change the schema. Amounts use unconstrained NUMERIC plus finitude/scale/range checks to reject 0.001 before PostgreSQL can round it.
+
+The current schema intentionally admits OPENING only, with version 1, and an immutable event envelope. The wagering ticket must extend transactions, journal direction, balance/version chain validation and event types together in a new migration. The outbox publisher ticket must add publication/lease state in a separate table without editing event payloads. Neither inbox nor submission receipts apply to the internal wallet creation command. Zero opening creates no opening transaction, journal or event.
+
+The console uses buildless HTML/CSS plus TypeScript bundled by Bun, served from the API origin. It creates and queries real wallets and reads the ledger; no seeded display balances, frontend finance arithmetic or machine credentials are included. Further wagering and reconciliation screens remain in their respective tickets.
