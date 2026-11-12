@@ -1,4 +1,5 @@
 import { DomainError } from '../../../../shared/domain/errors/domain-error';
+import { isTransientPostgresError } from '../../../../shared/infrastructure/postgres-error';
 
 export async function databaseOperation<T>(operation: () => Promise<T>): Promise<T> {
   try {
@@ -8,13 +9,7 @@ export async function databaseOperation<T>(operation: () => Promise<T>): Promise
     const { code, constraint } = error as { code?: string; constraint?: string };
     if (code === '23505' && constraint === 'wallets_player_id_currency_key')
       throw new DomainError('WALLET_ALREADY_EXISTS');
-    if (
-      code?.startsWith('08') ||
-      ['57P01', '57P03', '53300', '40001', '40P01', '55P03', 'ECONNREFUSED', 'ETIMEDOUT'].includes(
-        code ?? '',
-      )
-    )
-      throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
+    if (isTransientPostgresError(error)) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
     throw error;
   }
 }

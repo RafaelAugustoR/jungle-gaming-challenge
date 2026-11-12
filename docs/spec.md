@@ -89,14 +89,14 @@ Recibo persistido atomicamente para toda operação aceita, inclusive rejeição
 
 **D:** ordem comum a todos os caminhos: adquirir inbox aplicável; bloquear wallet; localizar/reservar a identidade da transação; ler/validar referência; aplicar estado e lançar ledger/outbox. Worker de referências seleciona candidatos sem manter lock na transação antes de obter a wallet e revalida tudo sob o lock. Não bloquear outra wallet ao descobrir referência incompatível. Conflito UNIQUE é resolvido após rollback, consultando registro existente para replay ou 409; não continuar em uma transação abortada. Deadlock/timeout recebe retry limitado, até três tentativas por chamada, respeitando o prazo total.
 
-| Registro           | Garantias no banco                                                                                                                                                                                                      |
-| ------------------ | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Wallet             | UNIQUE jogador/moeda; saldo exato não negativo; versão válida; associação à conta do jogador.                                                                                                                           |
-| Transação          | Duas unicidades de identidade; referência por FK; campos financeiros imutáveis após aceite; estados e transições válidos; failureCode em rejeição/falha; índice único parcial referência/kind para reversões PROCESSED. |
-| Journal financeiro | Uma linha representa o par débito/crédito: contas diferentes, moeda única, valor positivo único para ambos os lados, vínculo único à transação; FK para contas e restrições de moeda.                                   |
-| Ledger da wallet   | Derivado da participação do jogador no journal, com direção, balanceBefore, balanceAfter e walletVersion persistidos; unicidade wallet/transação e wallet/versão; aritmética verificada.                                |
-| Inbox              | UNIQUE consumerName/messageId; hash persistido e marca de processamento; não substituir hash de mensagem existente.                                                                                                     |
-| Outbox             | eventId único e payload imutável; estado de publicação separado, reserva e tentativas persistidas; índices de pendentes vencidos.                                                                                       |
+| Registro | Garantias no banco |
+| --- | --- |
+| Wallet | UNIQUE jogador/moeda; saldo exato não negativo; versão válida; associação à conta do jogador. |
+| Transação | Duas unicidades de identidade; referência por FK; campos financeiros imutáveis após aceite; estados e transições válidos; failureCode em rejeição/falha; índice único parcial referência/kind para reversões PROCESSED. |
+| Journal financeiro | Uma linha representa o par débito/crédito: contas diferentes, moeda única, valor positivo único para ambos os lados, vínculo único à transação; FK para contas e restrições de moeda. |
+| Ledger da wallet | Derivado da participação do jogador no journal, com direção, balanceBefore, balanceAfter e walletVersion persistidos; unicidade wallet/transação e wallet/versão; aritmética verificada. |
+| Inbox | UNIQUE consumerName/messageId; hash persistido e marca de processamento; não substituir hash de mensagem existente. |
+| Outbox | eventId único e payload imutável; estado de publicação separado, reserva e tentativas persistidas; índices de pendentes vencidos. |
 
 **D:** representar o par financeiro em uma linha evita a possibilidade de confirmar apenas uma das duas partidas. Não duplicar fatos financeiros em um segundo ledger mutável. Contrapartidas de abertura e de jogos não têm saldo global atualizado por aposta.
 
@@ -104,16 +104,16 @@ Triggers e constraints verificam, no commit, correspondência entre mudança de 
 
 ### API e autorização
 
-| Contrato                                                                | Resultado                                                                  |
-| ----------------------------------------------------------------------- | -------------------------------------------------------------------------- |
-| POST /wallets                                                           | 201, id, playerId, balance, version; duplicação retorna 409.               |
-| GET /wallets/:walletId                                                  | Estado atual ou 404.                                                       |
-| GET /wallets/:walletId/ledger?cursor=...&limit=50                       | Histórico estável e cursor opaco.                                          |
-| POST /wagering/transactions                                             | 200 processada, 202 pendente ou 422 rejeitada; recibo estável.             |
-| GET /wagering/transactions/:transactionId                               | Estado atual, failureCode, referência e resultado financeiro disponíveis.  |
-| GET /providers/:providerId/wagering/transactions/:externalTransactionId | Mesma consulta pela identidade externa.                                    |
-| POST /wallets/:walletId/reconciliation                                  | storedBalance, calculatedBalance, difference, consistent e checkedEntries. |
-| GET /health/live e /health/ready                                        | Liveness do processo; readiness de PostgreSQL e SQS, sem autenticação.     |
+| Contrato | Resultado |
+| --- | --- |
+| POST /wallets | 201, id, playerId, balance, version; duplicação retorna 409. |
+| GET /wallets/:walletId | Estado atual ou 404. |
+| GET /wallets/:walletId/ledger?cursor=...&limit=50 | Histórico estável e cursor opaco. |
+| POST /wagering/transactions | 200 processada, 202 pendente ou 422 rejeitada; recibo estável. |
+| GET /wagering/transactions/:transactionId | Estado atual, failureCode, referência e resultado financeiro disponíveis. |
+| GET /providers/:providerId/wagering/transactions/:externalTransactionId | Mesma consulta pela identidade externa. |
+| POST /wallets/:walletId/reconciliation | storedBalance, calculatedBalance, difference, consistent e checkedEntries. |
+| GET /health/live e /health/ready | Liveness do processo; readiness de PostgreSQL e SQS, sem autenticação. |
 
 **D:** paginação por versão financeira crescente, cursor validado e vinculado à wallet, contendo limite superior capturado na primeira página. Limite padrão 50 e máximo 100. Não usar offset nem depender somente de timestamps. Reconciliação obtém snapshot consistente de wallet e ledger, calcula difference = storedBalance − calculatedBalance; divergência retorna 200 com consistent=false, log e métrica, sem correção.
 
@@ -175,38 +175,38 @@ Testes observam comportamento por essas interfaces. SQL direto é intencional no
 
 A matriz abaixo define a evidência exigida para a entrega completa. Evidências executadas do recorte #3: [relatório e screenshots](evidence/issue-3/README.md). O recorte BET HTTP da Issue #4 tem [evidências próprias](evidence/issue-4/README.md) para R06/R08/R09/R10/R12/R13/R14/R16/R20/R21/D02. Isso não conclui os requisitos completos de WIN/LOSS, referências, HTTP/SQS cruzados, workers, publicação ou reconciliação.
 
-| ID  | Origem             | Critério de aceite / decisão                                             | Teste e evidência exigidos                                                                                                        |
-| --- | ------------------ | ------------------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------- |
-| R01 | §4                 | Bun 1.x, TS strict, NestJS, PostgreSQL, MikroORM, SQS e Compose          | Bootstrap limpo, versões fixadas, build e typecheck.                                                                              |
-| R02 | §4                 | Migrations reversíveis                                                   | Up/down/up em banco descartável com constraints revalidadas.                                                                      |
-| R03 | §6.0               | Factories e rehydrate, estado encapsulado                                | Testes públicos e revisão de dependências do domínio.                                                                             |
-| R04 | §§5,6.1            | Dinheiro exato, escala, negativos de entrada, valores inválidos e moedas | Unidade e SQL: limite, overflow, 0.001, NaN/Infinity/expoente, imutabilidade e moedas divergentes.                                |
-| R05 | §§6.2,9            | Wallet única, version=1, abertura contabilizada                          | API e SQL para abertura positiva/zero, duplicação e tentativa de saldo sem journal.                                               |
-| R06 | §7                 | BET/WIN/LOSS corretos                                                    | Exemplos independentes de saldo, eventos, versão e ledger; WIN não exige valor igual à BET.                                       |
-| R07 | §7                 | Reversões integrais e vínculos válidos                                   | REFUND/ROLLBACK de cada tipo permitido, negativos, referências incompatíveis e reversão repetida.                                 |
-| R08 | §6.3               | Estados terminais imutáveis; OPENING interno                             | Unidade, API, SQS e tentativas SQL inválidas.                                                                                     |
-| R09 | §§7,9              | Idempotência persistente e hash canônico                                 | Ordem de chaves diferente, payload divergente, mesma operação com nova chave, escopo por provedor e HTTP/SQS cruzados.            |
-| R10 | §§7,9              | Recibo original e saldo histórico                                        | Replay após outras movimentações, pendência concluída e reinício.                                                                 |
-| R11 | §7.1               | Referências fora de ordem e TTL                                          | REFUND e ROLLBACK antes da origem; WIN opcional; expiração, referência terminal e indisponibilidade.                              |
-| R12 | §8                 | Duas BET 80.00 sobre 100.00                                              | Exatamente uma PROCESSED, outra REJECTED, saldo 20.00 e um débito na wallet.                                                      |
-| R13 | §13.1 concorrência | Mesma aposta 50 vezes em paralelo                                        | Um débito, uma transação e eventos únicos, conferidos após entrega real à aplicação.                                              |
-| R14 | §§8,13             | Pelo menos três processos; wallets independentes                         | Corridas HTTP/SQS multiprocesso, evidência de paralelismo sem lock global.                                                        |
-| R15 | §§5,6.4            | Ledger imutável e saldo consistente                                      | SQL tenta UPDATE/DELETE/TRUNCATE, journal órfão e moeda divergente; reconciliação final.                                          |
-| R16 | §§6.5,11           | Atomicidade de wallet, ledger, transação, inbox, recibo e outbox         | Falha em cada etapa antes do commit deixa zero efeitos parciais; commit confirma conjunto completo.                               |
-| R17 | §10                | Inbox e ack após commit                                                  | Matar worker após commit antes de ack; redelivery preserva resultado e não duplica débito.                                        |
-| R18 | §10                | Retry, DLQ e shutdown                                                    | Indisponibilidade temporária, poison message, maxReceiveCount, falha entre DLQ send/delete e SIGTERM.                             |
-| R19 | §11                | Publishers concorrentes e recuperação                                    | Dois publishers, morte após commit e após envio antes de confirmação, lease expirado e consumidor deduplicando.                   |
-| R20 | §11                | Eventos mínimos e envelope em classes                                    | Contratos de envelope, causação/correlação, MoneyProps, LOSS e ausência de evento de saldo sem mudança.                           |
-| R21 | §9                 | Todos os endpoints e paginação                                           | Contratos, limites de cursor, páginas sem repetição/lacunas durante inserções e códigos HTTP.                                     |
-| R22 | §9                 | Reconciliação sem correção silenciosa                                    | Snapshot consistente sob carga; divergência injetada só em fixture privilegiada de banco descartável, com resposta/log/métrica.   |
-| R23 | §12                | Logs, métricas, health                                                   | Asserções de campos/redação, falhas de readiness, coleta multiprocesso e dashboard real.                                          |
-| R24 | §13.8              | Reinício e consistência final                                            | Reiniciar serviços, drenar pendências e reconstruir todas as wallets pelo ledger.                                                 |
-| R25 | §14                | Documentação reproduzível                                                | Execução desde checkout limpo por roteiro e relatório de limitações.                                                              |
-| D01 | §6.4 + A           | Partidas dobradas                                                        | Pares balanceados, contrapartidas distintas, proteção SQL e nenhuma serialização global.                                          |
-| D02 | §2 + A             | Keycloak e perfis                                                        | 401/403, token de outro provedor, ownership de consultas, viewer sem escrita, demo isolada.                                       |
-| D03 | A                  | Console                                                                  | Browser: login, permissões, cenário completo, recibo versus estado atual e reconciliação.                                         |
-| D04 | §14 + A            | Teste de carga                                                           | bun run test:load, 3 cenários, uma/três instâncias, ambiente, throughput, p50/p95/p99, erros, locks, lag e limitações do gerador. |
-| D05 | A                  | Hospedagem e vídeo                                                       | HTTPS/login, acesso do avaliador, dados fictícios e vídeo de disputa/replay/recuperação.                                          |
+| ID | Origem | Critério de aceite / decisão | Teste e evidência exigidos |
+| --- | --- | --- | --- |
+| R01 | §4 | Bun 1.x, TS strict, NestJS, PostgreSQL, MikroORM, SQS e Compose | Bootstrap limpo, versões fixadas, build e typecheck. |
+| R02 | §4 | Migrations reversíveis | Up/down/up em banco descartável com constraints revalidadas. |
+| R03 | §6.0 | Factories e rehydrate, estado encapsulado | Testes públicos e revisão de dependências do domínio. |
+| R04 | §§5,6.1 | Dinheiro exato, escala, negativos de entrada, valores inválidos e moedas | Unidade e SQL: limite, overflow, 0.001, NaN/Infinity/expoente, imutabilidade e moedas divergentes. |
+| R05 | §§6.2,9 | Wallet única, version=1, abertura contabilizada | API e SQL para abertura positiva/zero, duplicação e tentativa de saldo sem journal. |
+| R06 | §7 | BET/WIN/LOSS corretos | Exemplos independentes de saldo, eventos, versão e ledger; WIN não exige valor igual à BET. |
+| R07 | §7 | Reversões integrais e vínculos válidos | REFUND/ROLLBACK de cada tipo permitido, negativos, referências incompatíveis e reversão repetida. |
+| R08 | §6.3 | Estados terminais imutáveis; OPENING interno | Unidade, API, SQS e tentativas SQL inválidas. |
+| R09 | §§7,9 | Idempotência persistente e hash canônico | Ordem de chaves diferente, payload divergente, mesma operação com nova chave, escopo por provedor e HTTP/SQS cruzados. |
+| R10 | §§7,9 | Recibo original e saldo histórico | Replay após outras movimentações, pendência concluída e reinício. |
+| R11 | §7.1 | Referências fora de ordem e TTL | REFUND e ROLLBACK antes da origem; WIN opcional; expiração, referência terminal e indisponibilidade. |
+| R12 | §8 | Duas BET 80.00 sobre 100.00 | Exatamente uma PROCESSED, outra REJECTED, saldo 20.00 e um débito na wallet. |
+| R13 | §13.1 concorrência | Mesma aposta 50 vezes em paralelo | Um débito, uma transação e eventos únicos, conferidos após entrega real à aplicação. |
+| R14 | §§8,13 | Pelo menos três processos; wallets independentes | Corridas HTTP/SQS multiprocesso, evidência de paralelismo sem lock global. |
+| R15 | §§5,6.4 | Ledger imutável e saldo consistente | SQL tenta UPDATE/DELETE/TRUNCATE, journal órfão e moeda divergente; reconciliação final. |
+| R16 | §§6.5,11 | Atomicidade de wallet, ledger, transação, inbox, recibo e outbox | Falha em cada etapa antes do commit deixa zero efeitos parciais; commit confirma conjunto completo. |
+| R17 | §10 | Inbox e ack após commit | Matar worker após commit antes de ack; redelivery preserva resultado e não duplica débito. |
+| R18 | §10 | Retry, DLQ e shutdown | Indisponibilidade temporária, poison message, maxReceiveCount, falha entre DLQ send/delete e SIGTERM. |
+| R19 | §11 | Publishers concorrentes e recuperação | Dois publishers, morte após commit e após envio antes de confirmação, lease expirado e consumidor deduplicando. |
+| R20 | §11 | Eventos mínimos e envelope em classes | Contratos de envelope, causação/correlação, MoneyProps, LOSS e ausência de evento de saldo sem mudança. |
+| R21 | §9 | Todos os endpoints e paginação | Contratos, limites de cursor, páginas sem repetição/lacunas durante inserções e códigos HTTP. |
+| R22 | §9 | Reconciliação sem correção silenciosa | Snapshot consistente sob carga; divergência injetada só em fixture privilegiada de banco descartável, com resposta/log/métrica. |
+| R23 | §12 | Logs, métricas, health | Asserções de campos/redação, falhas de readiness, coleta multiprocesso e dashboard real. |
+| R24 | §13.8 | Reinício e consistência final | Reiniciar serviços, drenar pendências e reconstruir todas as wallets pelo ledger. |
+| R25 | §14 | Documentação reproduzível | Execução desde checkout limpo por roteiro e relatório de limitações. |
+| D01 | §6.4 + A | Partidas dobradas | Pares balanceados, contrapartidas distintas, proteção SQL e nenhuma serialização global. |
+| D02 | §2 + A | Keycloak e perfis | 401/403, token de outro provedor, ownership de consultas, viewer sem escrita, demo isolada. |
+| D03 | A | Console | Browser: login, permissões, cenário completo, recibo versus estado atual e reconciliação. |
+| D04 | §14 + A | Teste de carga | bun run test:load, 3 cenários, uma/três instâncias, ambiente, throughput, p50/p95/p99, erros, locks, lag e limitações do gerador. |
+| D05 | A | Hospedagem e vídeo | HTTPS/login, acesso do avaliador, dados fictícios e vídeo de disputa/replay/recuperação. |
 
 ### Critério de conclusão
 

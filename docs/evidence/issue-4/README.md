@@ -19,14 +19,14 @@ Chrome é opcional: com Chromium do Playwright instalado, omita `CHROME_PATH`. A
 
 ## Cenários e rastreabilidade
 
-| Requisito no recorte BET | Evidência executável |
-| --- | --- |
-| R06, R08, R20 | Domínio `Wallet.debit` e `WagerTransaction`; HTTP para débito exato, zero, insuficiência, OPENING externo inválido, estados terminais, eventos tipados e versão. |
-| R09, R10 | HTTP com ordem de chaves diferente inclusive em Money, divergência, chave nova/mesma identidade externa, dois provedores; recibo original de 200/422 após débito posterior; reinício de processo. |
-| R12, R13, R14 | `tests/concurrency/bet.test.ts`: 50 submissões divididas entre três PIDs; duas BET 80 sobre 100; outra wallet conclui enquanto a primeira está bloqueada no PostgreSQL. |
-| R16, D01 | PostgreSQL: falha em transação, journal, atualização da wallet, recibo e evento de resultado (após evento de saldo); rollback integral e retry com a mesma chave. Constraints exigem recibo/evento no commit e preservam partidas dobradas/cadeia. |
-| R21, D02 | HTTP/Keycloak real: 401/403, binding de provedor, humanos sem submissão, consultas por ambos os IDs com ownership, inexistência/404, contratos monetários e campos desconhecidos. |
-| R02, R15 | Baseline completo up/down/up e upgrade/down/up preservando OPENING anterior; imutabilidade e grants de runtime; verificação em UPDATE de transação. |
+| Requisito no recorte BET | Evidência executável                                                                                                                                                                                                                               |
+| ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| R06, R08, R20            | Domínio `Wallet.debit` e `WagerTransaction`; HTTP para débito exato, zero, insuficiência, OPENING externo inválido, estados terminais, eventos tipados e versão.                                                                                   |
+| R09, R10                 | HTTP com ordem de chaves diferente inclusive em Money, divergência, chave nova/mesma identidade externa, dois provedores; recibo original de 200/422 após débito posterior; reinício de processo.                                                  |
+| R12, R13, R14            | `tests/concurrency/bet.test.ts`: 50 submissões divididas entre três PIDs; duas BET 80 sobre 100; outra wallet conclui enquanto a primeira está bloqueada no PostgreSQL.                                                                            |
+| R16, D01                 | PostgreSQL: falha em transação, journal, atualização da wallet, recibo e evento de resultado (após evento de saldo); rollback integral e retry com a mesma chave. Constraints exigem recibo/evento no commit e preservam partidas dobradas/cadeia. |
+| R21, D02                 | HTTP/Keycloak real: 401/403, binding de provedor, humanos sem submissão, consultas por ambos os IDs com ownership, inexistência/404, contratos monetários e campos desconhecidos.                                                                  |
+| R02, R15                 | Baseline completo up/down/up e upgrade/down/up preservando OPENING anterior; imutabilidade e grants de runtime; verificação em UPDATE de transação.                                                                                                |
 
 As barreiras esperam sessões dos PIDs em `pg_stat_activity.wait_event_type='Lock'` antes de liberar o lock controlado. O polling de condição tem prazo; nenhuma ordem de apostas depende de sleep arbitrário. Na prova de independência, o teste exige que B conclua antes da liberação de A. Corridas UNIQUE usam wallets distintas, cobrindo a resolução somente após rollback.
 
@@ -34,7 +34,16 @@ A auditoria pela interface SQL, aprovada para invariantes do schema, compara sal
 
 ## Resultados
 
-O arquivo `concurrency.json` contém PIDs e resultados brutos da execução final; `full-suite.txt` contém o log completo da suíte com infraestrutura e navegador. Os totais finais e a revisão ficam registrados nesta seção após a execução.
+Execução completa: **61 pass, 0 fail, 395 expect() calls, 16 arquivos, 19.52 s**. `bun run build` e `git diff --check` passaram. [Log completo](full-suite.txt); [resultados brutos dos três processos](concurrency.json).
+
+- PIDs iniciais: **26210, 26231, 26273**; PID após reinício: **26307**.
+- 50 submissões: **1 aceite + 49 replays**, **1 BET / 1 débito / 1 recibo / 1 evento de resultado**, saldo armazenado/reconstruído **20.00**, versão **2**.
+- Disputa: status **200 e 422**, **2 BET / 1 débito / 2 recibos**, um evento de aprovação e outro de rejeição, saldo armazenado/reconstruído **20.00**, versão **2**.
+- Independência: outra wallet concluiu com a primeira ainda bloqueada; ambas reconciliadas por SUM NUMERIC.
+- Browser real: login PKCE, criação/consulta e permissões herdadas da #3 passaram com a API atual reconstruída no Compose.
+- Schema: up/down/up completo e upgrade/down/up preservando abertura, imutabilidade, rejeição de escrita parcial e timeouts reais passaram.
+
+O Docker Desktop apresentou um bind mount antigo em `provision`; recriar apenas esse container restabeleceu a execução. Nenhum volume foi apagado. [Revisão de padrões e spec](review.md) concluída: nenhum achado pendente após as correções, incluindo retry de statement_timeout com teste red/green em PostgreSQL real.
 
 ## Limites do recorte
 

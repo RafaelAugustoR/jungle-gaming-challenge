@@ -437,3 +437,34 @@ integration(
     expect(await ledger.json()).toEqual({ entries: [], nextCursor: null });
   },
 );
+
+integration(
+  'a transient statement timeout retries the whole transaction without duplicating its financial effect',
+  async () => {
+    const w = await wallet(),
+      bet = command(w),
+      key = crypto.randomUUID();
+    await database.owner.em.execute(`create sequence wagering.test_attempts;
+    grant usage on sequence wagering.test_attempts to jungle_runtime;
+    create function wagering.test_timeout_once() returns trigger language plpgsql as $$ begin
+      if nextval('wagering.test_attempts')=1 then perform pg_sleep(2); end if; return new;
+    end $$;
+    create trigger test_timeout_once before insert on wagering.transactions for each row execute function wagering.test_timeout_once()`);
+    try {
+      expect(await submit(bet, key)).toMatchObject({
+        status: 200,
+        body: { balance: { amount: '80.00' }, idempotentReplay: false },
+      });
+      expect(
+        (await database.owner.em.execute('select last_value::int from wagering.test_attempts'))[0]
+          .last_value,
+      ).toBe(2);
+      const read = await fetch(`${base}/wallets/${w.id}`, { headers: headers(viewer) });
+      expect(await read.json()).toMatchObject({ version: 2, balance: { amount: '80.00' } });
+    } finally {
+      await database.owner.em.execute(
+        'drop trigger test_timeout_once on wagering.transactions; drop function wagering.test_timeout_once(); drop sequence wagering.test_attempts',
+      );
+    }
+  },
+);

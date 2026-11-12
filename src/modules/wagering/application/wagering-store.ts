@@ -52,8 +52,7 @@ export interface WageringSession {
     wallet: Wallet;
     receipt: SubmissionReceipt;
     occurredAt: string;
-    entry?: JournalEntry;
-    balanceEvent?: WalletBalanceChanged;
+    movement?: { entry: JournalEntry; balanceEvent: WalletBalanceChanged };
     resultEvent: WagerTransactionProcessed | WagerTransactionRejected;
   }): Promise<void>;
 }

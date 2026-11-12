@@ -54,17 +54,15 @@ export class SubmitBet {
         const { counterpartAccountId, occurredAt } = await session.resources(wallet.currency);
         let failureCode: string | undefined;
         let movement: ReturnType<typeof wallet.debit> = { wallet };
-        {
-          try {
-            movement = wallet.debit({
-              transactionId: transaction.id,
-              money: command.money,
-              counterpartAccountId,
-            });
-          } catch (error) {
-            if (!(error instanceof DomainError) || error.code !== 'INSUFFICIENT_FUNDS') throw error;
-            failureCode = error.code;
-          }
+        try {
+          movement = wallet.debit({
+            transactionId: transaction.id,
+            money: command.money,
+            counterpartAccountId,
+          });
+        } catch (error) {
+          if (!(error instanceof DomainError) || error.code !== 'INSUFFICIENT_FUNDS') throw error;
+          failureCode = error.code;
         }
         transaction.transition(failureCode ? 'REJECTED' : 'PROCESSED', failureCode);
         const balance = movement.wallet.balance.toProps();
@@ -106,8 +104,8 @@ export class SubmitBet {
           wallet: movement.wallet,
           receipt,
           occurredAt,
-          entry: movement.entry,
-          balanceEvent,
+          movement:
+            movement.entry && balanceEvent ? { entry: movement.entry, balanceEvent } : undefined,
           resultEvent,
         });
         return receipt;

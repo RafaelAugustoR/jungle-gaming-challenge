@@ -3,6 +3,10 @@ import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { DomainError } from '../../../../shared/domain/errors/domain-error';
+import {
+  isTransientPostgresError,
+  isRetryableTransactionError,
+} from '../../../../shared/infrastructure/postgres-error';
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
@@ -42,22 +46,7 @@ async function query<T>(work: () => Promise<T>): Promise<T> {
     return await work();
   } catch (error) {
     if (error instanceof DomainError) throw error;
-    const code = (error as { code?: string }).code ?? '';
-    if (
-      code.startsWith('08') ||
-      [
-        '57P01',
-        '57P03',
-        '53300',
-        '40001',
-        '40P01',
-        '55P03',
-        '57014',
-        'ECONNREFUSED',
-        'ETIMEDOUT',
-      ].includes(code)
-    )
-      throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
+    if (isTransientPostgresError(error)) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
     throw error;
   }
 }
@@ -85,12 +74,7 @@ export class WageringRepository implements WageringStore {
             ['provider_idempotency_key', 'provider_external_transaction'].includes(constraint ?? '')
           )
             throw new DomainError('SUBMISSION_RACE');
-          if (
-            attempt < 3 &&
-            Date.now() < deadline &&
-            ['40001', '40P01', '55P03'].includes(code ?? '')
-          )
-            continue;
+          if (attempt < 3 && Date.now() < deadline && isRetryableTransactionError(error)) continue;
           throw error;
         }
       }
@@ -110,27 +94,25 @@ export class WageringRepository implements WageringStore {
   }
   private read(where: string, params: string[]): Promise<TransactionView | undefined> {
     return query(async () => {
-      const [row] = await this.orm.em
-        .fork()
-        .execute<
-          Array<{
-            id: string;
-            wallet_id: string;
-            provider_id: string | null;
-            external_transaction_id: string | null;
-            player_id: string;
-            round_id: string | null;
-            game_id: string | null;
-            kind: string;
-            status: TransactionView['status'];
-            failure_code: string | null;
-            amount: string;
-            currency: string;
-            created_at: Date;
-            processed_at: Date | null;
-            body: AcceptedSubmission['receipt']['body'] | null;
-          }>
-        >(`select t.*, t.amount::text as amount, w.player_id, r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
+      const [row] = await this.orm.em.fork().execute<
+        Array<{
+          id: string;
+          wallet_id: string;
+          provider_id: string | null;
+          external_transaction_id: string | null;
+          player_id: string;
+          round_id: string | null;
+          game_id: string | null;
+          kind: string;
+          status: TransactionView['status'];
+          failure_code: string | null;
+          amount: string;
+          currency: string;
+          created_at: Date;
+          processed_at: Date | null;
+          body: AcceptedSubmission['receipt']['body'] | null;
+        }>
+      >(`select t.*, t.amount::text as amount, w.player_id, r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
       return (
         row && {
           transactionId: row.id,
@@ -248,8 +230,8 @@ class PostgresWageringSession implements WageringSession {
         transaction.id,
       ],
     );
-    if (input.entry) {
-      const entry = input.entry.toProps();
+    if (input.movement) {
+      const entry = input.movement.entry.toProps();
       await this.execute(
         `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version,created_at) values(?,?,?,?,?,?,?,?,?,?,?)`,
         [
@@ -281,7 +263,7 @@ class PostgresWageringSession implements WageringSession {
       [wallet.id],
     );
     let sequence = last!.sequence;
-    for (const event of [input.balanceEvent, input.resultEvent]) {
+    for (const event of [input.movement?.balanceEvent, input.resultEvent]) {
       if (!event) continue;
       const envelope = event.toJSON();
       await this.execute(
