@@ -39,3 +39,12 @@ test('Money factories and rehydrate preserve currency and allow signed internal 
   expect(() => amount.add(Money.create('0.01', 'USD'))).toThrow('CURRENCY_MISMATCH');
   expect(() => amount.subtract(Money.create('0.01', 'USD'))).toThrow('CURRENCY_MISMATCH');
 });
+
+test('signed internal Money rehydrates without accepting negatives as submission input', () => {
+  expect(Money.rehydrate({ amount: '-1.25', currency: 'BRL' }).toProps()).toEqual({
+    amount: '-1.25',
+    currency: 'BRL',
+  });
+  expect(() => Money.create('-1.25', 'BRL')).toThrow('INVALID_PAYLOAD');
+  expect(() => Money.rehydrate({ amount: '-0.001', currency: 'BRL' })).toThrow('INVALID_PAYLOAD');
+});

@@ -1,5 +1,6 @@
 import 'reflect-metadata';
 import type { NestExpressApplication } from '@nestjs/platform-express';
+import { InvalidPayloadFilter } from '../shared/rest/api-error';
 import { resolve } from 'node:path';
 import { WalletsModule } from '../modules/wallets/rest/wallets.module';
 import { DynamicModule, Module } from '@nestjs/common';
@@ -43,6 +44,7 @@ export async function createApplication(config: AppConfig = loadConfig()) {
       const realm = issuer.pathname.split('/').at(-1);
       response.json({ url: issuer.origin, realm, clientId: 'jungle-console' });
     });
+  app.useGlobalFilters(new InvalidPayloadFilter());
   app.enableShutdownHooks();
   return app;
 }

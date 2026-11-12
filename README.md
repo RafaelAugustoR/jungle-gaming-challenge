@@ -73,7 +73,7 @@ bun run test:browser
 CHROME_PATH=/usr/bin/google-chrome bun run test:browser
 ```
 
-O teste de navegador exige a API/console do Compose na porta 3000. `CONSOLE_URL` permite escolher outra URL já autorizada no realm. As integrações usam bancos descartáveis e não deixam wallets no banco de demonstração; o teste de navegador cria dados fictícios no console. `build` verifica tipos e gera `frontend/dist` com Bun. O Docker também gera os assets, sem servidor frontend separado.
+O teste de navegador exige a API/console do Compose na porta 3000. `CONSOLE_URL` permite escolher outra URL já autorizada no realm. As integrações usam bancos descartáveis e não deixam wallets no banco de demonstração; o teste de navegador cria dados fictícios no console. `build` verifica tipos e gera `frontend/dist` com Bun. Prettier está fixado no lockfile; use `bunx prettier --write caminho/do/arquivo` para formatar os arquivos alterados. O Docker também gera os assets, sem servidor frontend separado.
 
 Veja [evidências da Issue #3](docs/evidence/issue-3/README.md) e [ARCHITECTURE.md](ARCHITECTURE.md).
 

@@ -1,4 +1,10 @@
-import { ArgumentsHost, Catch, ExceptionFilter, HttpException } from '@nestjs/common';
+import {
+  ArgumentsHost,
+  BadRequestException,
+  Catch,
+  ExceptionFilter,
+  HttpException,
+} from '@nestjs/common';
 import { JsonLogger } from '../../observability/logger';
 
 export function apiError(status: number, code: string): HttpException {
@@ -27,5 +33,12 @@ export class ApiErrorFilter implements ExceptionFilter {
         ...(typeof body === 'object' ? body : { code: 'INVALID_PAYLOAD', message: body }),
         correlationId,
       });
+  }
+}
+
+@Catch(BadRequestException)
+export class InvalidPayloadFilter extends ApiErrorFilter {
+  catch(_error: BadRequestException, host: ArgumentsHost) {
+    super.catch(apiError(400, 'INVALID_PAYLOAD'), host);
   }
 }

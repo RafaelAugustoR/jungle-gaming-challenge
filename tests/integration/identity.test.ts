@@ -72,3 +72,16 @@ test('HTTP does not trust role-bearing tokens from unrelated clients or provider
     expect((await post(await signed(claims))).status).toBe(403);
   }
 });
+
+test('malformed JSON returns the stable payload error and correlation ID', async () => {
+  const response = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${await signed()}`, 'Content-Type': 'application/json' },
+    body: '{',
+  });
+  expect(response.status).toBe(400);
+  expect(await response.json()).toMatchObject({
+    code: 'INVALID_PAYLOAD',
+    correlationId: response.headers.get('X-Correlation-Id'),
+  });
+});

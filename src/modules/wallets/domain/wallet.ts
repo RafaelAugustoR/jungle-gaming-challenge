@@ -21,7 +21,9 @@ export class Wallet {
     });
   }
   static rehydrate(props: WalletProps): Wallet {
-    Money.rehydrate({ amount: props.balance, currency: props.currency });
+    if (Money.rehydrate({ amount: props.balance, currency: props.currency }).isNegative()) {
+      throw new Error('INVALID_PAYLOAD');
+    }
     if (
       !props.playerId.trim() ||
       props.playerId.length > 128 ||

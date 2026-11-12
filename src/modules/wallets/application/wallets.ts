@@ -176,36 +176,32 @@ export class Wallets {
       }
     }
     try {
-      const rows = await this.orm.em
-        .fork()
-        .execute<
-          Array<{
-            id: string;
-            transaction_id: string;
-            kind: string;
-            direction: string;
-            amount: string;
-            currency: string;
-            balance_before: string;
-            balance_after: string;
-            wallet_version: number;
-            created_at: Date;
-          }>
-        >(`select * from wagering.wallet_ledger where wallet_id = ? and wallet_version > ? and wallet_version <= ? order by wallet_version limit ?`, [id, after, upper, limit + 1]);
-      const entries = rows
-        .slice(0, limit)
-        .map((row) => ({
-          id: row.id,
-          transactionId: row.transaction_id,
-          kind: row.kind,
-          direction: row.direction,
-          amount: new MoneyDecimal(row.amount).toFixed(2),
-          currency: row.currency,
-          balanceBefore: new MoneyDecimal(row.balance_before).toFixed(2),
-          balanceAfter: new MoneyDecimal(row.balance_after).toFixed(2),
-          walletVersion: row.wallet_version,
-          createdAt: new Date(row.created_at).toISOString(),
-        }));
+      const rows = await this.orm.em.fork().execute<
+        Array<{
+          id: string;
+          transaction_id: string;
+          kind: string;
+          direction: string;
+          amount: string;
+          currency: string;
+          balance_before: string;
+          balance_after: string;
+          wallet_version: number;
+          created_at: Date;
+        }>
+      >(`select * from wagering.wallet_ledger where wallet_id = ? and wallet_version > ? and wallet_version <= ? order by wallet_version limit ?`, [id, after, upper, limit + 1]);
+      const entries = rows.slice(0, limit).map((row) => ({
+        id: row.id,
+        transactionId: row.transaction_id,
+        kind: row.kind,
+        direction: row.direction,
+        amount: new MoneyDecimal(row.amount).toFixed(2),
+        currency: row.currency,
+        balanceBefore: new MoneyDecimal(row.balance_before).toFixed(2),
+        balanceAfter: new MoneyDecimal(row.balance_after).toFixed(2),
+        walletVersion: row.wallet_version,
+        createdAt: new Date(row.created_at).toISOString(),
+      }));
       const nextCursor =
         rows.length > limit
           ? Buffer.from(

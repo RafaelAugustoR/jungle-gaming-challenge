@@ -24,6 +24,9 @@ export class Money {
     return Money.exact(new Exact(amount), currency);
   }
   static rehydrate(props: MoneyProps): Money {
+    if (typeof props.amount === 'string' && props.amount.startsWith('-')) {
+      return Money.create(props.amount.slice(1), props.currency).negate();
+    }
     return Money.create(props.amount, props.currency);
   }
   private static exact(value: Decimal, currency: string): Money {
