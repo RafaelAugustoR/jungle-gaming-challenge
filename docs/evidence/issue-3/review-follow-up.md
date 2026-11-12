@@ -22,3 +22,5 @@ A migration inicial é mantida como histórico; a evolução está em 0003 para 
 Validação por interfaces aprovadas: métodos públicos de domínio; HTTP/JWT/Keycloak; constraints e migrations em PostgreSQL real; cenário existente no navegador. Resultado final e CI serão registrados no PR após execução.
 
 Revisão adicional (Standards/Spec): corrigida a coordenação financeira para que `Wallets.create` invoque `Wallet.open` dentro da sessão transacional e persista o resultado pela porta. Também adicionada a proteção SQL contra direção invertida de BET/WIN/REFUND, com regressão que falhou antes da correção. Nenhum apontamento desta revisão permanece pendente.
+
+Validação final local: `bun run build`, checagem de formatação dos arquivos alterados, `git diff --check` e `INTEGRATION=1 BROWSER=1 CHROME_PATH=/usr/bin/google-chrome bun test` com URLs de runtime/migration distintas. **42 pass, 0 fail, 226 expect() calls, 13 arquivos, 14.87 s.** PostgreSQL, SQS, Keycloak e navegador reais; API reconstruída via Compose. A migration foi exercitada em bancos descartáveis, inclusive up/down/up e preservação de abertura prévia.
