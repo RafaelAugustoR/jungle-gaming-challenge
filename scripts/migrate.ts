@@ -1,11 +1,11 @@
 import { JsonLogger } from '../src/observability/logger';
-import { loadConfig } from '../src/config/config';
+import { loadMigrationConfig } from '../src/config/config';
 import { openDatabase } from '../src/config/orm';
 
 async function main() {
   const direction = process.argv[2];
   if (direction !== 'up' && direction !== 'down') throw new Error('Expected up or down');
-  const orm = await openDatabase(loadConfig());
+  const orm = await openDatabase(loadMigrationConfig());
   try { await orm.getMigrator()[direction](); }
   finally { await orm.close(true); }
 }

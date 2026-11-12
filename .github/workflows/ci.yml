@@ -16,10 +16,13 @@ jobs:
       - run: bun run typecheck
       - run: cp .env.example .env
       - run: bun test tests/unit
-      - run: docker compose up -d --wait postgres sqs
+      - run: docker compose up -d --wait postgres sqs keycloak
+      - run: docker compose run --rm provision
       - run: bun run test:integration
       - run: docker compose up -d --build --wait api
       - run: curl --fail http://localhost:3000/health/ready
+      - run: bunx playwright install --with-deps chromium
+      - run: bun run test:browser
       - if: failure()
         run: docker compose logs --tail=100
       - if: always()

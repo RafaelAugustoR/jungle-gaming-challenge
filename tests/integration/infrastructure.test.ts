@@ -1,17 +1,17 @@
 import { expect, test } from 'bun:test';
 import { CreateQueueCommand, DeleteQueueCommand, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import { createSqsClient } from '../../src/config/sqs';
-import { loadConfig } from '../../src/config/config';
+import { loadConfig, loadMigrationConfig } from '../../src/config/config';
 import { openDatabase } from '../../src/config/orm';
 import { createApplication } from '../../src/bootstrap/application';
 
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 
 integration('migrations reverse and restore the wagering schema in a disposable database', async () => {
-  const admin = await openDatabase(loadConfig());
+  const admin = await openDatabase(loadMigrationConfig());
   const name = `migration_test_${crypto.randomUUID().replaceAll('-', '')}`;
   await admin.em.getConnection().execute(`create database ${name}`);
-  const config = loadConfig();
+  const config = loadMigrationConfig();
   const url = new URL(config.databaseUrl);
   url.pathname = `/${name}`;
   try {
@@ -20,7 +20,7 @@ integration('migrations reverse and restore the wagering schema in a disposable 
       const exists = async () => (await orm.em.getConnection().execute("select schema_name from information_schema.schemata where schema_name = 'wagering'")).length;
       await orm.getMigrator().up(); expect(await exists()).toBe(1);
       await orm.em.getConnection().execute('select pg_sleep(2.1)'); // migration connections must not inherit a 2-second probe timeout
-      await orm.getMigrator().down(); expect(await exists()).toBe(0);
+      await orm.getMigrator().down({ to: 0 }); expect(await exists()).toBe(0);
       await orm.getMigrator().up(); expect(await exists()).toBe(1);
     } finally { await orm.close(true); }
   } finally {
