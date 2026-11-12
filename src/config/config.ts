@@ -10,6 +10,9 @@ export interface AppConfig {
   awsSecretAccessKey?: string;
   probeTimeoutMs: number;
   databaseConnectTimeoutMs: number;
+  financialLockTimeoutMs: number;
+  financialStatementTimeoutMs: number;
+  financialDeadlineMs: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const integer = (key: string, fallback: string, max: number) => {
@@ -74,6 +77,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     awsAccessKeyId: env.AWS_ACCESS_KEY_ID,
     awsSecretAccessKey: env.AWS_SECRET_ACCESS_KEY,
     databaseConnectTimeoutMs: integer('DATABASE_CONNECT_TIMEOUT_MS', '5000', 60000),
+    financialLockTimeoutMs: integer('FINANCIAL_LOCK_TIMEOUT_MS', '3000', 60000),
+    financialStatementTimeoutMs: integer('FINANCIAL_STATEMENT_TIMEOUT_MS', '5000', 60000),
+    financialDeadlineMs: integer('FINANCIAL_DEADLINE_MS', '15000', 60000),
     probeTimeoutMs: integer('PROBE_TIMEOUT_MS', '2000', 30000),
   };
 }

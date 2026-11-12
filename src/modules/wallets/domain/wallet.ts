@@ -100,6 +100,28 @@ export class Wallet {
   get currency(): string {
     return this.balance.currency;
   }
+  debit(input: { transactionId: string; money: Money; counterpartAccountId: string }): {
+    wallet: Wallet;
+    entry?: JournalEntry;
+  } {
+    if (input.money.isNegative()) throw new DomainError('INVALID_PAYLOAD');
+    const balance = this.balance.subtract(input.money);
+    if (balance.isNegative()) throw new DomainError('INSUFFICIENT_FUNDS');
+    if (input.money.isZero()) return { wallet: this };
+    const wallet = new Wallet(this.id, this.playerId, this.accountId, balance, this.version + 1);
+    const entry = JournalEntry.create({
+      walletId: this.id,
+      transactionId: input.transactionId,
+      playerAccountId: this.accountId,
+      debitAccountId: this.accountId,
+      creditAccountId: input.counterpartAccountId,
+      money: input.money,
+      balanceBefore: this.balance,
+      balanceAfter: balance,
+      walletVersion: wallet.version,
+    });
+    return { wallet, entry };
+  }
   toProps(): WalletProps {
     return {
       id: this.id,

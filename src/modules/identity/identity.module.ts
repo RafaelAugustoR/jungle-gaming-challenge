@@ -13,6 +13,7 @@ import type { AppConfig } from '../../config/config';
 import { apiError } from '../../shared/rest/api-error';
 
 export const HumanRole = (role: 'viewer' | 'demo-operator') => SetMetadata('humanRole', role);
+export const WagerAccess = (access: 'submit' | 'read') => SetMetadata('wagerAccess', access);
 export type Principal =
   | { kind: 'human'; subject: string; roles: string[] }
   | { kind: 'provider'; subject: string; providerId: string };
@@ -66,7 +67,17 @@ export class Identity implements CanActivate {
       context.getHandler(),
       context.getClass(),
     ]);
-    if (principal.kind !== 'human' || !principal.roles.includes(role))
+    const wagerAccess = this.reflector.getAllAndOverride<'submit' | 'read'>('wagerAccess', [
+      context.getHandler(),
+      context.getClass(),
+    ]);
+    if (wagerAccess) {
+      if (
+        principal.kind !== 'provider' &&
+        !(wagerAccess === 'read' && principal.roles.includes('viewer'))
+      )
+        throw apiError(403, 'FORBIDDEN');
+    } else if (principal.kind !== 'human' || !principal.roles.includes(role))
       throw apiError(403, 'FORBIDDEN');
     request.principal = principal;
     return true;

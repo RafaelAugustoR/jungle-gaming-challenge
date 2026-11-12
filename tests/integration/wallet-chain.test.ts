@@ -176,7 +176,7 @@ integration(
         openings: null,
         legacy: null,
       });
-      await fixture.owner.getMigrator().down();
+      await fixture.owner.getMigrator().down({ to: 'Migration202611120001' });
       expect(await exists()).toEqual({ transactions: null, openings: null, legacy: null });
       await fixture.owner.getMigrator().up();
       expect(await exists()).toEqual({
@@ -195,6 +195,15 @@ integration(
           [owner.id],
         ),
       ).toEqual([{ kind: 'OPENING', direction: 'CREDIT', balance_after: '100.00' }]);
+      // Upgrade/downgrade of T03 preserves the opening already delivered by PR #16.
+      await fixture.owner.getMigrator().down();
+      await fixture.owner.getMigrator().up();
+      expect(
+        await fixture.owner.em.execute(
+          'select balance::text,version from wagering.wallets where id=?',
+          [owner.id],
+        ),
+      ).toEqual([{ balance: '100.00', version: 1 }]);
     } finally {
       await fixture.close();
     }
@@ -218,7 +227,7 @@ integration('transaction kinds cannot reverse their defined debit or credit effe
 });
 
 integration(
-  'T02 persists final processed records rather than stranded pending transactions',
+  'internal records default to processed and terminal transitions remain protected after T03',
   async () => {
     const id = await database.owner.em.fork().transactional(async (em) => {
       const owner = await wallet(em);
@@ -237,10 +246,7 @@ integration(
     await expect(
       database.owner.em.fork().transactional(async (em) => {
         const owner = await wallet(em);
-        await em.execute(
-          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status) values(?,?,'BRL',0,'WIN','PENDING')`,
-          [crypto.randomUUID(), owner.id],
-        );
+        await em.execute(`update wagering.transactions set status='PENDING' where id=?`, [id]);
       }),
     ).rejects.toMatchObject({ code: '23514' });
   },

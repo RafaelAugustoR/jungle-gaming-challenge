@@ -27,3 +27,18 @@ test('provider client mappings are configured and malformed mappings fail at boo
     expect(() => loadConfig({ ...env, PROVIDER_CLIENTS })).toThrow('Invalid PROVIDER_CLIENTS');
   }
 });
+
+test('financial time budgets are configurable and reject invalid values', () => {
+  expect(loadConfig(env)).toMatchObject({
+    financialLockTimeoutMs: 3000,
+    financialStatementTimeoutMs: 5000,
+    financialDeadlineMs: 15000,
+  });
+  expect(loadConfig({ ...env, FINANCIAL_LOCK_TIMEOUT_MS: '40' }).financialLockTimeoutMs).toBe(40);
+  for (const key of [
+    'FINANCIAL_LOCK_TIMEOUT_MS',
+    'FINANCIAL_STATEMENT_TIMEOUT_MS',
+    'FINANCIAL_DEADLINE_MS',
+  ])
+    expect(() => loadConfig({ ...env, [key]: '0' })).toThrow(`Invalid ${key}`);
+});

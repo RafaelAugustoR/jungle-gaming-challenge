@@ -2,6 +2,40 @@ import { expect, test } from 'bun:test';
 import { Wallet } from '../../src/modules/wallets/domain/wallet';
 import { Money } from '../../src/shared/domain/money';
 
+test('BET debit produces a balanced journal and increments version once; zero and insufficient funds do not', () => {
+  const wallet = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '100.00',
+    version: 1,
+  });
+  const input = {
+    transactionId: 'bet',
+    money: Money.create('80.00', 'BRL'),
+    counterpartAccountId: 'gaming',
+  };
+  const debited = wallet.debit(input);
+  expect(debited.wallet.balance.toProps().amount).toBe('20.00');
+  expect(debited.wallet.version).toBe(2);
+  expect(debited.entry!.toProps()).toMatchObject({
+    debitAccountId: 'account',
+    creditAccountId: 'gaming',
+    amount: '80.00',
+    balanceBefore: '100.00',
+    balanceAfter: '20.00',
+    walletVersion: 2,
+  });
+  expect(() => debited.wallet.debit(input)).toThrow('INSUFFICIENT_FUNDS');
+  const zero = wallet.debit({ ...input, money: Money.create('0.00', 'BRL') });
+  expect(zero.wallet).toBe(wallet);
+  expect(zero.entry).toBeUndefined();
+  expect(() => wallet.debit({ ...input, money: Money.create('1.00', 'USD') })).toThrow(
+    'CURRENCY_MISMATCH',
+  );
+});
+
 test('wallet factory validates opening while rehydrate preserves persisted state without reopening', () => {
   const input = {
     playerId: 'player-1',
