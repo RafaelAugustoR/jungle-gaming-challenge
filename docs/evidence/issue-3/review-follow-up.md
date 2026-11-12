@@ -30,3 +30,5 @@ Validação final local: `bun run build`, checagem de formatação dos arquivos 
 - 4556182228: adotada a alternativa de escopo explícito. T02 persiste somente PROCESSED, como default e constraint; não aceita pendências que não possa transicionar. T03 entregará transições, campos de falha/processamento, grants e checagem em UPDATE conjuntamente.
 - 4556182243: schema financeiro consolidado em 0002, 0003 removida; não resta validate_opening no banco criado do zero. Down/up é testado no baseline completo.
 - 4556182250: WalletOpenResult explicita wallet e um único opening opcional; WalletOpening exige transaction/entry/event juntos. Adaptador usa apenas um check.
+
+Validação da segunda rodada: `bun run build`, formatação e `git diff --check` passaram. Suíte completa com API atual em banco temporário criado do zero pelo baseline 0001/0002: **43 pass, 0 fail, 227 expect() calls, 13 arquivos, 14.19 s**, com PostgreSQL, SQS, Keycloak e navegador reais. O banco e a API temporários foram encerrados e o serviço anterior restaurado, sem apagar dados locais. Standards e Spec: nenhum novo achado.
