@@ -1,16 +1,17 @@
 import { MikroORM } from '@mikro-orm/postgresql';
 import { Migrator } from '@mikro-orm/migrations';
-import { Migration202611120001 } from '../../migrations/Migration202611120001';
+import { resolve } from 'node:path';
+import type { AppConfig } from './config';
 
-export function openDatabase() {
+export function openDatabase(config: AppConfig) {
   return MikroORM.init({
-    clientUrl: process.env.DATABASE_URL ?? 'postgresql://jungle:local-demo-only@127.0.0.1:55439/jungle',
+    clientUrl: config.databaseUrl,
     entities: [],
     discovery: { warnWhenNoEntities: false },
     extensions: [Migrator],
     connect: false,
-    pool: { min: 0, max: 5, acquireTimeoutMillis: 2000 },
-    driverOptions: { connection: { connectionTimeoutMillis: 2000, statement_timeout: 2000 } },
-    migrations: { migrationsList: [Migration202611120001], snapshot: false },
+    pool: { min: 0, max: 5, acquireTimeoutMillis: 10000 },
+    driverOptions: { connection: { connectionTimeoutMillis: config.probeTimeoutMs } },
+    migrations: { path: resolve(import.meta.dir, '../../migrations'), glob: '!(*.d).{js,ts}', snapshot: false },
   });
 }

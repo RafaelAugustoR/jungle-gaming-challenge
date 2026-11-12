@@ -12,23 +12,24 @@ curl --fail http://localhost:3000/health/live
 curl --fail http://localhost:3000/health/ready
 ```
 
-A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Keycloak inicia em modo de desenvolvimento com `admin` / `local-demo-only`; integração de login será implementada na Issue #3.
+O Compose aplica migrations antes de iniciar a API. A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Keycloak inicia em modo de desenvolvimento com `admin` / `local-demo-only`; integração de login será implementada na Issue #3.
 
 ```sh
 bun install --frozen-lockfile
+cp .env.example .env
 bun run typecheck
 bun run build
 bun test
 INTEGRATION=1 bun test
 ```
 
-`bun test` executa testes HTTP e pula explicitamente os três testes que precisam de containers. `INTEGRATION=1 bun test` executa todos, usando PostgreSQL e SQS do Compose. Alternativa com Bun dentro do Docker:
+`bun test` executa testes HTTP e pula explicitamente os testes que precisam de containers. `INTEGRATION=1 bun test` executa todos, usando PostgreSQL e SQS do Compose. Alternativa com Bun dentro do Docker:
 
 ```sh
 docker compose --profile test run --build --rm tests
 ```
 
-Configuração externa ao Docker usa os defaults de `.env.example`; copie para `.env` se precisar alterar. Dentro do Compose, os endpoints são definidos para a rede dos containers.
+Antes dos comandos Bun fora do Docker, copie `.env.example` para `.env`: `cp .env.example .env`. Configuração obrigatória ausente ou inválida interrompe o boot com mensagem sanitizada. Dentro do Compose, os endpoints são definidos para a rede dos containers.
 
 ```sh
 bun run migrate:up
@@ -57,4 +58,6 @@ Este estágio implementa apenas o bootstrap. Wallets, processamento financeiro, 
 
 Monólito modular NestJS/TypeScript em Bun, MikroORM, PostgreSQL e SQS, com processos separados para API e workers. O escopo inclui ledger de partidas dobradas, idempotência persistente, inbox/outbox, Keycloak, console operacional e evidências de concorrência e recuperação de falhas.
 
-O projeto usa apenas dados de demonstração e não integra dinheiro real. Os comandos acima cobrem o bootstrap; as demais entregas seguirão as Issues aprovadas.
+O projeto usa apenas dados de demonstração e não integra dinheiro real. `build` verifica tipos; Bun executa o mesmo fonte em desenvolvimento, testes e Docker.
+
+Os comandos acima cobrem o bootstrap; as demais entregas seguirão as Issues aprovadas.

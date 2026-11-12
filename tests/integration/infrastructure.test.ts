@@ -1,36 +1,36 @@
 import { expect, test } from 'bun:test';
 import { CreateQueueCommand, DeleteQueueCommand, SendMessageCommand, ReceiveMessageCommand, DeleteMessageCommand, GetQueueAttributesCommand } from '@aws-sdk/client-sqs';
 import { createSqsClient } from '../../src/config/sqs';
+import { loadConfig } from '../../src/config/config';
 import { openDatabase } from '../../src/config/orm';
 import { createApplication } from '../../src/bootstrap/application';
 
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 
 integration('migrations reverse and restore the wagering schema in a disposable database', async () => {
-  const admin = await openDatabase();
+  const admin = await openDatabase(loadConfig());
   const name = `migration_test_${crypto.randomUUID().replaceAll('-', '')}`;
   await admin.em.getConnection().execute(`create database ${name}`);
-  const previous = process.env.DATABASE_URL;
-  const url = new URL(previous ?? 'postgresql://jungle:local-demo-only@127.0.0.1:55439/jungle');
+  const config = loadConfig();
+  const url = new URL(config.databaseUrl);
   url.pathname = `/${name}`;
-  process.env.DATABASE_URL = url.toString();
   try {
-    const orm = await openDatabase();
+    const orm = await openDatabase({ ...config, databaseUrl: url.toString() });
     try {
       const exists = async () => (await orm.em.getConnection().execute("select schema_name from information_schema.schemata where schema_name = 'wagering'")).length;
       await orm.getMigrator().up(); expect(await exists()).toBe(1);
+      await orm.em.getConnection().execute('select pg_sleep(2.1)'); // migration connections must not inherit a 2-second probe timeout
       await orm.getMigrator().down(); expect(await exists()).toBe(0);
       await orm.getMigrator().up(); expect(await exists()).toBe(1);
     } finally { await orm.close(true); }
   } finally {
-    if (previous === undefined) delete process.env.DATABASE_URL; else process.env.DATABASE_URL = previous;
     await admin.em.getConnection().execute(`drop database ${name}`);
     await admin.close(true);
   }
 }, 30000);
 
 integration('SQS FIFO delivers and acknowledges an actual message', async () => {
-  const sqs = createSqsClient();
+  const sqs = createSqsClient(loadConfig());
   let queue: string | undefined;
   try {
     queue = (await sqs.send(new CreateQueueCommand({ QueueName: `smoke-${crypto.randomUUID()}.fifo`, Attributes: { FifoQueue: 'true' } }))).QueueUrl;

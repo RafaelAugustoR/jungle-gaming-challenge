@@ -1,11 +1,13 @@
 import { SQSClient } from '@aws-sdk/client-sqs';
+import type { AppConfig } from './config';
 
-export function createSqsClient() {
+export function createSqsClient(config: AppConfig) {
   return new SQSClient({
-    region: process.env.AWS_REGION ?? 'us-east-1',
-    endpoint: process.env.SQS_ENDPOINT ?? 'http://127.0.0.1:4566',
-    credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+    region: config.awsRegion,
+    endpoint: config.sqsEndpoint,
+    credentials: config.awsAccessKeyId && config.awsSecretAccessKey
+      ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey } : undefined,
     maxAttempts: 1,
-    requestHandler: { connectionTimeout: 2000, requestTimeout: 2000 },
+    requestHandler: { connectionTimeout: config.probeTimeoutMs, requestTimeout: config.probeTimeoutMs },
   });
 }

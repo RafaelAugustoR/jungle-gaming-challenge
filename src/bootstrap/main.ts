@@ -1,11 +1,15 @@
 import { createApplication } from './application';
+import { loadConfig } from '../config/config';
+import { JsonLogger } from '../observability/logger';
 
 async function main() {
-  const app = await createApplication();
-  await app.listen(Number(process.env.PORT ?? 3000), '0.0.0.0');
-  console.log(JSON.stringify({ level: 'info', event: 'application_started' }));
+  const config = loadConfig();
+  const app = await createApplication(config);
+  try { await app.listen(config.port, '0.0.0.0'); }
+  catch (error) { await app.close(); throw error; }
+  new JsonLogger().log('application_started');
 }
-main().catch(() => {
-  console.error(JSON.stringify({ level: 'error', event: 'startup_failed' }));
+main().catch((error: unknown) => {
+  new JsonLogger().error(error);
   process.exitCode = 1;
 });

@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "packageManager": "bun@1.3.14",
   "scripts": {
-    "build": "tsc -p tsconfig.build.json",
+    "build": "tsc --noEmit",
     "typecheck": "tsc --noEmit",
-    "start": "bun dist/src/bootstrap/main.js",
+    "start": "bun src/bootstrap/main.ts",
     "dev": "bun --watch src/bootstrap/main.ts",
     "test": "bun test",
     "migrate:up": "bun scripts/migrate.ts up",
