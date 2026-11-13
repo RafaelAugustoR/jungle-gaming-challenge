@@ -120,7 +120,7 @@ describe('integrated recovery timeline', () => {
   stage(
     'HTTP and SQS BET 80.00 compete for 100.00 with one approval and one rejection',
     async ({
-      facts,
+      expectRejection,
       sql,
       wallet,
       command,
@@ -155,7 +155,7 @@ describe('integrated recovery timeline', () => {
         { status: 'REJECTED', n: 1 },
       ]);
       expectMovement(raceWallet, '20.00', '80.00');
-      facts.events++; // one rejected BET
+      expectRejection();
     },
   );
 
@@ -215,7 +215,7 @@ describe('integrated recovery timeline', () => {
     'SQS REFUND precedes its BET and survives consumer restart',
     async ({
       commands,
-      facts,
+      expectPendingReference,
       sql,
       wallet,
       command,
@@ -238,7 +238,7 @@ describe('integrated recovery timeline', () => {
         referenceExternalTransactionId: bet.externalTransactionId,
       };
       await inbox(await send(refund));
-      facts.events++; // persisted pending-reference event
+      expectPendingReference();
       expect(
         (
           await sql('select status from wagering.transactions where external_transaction_id=?', [

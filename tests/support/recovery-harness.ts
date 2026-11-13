@@ -146,6 +146,12 @@ export async function recoveryHarness() {
       facts.journalEntries++;
       facts.pairedAmount = facts.pairedAmount.plus(amount);
     }
+    function expectRejection() {
+      facts.events++;
+    }
+    function expectPendingReference() {
+      facts.events++;
+    }
     function startWorker(
       extra: Record<string, string> = {},
       databaseUrl = database.config.databaseUrl,
@@ -202,7 +208,7 @@ export async function recoveryHarness() {
       commands,
       events,
       expected,
-      facts,
+      facts: facts as Readonly<typeof facts>,
       evidence,
       demo,
       sql,
@@ -211,6 +217,8 @@ export async function recoveryHarness() {
       http,
       send,
       expectMovement,
+      expectRejection,
+      expectPendingReference,
       startWorker,
       startPublisher,
       startReferences,

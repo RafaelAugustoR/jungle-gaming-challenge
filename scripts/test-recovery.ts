@@ -50,7 +50,7 @@ for (const phase of phases) {
       RECOVERY_EVIDENCE_PATH: evidencePath,
       BET_EVIDENCE_PATH: betPath,
     },
-    { bail: phase.name !== 'integrated-recovery', logPrefix: resolve(directory, phase.name) },
+    { bail: true, logPrefix: resolve(directory, phase.name) },
   );
   results.push({ phase: phase.name, ...result });
   await summary(results.length === phases.length && result.exitCode === 0);

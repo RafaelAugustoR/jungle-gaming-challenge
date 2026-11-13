@@ -41,7 +41,16 @@ export async function assertRecovery(h: RecoveryHarness) {
       (select count(*)::int from wagering.outbox o left join demo_consumer.event_inbox i on i.event_id=o.event_id where i.event_id is null) missing_deliveries,
       (select count(*)::int from wagering.wallets w join demo_consumer.event_projection p on p.aggregate_id=w.id where p.wallet_version<>w.version or (p.balance->>'amount')::numeric<>w.balance) stale_projections,
       (select count(*)::int from wagering.transactions t where t.kind<>'OPENING' and ((select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type=case t.status when 'PROCESSED' then 'WagerTransactionProcessed' else 'WagerTransactionRejected' end)<>1 or (select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type='WalletBalanceChanged')<>case when t.status='PROCESSED' then 1 else 0 end)) invalid_event_sets`);
-  expect(Object.values(invariants).every((n) => n === 0)).toBe(true);
+  expect(invariants).toEqual({
+    invalid_pairs: 0,
+    partial_financial_effects: 0,
+    missing_receipts: 0,
+    pending_transactions: 0,
+    pending_events: 0,
+    missing_deliveries: 0,
+    stale_projections: 0,
+    invalid_event_sets: 0,
+  });
   const [eventsAudit] = await sql(
     'select count(*)::int total,count(distinct event_id)::int unique_events from wagering.outbox',
   );
