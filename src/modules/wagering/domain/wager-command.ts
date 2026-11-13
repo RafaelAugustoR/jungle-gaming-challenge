@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import type { Money } from '../../../shared/domain/money';
-const wagerKinds = ['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'] as const;
+export const wagerKinds = ['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'] as const;
 export type WagerKind = (typeof wagerKinds)[number];
 export function isWagerKind(value: unknown): value is WagerKind {
   return typeof value === 'string' && wagerKinds.includes(value as WagerKind);

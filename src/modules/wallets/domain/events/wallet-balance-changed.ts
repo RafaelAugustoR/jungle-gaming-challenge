@@ -14,7 +14,8 @@ export interface WalletBalanceChangedData {
   walletVersion: number;
 }
 export class WalletBalanceChanged extends IntegrationEvent<WalletBalanceChangedData> {
-  readonly eventType = 'WalletBalanceChanged';
+  static readonly eventType = 'WalletBalanceChanged';
+  readonly eventType = WalletBalanceChanged.eventType;
   readonly version = 1;
   private constructor(data: WalletBalanceChangedData, occurredAt: string, context: EventContext) {
     super(data.walletId, occurredAt, context, Object.freeze(data));

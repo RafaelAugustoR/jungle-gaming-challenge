@@ -1,0 +1,22 @@
+import { runWorker } from '../messaging/worker-runtime';
+import { loadOutboxConfig } from '../messaging/outbox/config';
+import { OutboxRepository } from '../messaging/outbox/outbox-repository';
+import { OutboxPublisher } from '../messaging/outbox/outbox-publisher';
+import { eventQueueUrl } from '../messaging/events/queue-url';
+import { JsonLogger } from '../observability/logger';
+async function main() {
+  const options = loadOutboxConfig();
+  await runWorker(
+    'publisher',
+    async ({ orm, sqs }) =>
+      new OutboxPublisher(new OutboxRepository(orm), sqs, {
+        ...options,
+        queueUrl: await eventQueueUrl(sqs, options.queueName),
+      }),
+    { once: process.argv.includes('--once'), pollMs: options.pollMs },
+  );
+}
+main().catch((error: unknown) => {
+  new JsonLogger().error({ event: 'outbox_startup_failed', error });
+  process.exitCode = 1;
+});

@@ -15,6 +15,11 @@
     "test:concurrency": "INTEGRATION=1 bun test tests/concurrency",
     "build:frontend": "bun scripts/build-frontend.ts",
     "test:browser": "bun run build:frontend && BROWSER=1 bun test tests/integration/console.test.ts",
+    "worker:outbox": "bun src/bootstrap/outbox-publisher.ts",
+    "worker:events": "bun src/bootstrap/event-consumer.ts",
+    "provision:events": "bun scripts/provision-events.ts",
+    "outbox:retry": "bun scripts/retry-outbox.ts",
+
     "worker:references": "bun src/bootstrap/reference-worker.ts"
   },
   "dependencies": {

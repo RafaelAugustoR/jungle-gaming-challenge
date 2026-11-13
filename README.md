@@ -137,6 +137,40 @@ O projeto usa apenas dados de demonstração e não integra dinheiro real. `buil
 
 Os comandos acima cobrem o bootstrap; as demais entregas seguirão as Issues aprovadas.
 
+### Publicação recuperável de eventos — Issue #8
+
+A API grava eventos na outbox junto do commit financeiro. O processo separado `worker:outbox` reserva somente a primeira entrada não publicada de cada wallet (`FOR UPDATE SKIP LOCKED`), confirma por token de posse e lease vigente e envia para **`wager-events.fifo`**, separada da fila de comandos. O `eventId` original é o ID de deduplicação FIFO; a wallet é o grupo. O consumidor demonstrativo `worker:events` confirma a mensagem somente após persistir inbox e projeção na mesma transação.
+
+```sh
+# Após configurar .env e aplicar as migrations:
+bun run provision:events
+bun run worker:outbox
+# Outro terminal/processo:
+bun run worker:events
+# Alternativa Docker, com provisionamento e migrations automáticos:
+docker compose --profile events up --build -d outbox-publisher event-consumer
+# Adicionar outro publisher, sem portas HTTP:
+docker compose --profile events up -d --scale outbox-publisher=2 outbox-publisher
+```
+
+`--once` executa uma iteração e encerra: `bun run worker:outbox --once`. O `.env.example` documenta `OUTBOX_*`: lease padrão 30s, timeout de envio 5s (sempre menor que a lease), lote de até 20 wallets, backoff exponencial com jitter (base 1s, teto 60s) e polling de 500ms. SIGTERM/SIGINT aguardam a iteração atual e fecham conexões; morte abrupta deixa a lease recuperável.
+
+Falhas transitórias agendam `next_attempt_at`. Erros de credencial/configuração liberam a lease e colocam o publisher inteiro em backoff; após corrigir a causa, a recuperação é automática. Rejeição específica de conteúdo (`InvalidMessageContents`) ou tamanho comprovadamente acima do `MaximumMessageSize` da fila bloqueia somente o evento em `blocked_at`. Após `InvalidParameterValue`, o publisher consulta esse atributo e compara bytes UTF-8 do corpo; erro ambíguo ou falha no diagnóstico permanece retry com backoff global. O limite configurado na fila é a referência, incluindo emuladores com defaults anteriores. A cabeça bloqueada retém os eventos seguintes **da mesma wallet**; outras wallets continuam. Para diagnóstico, consulte com acesso SQL autorizado:
+
+```sql
+select event_id, aggregate_id, sequence, attempts, lease_until,
+       next_attempt_at, blocked_at, last_error_code
+from wagering.outbox where published_at is null
+order by occurred_at, sequence;
+select * from demo_consumer.event_projection;
+```
+
+Corrija a causa (permissão, configuração ou código) e reative explicitamente, preservando o evento: `bun run outbox:retry <eventId>`. Não altere o payload financeiro nem marque publicação manualmente. Conteúdo recusado pelo SQS exige investigação/correção do produtor ou transporte antes de reativar; o comando não o reescreve. O publisher confia no payload já persistido e acrescenta somente a sequência como metadado de transporte; a validação de entrada fica no consumidor. Não há expurgo automático de inbox/outbox, inclusive eventos publicados ou bloqueados.
+
+O transporte admite reentregas, inclusive após expiração da deduplicação SQS. A inbox persistente evita efeitos repetidos, e a projeção não regride por evento atrasado. Ela é demonstrativa e eventualmente consistente; decisões financeiras continuam usando wallet/ledger. O provisionamento cria também `wager-events-dlq.fifo` (retenção 14 dias) e configura redrive nativo após cinco recebimentos. Mensagens inválidas/conflitantes não são apagadas pelo consumidor; seguem para essa DLQ. Falhas são isoladas por mensagem, incluindo mensagens válidas do mesmo grupo FIFO: inbox e sequência/versão protegem a projeção, e somente a mensagem que falhou volta para retry/DLQ. Investigue o motivo nos logs por MessageId, corrija a causa e use redrive SQS autorizado para a fila original, preservando o corpo; a inbox continua protegendo eventos já aplicados. Não faça redrive automático de conteúdo ainda inválido. [Testes, garantias e limites da Issue #8](docs/evidence/issue-8/README.md).
+
+O schema `demo_consumer` separa inbox/projeção demonstrativas do domínio financeiro. Neste recorte os processos ainda usam o papel de demonstração `jungle_runtime`, com grants explícitos por tabela/coluna; separar logins API/publisher/consumidor exige coordenar provisionamento e gestão de credenciais e fica como endurecimento posterior, sem ampliar os grants financeiros.
+
 ### Referências pendentes — Issue #6
 
 REFUND/ROLLBACK exigem referência; WIN/LOSS podem informar referência a BET. Quando a referência ainda não chegou ou está pendente, o aceite retorna 202 `PENDING_REFERENCE`, sem movimentar saldo. O replay mantém esse recibo original, inclusive depois da conclusão. Consulte os endpoints GET de transação para obter o estado e saldo do resultado atual.
