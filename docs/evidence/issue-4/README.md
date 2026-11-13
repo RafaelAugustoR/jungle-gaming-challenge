@@ -35,7 +35,7 @@ A auditoria pela interface SQL, aprovada para invariantes do schema, compara sal
 
 ## Resultados
 
-A revisão externa tem decisões e validação rastreadas em [review-follow-up.md](review-follow-up.md). Execução local final após as correções: **65 testes passaram, 0 falhas, 436 asserções, 21.03 s**, com build e formatação válidos. O diretório versionado mantém apenas metodologia, critérios e resultados resumidos.
+A revisão externa tem decisões e validação rastreadas em [review-follow-up.md](review-follow-up.md). Execução local final após as correções: **67 testes passaram, 0 falhas, 444 asserções, 20.41 s**, com build e formatação válidos. O diretório versionado mantém apenas metodologia, critérios e resultados resumidos.
 
 Na [CI do PR #17](https://github.com/RafaelAugustoR/jungle-gaming-challenge/pull/17/checks), abra a execução de `verify`: o passo de integração imprime `BET_CONCURRENCY_EVIDENCE` com PIDs e auditoria em JSON. Os logs da execução podem ser baixados pelo GitHub; o passo de navegador preserva sua própria saída. A retenção segue a configuração do repositório. Os comandos acima regeneram os mesmos arquivos localmente em `artifacts/`, ignorado pelo Git. Nenhum token ou credencial é gravado no relatório.
 

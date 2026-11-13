@@ -1,8 +1,13 @@
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
-import type { WalletMovementResult } from '../../wallets/domain/wallet';
-import { isWagerKind, wagerPayloadHash, type WagerCommand } from './wager-command';
-import type { SubmissionReceipt, WagerFailureCode } from './submission-receipt';
+import type { Wallet } from '../../wallets/domain/wallet';
+import type { WagerCommand } from './wager-command';
+import type { WagerPayload } from './wager-payload';
+import {
+  wagerFailureMessages,
+  type SubmissionReceipt,
+  type WagerFailureCode,
+} from './submission-receipt';
 import { WagerTransactionProcessed, WagerTransactionRejected } from './events/wager-events';
 export type TransactionStatus =
   | 'PENDING'
@@ -14,6 +19,9 @@ export interface TransactionState {
   status: TransactionStatus;
   failureCode?: WagerFailureCode;
 }
+export type WagerOutcome =
+  | { status: 'PROCESSED'; wallet: Wallet }
+  | { status: 'REJECTED'; wallet: Wallet; failureCode: WagerFailureCode };
 const transitions: Record<TransactionStatus, readonly TransactionStatus[]> = {
   PENDING: ['PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'],
   PENDING_REFERENCE: ['PROCESSED', 'REJECTED', 'FAILED'],
@@ -41,34 +49,19 @@ export class WagerTransaction {
     private receipt?: SubmissionReceipt,
   ) {}
   static create(input: {
-    command: WagerCommand;
+    payload: WagerPayload;
     idempotencyKey: string;
     createdAt: string;
   }): WagerTransaction {
-    const { command, idempotencyKey, createdAt } = input;
-    if (
-      !isWagerKind(command.kind) ||
-      (command.kind === 'BET' && command.referenceExternalTransactionId !== undefined) ||
-      ![
-        command.providerId,
-        command.externalTransactionId,
-        command.playerId,
-        command.walletId,
-        command.roundId,
-        command.gameId,
-        idempotencyKey,
-      ].every(
-        (value) => typeof value === 'string' && value.trim().length > 0 && value.length <= 128,
-      ) ||
-      command.money.isNegative()
-    )
+    const { payload, idempotencyKey, createdAt } = input;
+    if (typeof idempotencyKey !== 'string' || !idempotencyKey.trim() || idempotencyKey.length > 128)
       throw new DomainError('INVALID_PAYLOAD');
     return new WagerTransaction(
       Object.freeze({
         id: crypto.randomUUID(),
-        command: Object.freeze({ ...command }),
+        command: payload.command,
         idempotencyKey,
-        payloadHash: wagerPayloadHash(command),
+        payloadHash: payload.hash,
         createdAt,
       }),
       { status: 'PENDING' },
@@ -121,7 +114,7 @@ export class WagerTransaction {
       throw new DomainError('INVALID_TRANSACTION_TRANSITION');
     this.state = Object.freeze({ status, ...(failureCode ? { failureCode } : {}) });
   }
-  complete(outcome: WalletMovementResult, at: string, context: EventContext): void {
+  complete(outcome: WagerOutcome, at: string, context: EventContext): void {
     const balance = outcome.wallet.balance.toProps();
     const common = { transactionId: this.id, balance, idempotentReplay: false };
     if (outcome.status === 'REJECTED') {
@@ -133,7 +126,7 @@ export class WagerTransaction {
           status: 'REJECTED',
           failureCode: outcome.failureCode,
           code: outcome.failureCode,
-          message: 'Wallet balance is insufficient for this wager',
+          message: wagerFailureMessages[outcome.failureCode],
           correlationId: context.correlationId,
         },
       };
