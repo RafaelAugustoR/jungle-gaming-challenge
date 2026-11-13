@@ -46,3 +46,9 @@ Validation of the review corrections:
 - Docker test container: demo integration passed with 33 assertions, including
   token acquisition through the internal Keycloak URL.
 - UI detector reported no findings; desktop and mobile screenshots were inspected.
+
+A final browser regression holds the scenario's last wallet response, selects a
+different wallet, and then releases the old response. The current selection and
+hidden transaction detail remain unchanged. Build/typecheck and the final browser
+run passed (21 assertions without repeating screenshots; the responsive capture
+run above included three additional viewport assertions).

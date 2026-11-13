@@ -191,6 +191,34 @@ browserTest(
           ).toBe(true);
         }
       }
+      // A completed scenario must not restore its wallet after the user selects another one.
+      let releaseScenarioWallet!: () => void;
+      let scenarioWalletStarted!: () => void;
+      const scenarioWalletHeld = new Promise<void>((resolve) => (releaseScenarioWallet = resolve));
+      const scenarioWalletReady = new Promise<void>((resolve) => (scenarioWalletStarted = resolve));
+      await page.route(`**/wallets/${firstWalletId}`, async (route) => {
+        const response = await route.fetch();
+        scenarioWalletStarted();
+        await scenarioWalletHeld;
+        await route.fulfill({ response });
+      });
+      await page.getByLabel('Comportamento').selectOption('duplicate');
+      await page.getByLabel('Valor (BRL)').last().fill('1.00');
+      await page.getByRole('button', { name: 'Executar cenário' }).click();
+      await scenarioWalletReady;
+      await page.getByLabel('Jogador').fill(`browser-${crypto.randomUUID()}`);
+      await page.getByLabel('Saldo inicial (BRL)').fill('60.00');
+      await page.getByRole('button', { name: 'Criar wallet', exact: true }).click();
+      await page.getByTestId('wallet-balance').filter({ hasText: '60.00' }).waitFor();
+      const selectedAfterScenario = await page.getByTestId('wallet-id').textContent();
+      releaseScenarioWallet();
+      await page.waitForFunction(
+        () => !document.querySelector<HTMLButtonElement>('#scenario button')!.disabled,
+      );
+      expect(await page.getByTestId('wallet-id').textContent()).toBe(selectedAfterScenario);
+      expect(await page.locator('#transaction-detail').isHidden()).toBe(true);
+      await page.unroute(`**/wallets/${firstWalletId}`);
+
       let releaseRequest!: () => void;
       let requestStarted!: () => void;
       const blockedResponse = new Promise<void>((resolve) => (releaseRequest = resolve));

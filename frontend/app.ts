@@ -421,7 +421,10 @@ element<HTMLFormElement>('scenario').addEventListener('submit', (event) => {
       : pending
         ? 'Algumas operações seguem pendentes. Os estados mostrados vêm de GET; abra o detalhe para consultar novamente.'
         : 'Todas as operações têm estado terminal confirmado por GET.';
-    await showWallet(await api(`/wallets/${walletId}`));
+    const refreshedWallet = (await api(`/wallets/${walletId}`)) as Wallet;
+    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    await showWallet(refreshedWallet);
+    if (request !== scenarioRequest || selected?.id !== walletId) return;
     const first = result.transactions[0]?.originalReceipt.body.transactionId;
     if (first) await showTransaction(first);
     notice('Cenário enviado. Confira cada recibo e o estado atual consultado por GET.');
