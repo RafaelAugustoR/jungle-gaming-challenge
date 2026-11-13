@@ -31,8 +31,17 @@ export interface WalletReconciliationView {
   storedBalance: string;
   calculatedBalance: string;
   difference: string;
+  consistent: boolean;
   currency: string;
   checkedEntries: number;
+}
+export interface WalletReconciliationObserver {
+  divergence(input: {
+    walletId: string;
+    actorId?: string;
+    correlationId?: string;
+    checkedEntries: number;
+  }): void;
 }
 export interface LedgerQuery {
   limit: number;

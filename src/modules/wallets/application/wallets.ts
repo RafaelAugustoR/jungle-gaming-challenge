@@ -5,17 +5,14 @@ import type {
   WalletContext,
   WalletStore,
   LedgerQuery,
+  WalletReconciliationObserver,
 } from './wallet-store';
 
-function exactMoney(amount: string) {
-  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
-  if (!match || (match[3]?.length ?? 0) > 2)
-    throw new Error('Reconciliation returned an invalid decimal amount');
-  return `${match[1]}${match[2]}.${(match[3] ?? '').padEnd(2, '0')}`;
-}
-
 export class Wallets {
-  constructor(private readonly store: WalletStore) {}
+  constructor(
+    private readonly store: WalletStore,
+    private readonly reconciliationObserver: WalletReconciliationObserver,
+  ) {}
   create(command: CreateWalletCommand, context: WalletContext) {
     return this.store.transaction(async (session) => {
       const resources = await session.openingResources(command.initialBalance.currency);
@@ -46,18 +43,21 @@ export class Wallets {
       next: rows.length > query.limit ? { after: entries.at(-1)!.walletVersion, upper } : null,
     };
   }
-  async reconcile(id: string) {
+  async reconcile(id: string, context?: { actorId?: string; correlationId?: string }) {
     const result = await this.store.reconcile(id);
     if (!result) throw new DomainError('WALLET_NOT_FOUND');
-    const stored = exactMoney(result.storedBalance);
-    const calculated = exactMoney(result.calculatedBalance);
-    const difference = exactMoney(result.difference);
+    if (!result.consistent)
+      this.reconciliationObserver.divergence({
+        walletId: id,
+        ...context,
+        checkedEntries: result.checkedEntries,
+      });
     return {
       walletId: id,
-      storedBalance: { amount: stored, currency: result.currency },
-      calculatedBalance: { amount: calculated, currency: result.currency },
-      difference: { amount: difference, currency: result.currency },
-      consistent: difference === '0.00' || difference === '-0.00',
+      storedBalance: { amount: result.storedBalance, currency: result.currency },
+      calculatedBalance: { amount: result.calculatedBalance, currency: result.currency },
+      difference: { amount: result.difference, currency: result.currency },
+      consistent: result.consistent,
       checkedEntries: result.checkedEntries,
     };
   }

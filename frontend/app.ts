@@ -76,18 +76,21 @@ async function ledger(append = false) {
   if (!append) element('entries').replaceChildren();
   for (const entry of page.entries) {
     const row = document.createElement('tr');
-    for (const [index, value] of [
-      entry.kind,
-      entry.externalTransactionId ?? '—',
-      entry.direction,
-      entry.amount,
-      entry.balanceAfter,
-      String(entry.walletVersion),
-    ].entries()) {
+    const columns = [
+      { value: entry.kind },
+      { value: entry.externalTransactionId ?? '—' },
+      { value: entry.direction },
+      {
+        value: entry.amount,
+        className: entry.direction === 'CREDIT' ? 'number credit' : 'number',
+      },
+      { value: entry.balanceAfter, className: 'number' },
+      { value: String(entry.walletVersion), className: 'number' },
+    ];
+    for (const column of columns) {
       const cell = document.createElement('td');
-      cell.textContent = value;
-      if (index >= 3) cell.classList.add('number');
-      if (index === 3 && entry.direction === 'CREDIT') cell.classList.add('credit');
+      cell.textContent = column.value;
+      if (column.className) cell.classList.add(...column.className.split(' '));
       row.append(cell);
     }
     element('entries').append(row);
@@ -226,8 +229,7 @@ async function start() {
   }
   element('workspace').hidden = false;
   const canCreate = identity.hasRealmRole('demo-operator');
-  const canReconcile =
-    identity.hasRealmRole('operator') || identity.hasRealmRole('demo-operator');
+  const canReconcile = identity.hasRealmRole('operator');
   element('create').hidden = !canCreate;
   element('read-only').hidden = canCreate;
   element('reconcile').hidden = !canReconcile;

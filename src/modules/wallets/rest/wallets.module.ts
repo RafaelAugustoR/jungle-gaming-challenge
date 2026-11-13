@@ -26,8 +26,7 @@ import {
 } from './wallet-contract';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
 import { Wallets } from '../application/wallets';
-import { WalletReconciliationMetrics } from '../application/reconciliation-metrics';
-import { JsonLogger } from '../../../observability/logger';
+import { MetricsModule, PrometheusWalletReconciliationObserver } from '../../../observability/metrics.module';
 
 @Controller('wallets')
 @UseGuards(Identity)
@@ -35,7 +34,6 @@ import { JsonLogger } from '../../../observability/logger';
 class WalletsController {
   constructor(
     @Inject(Wallets) private readonly wallets: Wallets,
-    @Inject(WalletReconciliationMetrics) private readonly metrics: WalletReconciliationMetrics,
   ) {}
   @Post()
   @HumanRole('demo-operator')
@@ -71,33 +69,26 @@ class WalletsController {
     @Req() request: { principal: Principal; correlationId: string },
   ) {
     parseUuid(id);
-    const result = await this.wallets.reconcile(id);
-    if (!result.consistent) {
-      this.metrics.recordDivergence();
-      new JsonLogger().warn({
-        event: 'wallet_reconciliation_divergence',
-        walletId: id,
-        actorId: request.principal.subject,
-        correlationId: request.correlationId,
-        checkedEntries: result.checkedEntries,
-      });
-    }
-    return result;
+    return this.wallets.reconcile(id, {
+      actorId: request.principal.subject,
+      correlationId: request.correlationId,
+    });
   }
 }
 
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, MetricsModule],
   controllers: [WalletsController],
   providers: [
     WalletRepository,
-    WalletReconciliationMetrics,
     {
       provide: Wallets,
-      inject: [WalletRepository],
-      useFactory: (repository: WalletRepository) => new Wallets(repository),
+      inject: [WalletRepository, PrometheusWalletReconciliationObserver],
+      useFactory: (
+        repository: WalletRepository,
+        observer: PrometheusWalletReconciliationObserver,
+      ) => new Wallets(repository, observer),
     },
   ],
-  exports: [WalletReconciliationMetrics],
 })
 export class WalletsModule {}

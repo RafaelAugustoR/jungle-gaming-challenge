@@ -10,6 +10,8 @@ Logs JSON correlacionam HTTP, processamento financeiro e outbox com correlationI
 
 Prometheus e Grafana serão provisionados pelo Docker Compose, com dashboard versionado. A instrumentação cobrirá transações por status, duplicatas, retries, DLQ, conflitos de lock, outbox lag e latência, além de divergências de reconciliação.
 
+O contador de divergências `wallet_reconciliation_divergences_total` é exposto em `/internal/metrics`, protegido pelo perfil viewer. O registro é por processo; agregação multiprocesso e seu scrape no provisionamento de produção são parte da entrega de observabilidade.
+
 Labels usarão dimensões limitadas, como operação, status e canal. Identificadores individuais ficam nos logs, não em labels. Contadores de tentativas e resultados financeiros persistidos são conceitos distintos: um replay não representa outra aposta processada. A especificação detalhará coleta multiprocesso e recuperação de métricas após reinícios.
 
 Health checks separam liveness e readiness, com PostgreSQL e SQS na verificação de prontidão exigida pelo README. Métricas e dashboards operacionais não herdam automaticamente a abertura pública dos health checks; seu acesso será limitado ao ambiente interno ou autenticado.

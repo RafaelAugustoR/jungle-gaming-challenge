@@ -1,7 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
-import { WalletReconciliationMetrics } from '../../src/modules/wallets/application/reconciliation-metrics';
+import { decodeJwt } from 'jose';
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 import { disposableDatabase } from '../support/database';
 let database: Awaited<ReturnType<typeof disposableDatabase>>;
@@ -211,6 +211,7 @@ integration('reconciliation is operator-only and reports an exact ledger snapsho
 integration('reconciliation reports a privileged fixture divergence, log and metric', async () => {
   const demo = await humanToken('demo-operator');
   const operator = await humanToken('operator');
+  const viewer = await humanToken('viewer');
   const created = await fetch(`${base}/wallets`, {
     method: 'POST',
     headers: { Authorization: `Bearer ${demo}`, 'Content-Type': 'application/json' },
@@ -220,6 +221,20 @@ integration('reconciliation reports a privileged fixture divergence, log and met
     }),
   });
   const wallet = (await created.json()) as { id: string };
+  const scrape = (token?: string) =>
+    fetch(`${base}/internal/metrics`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  expect((await scrape()).status).toBe(401);
+  const readMetric = async () => {
+    const response = await scrape(viewer);
+    expect(response.status).toBe(200);
+    const exposition = await response.text();
+    const value = /^wallet_reconciliation_divergences_total\s+(\d+)$/m.exec(exposition)?.[1];
+    expect(value).toBeDefined();
+    return Number(value);
+  };
+  const countBefore = await readMetric();
   await database.owner.em.execute(
     `alter table wagering.wallets disable trigger wallet_consistency;
      update wagering.wallets set balance=7.00 where id=?;
@@ -240,6 +255,7 @@ integration('reconciliation reports a privileged fixture divergence, log and met
     console.log = originalLog;
   }
   expect(response!.status).toBe(200);
+  const correlationId = response!.headers.get('x-correlation-id');
   expect(await response!.json()).toMatchObject({
     storedBalance: { amount: '7.00', currency: 'BRL' },
     calculatedBalance: { amount: '12.34', currency: 'BRL' },
@@ -247,8 +263,17 @@ integration('reconciliation reports a privileged fixture divergence, log and met
     consistent: false,
     checkedEntries: 1,
   });
-  expect(logged.join('\n')).toContain('wallet_reconciliation_divergence');
-  expect(app.get(WalletReconciliationMetrics).divergenceCount).toBe(1);
+  const parsedLogs = logged.map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(parsedLogs).toContainEqual(
+    expect.objectContaining({
+      event: 'wallet_reconciliation_divergence',
+      walletId: wallet.id,
+      actorId: decodeJwt(operator).sub,
+      correlationId,
+      checkedEntries: 1,
+    }),
+  );
+  expect(await readMetric()).toBe(countBefore + 1);
   const stillStored = await database.owner.em.execute(
     'select balance::text from wagering.wallets where id=?',
     [wallet.id],

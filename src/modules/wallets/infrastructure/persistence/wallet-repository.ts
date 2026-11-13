@@ -97,18 +97,22 @@ export class WalletRepository implements WalletStore {
           stored_balance: string;
           calculated_balance: string;
           difference: string;
+          consistent: boolean;
           currency: string;
           checked_entries: number;
         }>
       >(
-        `select w.balance::text as stored_balance, w.currency,
-          coalesce(sum(case when l.direction='CREDIT' then l.amount else -l.amount end),0)::text as calculated_balance,
-          (w.balance-coalesce(sum(case when l.direction='CREDIT' then l.amount else -l.amount end),0))::text as difference,
-          count(l.id)::int as checked_entries
+        `select round(w.balance,2)::text as stored_balance, ledger.calculated_balance::text,
+          round(w.balance-ledger.calculated_balance,2)::text as difference,
+          (w.balance=ledger.calculated_balance) as consistent, w.currency, ledger.checked_entries
         from wagering.wallets w
-        left join wagering.wallet_ledger l on l.wallet_id=w.id
+        cross join lateral (
+          select coalesce(sum(case when direction='CREDIT' then amount else -amount end),0) as calculated_balance,
+            count(*)::int as checked_entries
+          from wagering.wallet_ledger where wallet_id=w.id
+        ) ledger
         where w.id=?
-        group by w.id`,
+        `,
         [id],
       );
       return row
@@ -116,6 +120,7 @@ export class WalletRepository implements WalletStore {
             storedBalance: row.stored_balance,
             calculatedBalance: row.calculated_balance,
             difference: row.difference,
+            consistent: row.consistent,
             currency: row.currency,
             checkedEntries: row.checked_entries,
           }

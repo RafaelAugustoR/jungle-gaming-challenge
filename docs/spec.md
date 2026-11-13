@@ -173,7 +173,7 @@ Testes observam comportamento por essas interfaces. SQL direto é intencional no
 
 ### Matriz de requisitos e evidências
 
-A matriz abaixo define a evidência exigida para a entrega completa. Evidências executadas do recorte #3: [relatório e screenshots](evidence/issue-3/README.md). O recorte BET HTTP da Issue #4 tem [evidências próprias](evidence/issue-4/README.md) para R06/R08/R09/R10/R12/R13/R14/R16/R20/R21/D02. Isso não conclui os requisitos completos de WIN/LOSS, referências, HTTP/SQS cruzados, workers, publicação ou reconciliação.
+A matriz abaixo define a evidência exigida para a entrega completa. Evidências executadas do recorte #3: [relatório e screenshots](evidence/issue-3/README.md). O recorte BET HTTP da Issue #4 tem [evidências próprias](evidence/issue-4/README.md) para R06/R08/R09/R10/R12/R13/R14/R16/R20/R21/D02. O recorte da Issue #9 tem [evidências próprias](evidence/issue-9/README.md) para ledger paginado, reconciliação, console autenticado, log/métrica de divergência e constraints/concorrência relacionadas a R15/R21/R22/D01/D02/D03. Isso não conclui os requisitos completos de WIN/LOSS, referências, HTTP/SQS cruzados, workers ou publicação.
 
 | ID | Origem | Critério de aceite / decisão | Teste e evidência exigidos |
 | --- | --- | --- | --- |

@@ -64,3 +64,41 @@ export async function providerToken(provider: 'a' | 'b'): Promise<string> {
   if (!response.ok) throw new Error('Provider credentials failed');
   return body.access_token;
 }
+
+export async function allowConsoleRedirect(baseUrl: string) {
+  const issuer = new URL(loadConfig().keycloakIssuer);
+  const tokenResponse = await fetch(`${issuer.origin}/realms/master/protocol/openid-connect/token`, {
+    method: 'POST',
+    body: new URLSearchParams({
+      grant_type: 'password',
+      client_id: 'admin-cli',
+      username: 'admin',
+      password: 'local-demo-only',
+    }),
+  });
+  const { access_token: token } = (await tokenResponse.json()) as { access_token?: string };
+  if (!tokenResponse.ok || !token) throw new Error('Could not authorize temporary browser callback.');
+  const realm = issuer.pathname.split('/').at(-1);
+  const admin = `${issuer.origin}/admin/realms/${realm}`;
+  const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
+  const clientResponse = await fetch(`${admin}/clients?clientId=jungle-console`, { headers });
+  const [client] = (await clientResponse.json()) as Array<{
+    id: string;
+    redirectUris: string[];
+    webOrigins: string[];
+    [key: string]: unknown;
+  }>;
+  if (!clientResponse.ok || !client) throw new Error('Could not load the console client.');
+  const update = async (redirectUris: string[], webOrigins: string[]) => {
+    const response = await fetch(`${admin}/clients/${client.id}`, {
+      method: 'PUT',
+      headers,
+      body: JSON.stringify({ ...client, redirectUris, webOrigins }),
+    });
+    if (!response.ok) throw new Error('Could not configure the temporary browser callback.');
+  };
+  const previousRedirects = client.redirectUris;
+  const previousOrigins = client.webOrigins;
+  await update([...previousRedirects, baseUrl], [...previousOrigins, baseUrl]);
+  return async () => update(previousRedirects, previousOrigins);
+}
