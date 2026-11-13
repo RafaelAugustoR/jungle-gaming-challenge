@@ -70,3 +70,14 @@ completa: uma aceitação, 49 replays, saldo/reconstrução 20.00, um débito e 
 WagerTransactionProcessed. Os três processos HTTP tinham PIDs 85826, 85849 e 85878;
 o reinício usou 85904. A execução isolada do consumidor registrou PIDs 85453,
 85454 e 85455 para os três processos, com 53 entregas e três operações reconciliadas.
+
+Após a [revisão em dois eixos](review.md), a regressão adicional de SQS lento passou:
+`commands.log` registra **20 testes, 120 assertions e zero falhas**, cerca de 26 s.
+O teste de navegador separado passou (7 assertions) após instalar Chromium em `/tmp`
+com `PLAYWRIGHT_HOST_PLATFORM_OVERRIDE=ubuntu24.04-x64`, plataforma usada pela CI.
+
+O smoke do Compose construiu a imagem de produção, aplicou migrations num banco
+novo `issue7_smoke_20261113`, iniciou o consumidor (`command_worker_started`) e o
+encerrou com SIGTERM. O volume local anterior tinha schema inconsistente antes da
+migration da #6; foi preservado. O override de smoke apenas apontou migrate e
+command-consumer para o banco isolado, sem alterar arquivos versionados.

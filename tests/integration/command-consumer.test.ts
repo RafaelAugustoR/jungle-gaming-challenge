@@ -917,3 +917,88 @@ integration(
   },
   15000,
 );
+integration(
+  'SIGTERM remains bounded when a real SQS visibility-renewal request stalls',
+  async () => {
+    const { SQSClient } = await import('@aws-sdk/client-sqs');
+    const { CommandConsumer } = await import('../../src/messaging/commands/command-consumer');
+    const { wallet, envelope } = await fixture(),
+      locker = database.owner.em.fork();
+    await locker.begin();
+    await locker.execute('select id from wagering.wallets where id=? for update', [wallet.id]);
+    await send(envelope);
+    let sawRenewal!: () => void, release!: () => void;
+    const renewing = new Promise<void>((resolve) => {
+        sawRenewal = resolve;
+      }),
+      stalled = new Promise<void>((resolve) => {
+        release = resolve;
+      });
+    const proxy = Bun.serve({
+      hostname: '127.0.0.1',
+      port: 0,
+      async fetch(request) {
+        const body = await request.text(),
+          target = request.headers.get('x-amz-target') ?? '';
+        if (target.endsWith('.ChangeMessageVisibility') && JSON.parse(body).VisibilityTimeout > 0) {
+          sawRenewal();
+          await stalled;
+        }
+        const headers = new Headers(request.headers);
+        headers.delete('host');
+        headers.delete('content-length');
+        return fetch(database.config.sqsEndpoint, { method: request.method, headers, body });
+      },
+    });
+    const slow = new SQSClient({
+      region: database.config.awsRegion,
+      endpoint: proxy.url.toString(),
+      useQueueUrlAsEndpoint: false,
+      maxAttempts: 1,
+      credentials: { accessKeyId: 'test', secretAccessKey: 'test' },
+    });
+    const worker = new CommandConsumer(
+      orm,
+      slow,
+      { ...database.config, financialLockTimeoutMs: 10000, financialStatementTimeoutMs: 10000 },
+      {
+        queueUrl: queue,
+        dlqUrl: dlq,
+        visibilitySeconds: 1,
+        callTimeoutMs: 2000,
+        retryBaseMs: 1,
+        retryMaxMs: 1,
+        waitSeconds: 0,
+        drainMs: 100,
+      },
+    );
+    let running: Promise<number> | undefined;
+    try {
+      running = worker.runOnce();
+      await Promise.race([
+        renewing,
+        Bun.sleep(3000).then(() => {
+          throw new Error('No visibility renewal');
+        }),
+      ]);
+      const started = Date.now();
+      worker.stop();
+      await running;
+      expect(Date.now() - started).toBeLessThan(1500);
+      expect(
+        await orm.em
+          .fork()
+          .execute('select * from messaging.command_inbox where message_id=?', [
+            envelope.messageId,
+          ]),
+      ).toHaveLength(0);
+    } finally {
+      release();
+      await running;
+      slow.destroy();
+      await proxy.stop(true);
+      if (locker.isInTransaction()) await locker.rollback();
+    }
+  },
+  10000,
+);

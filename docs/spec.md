@@ -208,6 +208,10 @@ A matriz abaixo define a evidência exigida para a entrega completa. Evidências
 | D04 | §14 + A | Teste de carga | bun run test:load, 3 cenários, uma/três instâncias, ambiente, throughput, p50/p95/p99, erros, locks, lag e limitações do gerador. |
 | D05 | A | Hospedagem e vídeo | HTTPS/login, acesso do avaliador, dados fictícios e vídeo de disputa/replay/recuperação. |
 
+Evidências da entrada SQS da Issue #7: [consumidor financeiro](evidence/issue-7/README.md),
+cobrindo R09/R16/R17/R18, integração com referências da #6 e regressão da suíte da #8.
+O recorte usa as interfaces de teste já aprovadas; não altera contratos ou ADRs.
+
 ### Critério de conclusão
 
 Todos os requisitos R01–R25 e diferenciais D01–D05 demonstrados, sem falha eliminatória. Testes passando, typecheck/build válidos, ambiente limpo reproduzido, matriz preenchida com evidências reais e limitações honestas. Cobertura numérica não substitui cenários. Carga inclui aquecimento, taxa oferecida e processada, rejeições separadas de erros, reconciliação e balanceamento final. Nenhum ganho linear presumido.

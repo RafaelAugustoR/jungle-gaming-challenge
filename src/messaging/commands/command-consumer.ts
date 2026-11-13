@@ -71,26 +71,25 @@ export class CommandConsumer {
     if (this.active && !this.drainTimer)
       this.drainTimer = setTimeout(() => this.active?.abort(), this.options.drainMs);
   }
-  private call<T>(command: { resolveMiddleware: unknown }, signal?: AbortSignal): Promise<T> {
+  private callOptions(signal?: AbortSignal) {
     const timeout = AbortSignal.timeout(this.options.callTimeoutMs);
-    return this.sqs.send(command as Parameters<SQSClient['send']>[0], {
-      abortSignal: signal ? AbortSignal.any([signal, timeout]) : timeout,
-    }) as Promise<T>;
+    return { abortSignal: signal ? AbortSignal.any([signal, timeout]) : timeout };
   }
-  private visibility(message: Message, seconds: number) {
-    return this.call(
+  private visibility(message: Message, seconds: number, signal?: AbortSignal) {
+    return this.sqs.send(
       new ChangeMessageVisibilityCommand({
         QueueUrl: this.options.queueUrl,
         ReceiptHandle: message.ReceiptHandle!,
         VisibilityTimeout: seconds,
       }),
+      this.callOptions(signal),
     );
   }
   async runOnce(): Promise<number> {
     if (this.stopping) return 0;
     let messages: Message[];
     try {
-      const response = await this.call<{ Messages?: Message[] }>(
+      const response = await this.sqs.send(
         new ReceiveMessageCommand({
           QueueUrl: this.options.queueUrl,
           MaxNumberOfMessages: 1,
@@ -98,7 +97,7 @@ export class CommandConsumer {
           VisibilityTimeout: this.options.visibilitySeconds,
           MessageSystemAttributeNames: ['ApproximateReceiveCount', 'MessageGroupId'],
         }),
-        this.polling.signal,
+        this.callOptions(this.polling.signal),
       );
       messages = response.Messages ?? [];
     } catch (error) {
@@ -118,12 +117,15 @@ export class CommandConsumer {
     const work = new AbortController();
     this.active = work;
     const deadline = setTimeout(() => work.abort(), this.config.financialDeadlineMs);
-    let renewal: Promise<unknown> = Promise.resolve();
+    let renewal: Promise<unknown> | undefined;
     const heartbeat = setInterval(
       () => {
-        renewal = renewal
-          .then(() => this.visibility(message, this.options.visibilitySeconds))
-          .catch(() => work.abort());
+        if (renewal || work.signal.aborted) return;
+        renewal = this.visibility(message, this.options.visibilitySeconds, work.signal)
+          .catch(() => work.abort())
+          .finally(() => {
+            renewal = undefined;
+          });
       },
       Math.max(100, (this.options.visibilitySeconds * 1000) / 3),
     );
@@ -153,11 +155,12 @@ export class CommandConsumer {
       clearTimeout(deadline);
       await this.observer.committed?.(envelope.messageId);
       await settleHeartbeat();
-      await this.call(
+      await this.sqs.send(
         new DeleteMessageCommand({
           QueueUrl: this.options.queueUrl,
           ReceiptHandle: message.ReceiptHandle!,
         }),
+        this.callOptions(),
       );
       this.logger.log({
         event: 'command_committed',
@@ -174,7 +177,7 @@ export class CommandConsumer {
           .update(JSON.stringify([this.options.queueUrl, message.MessageId]))
           .digest('hex');
         try {
-          await this.call(
+          await this.sqs.send(
             new SendMessageCommand({
               QueueUrl: this.options.dlqUrl,
               MessageGroupId: identity,
@@ -186,13 +189,15 @@ export class CommandConsumer {
                 originalBody: message.Body ?? '',
               }),
             }),
+            this.callOptions(),
           );
           await this.observer.deadLetterSent?.(originalMessageId);
-          await this.call(
+          await this.sqs.send(
             new DeleteMessageCommand({
               QueueUrl: this.options.queueUrl,
               ReceiptHandle: message.ReceiptHandle!,
             }),
+            this.callOptions(),
           );
           this.logger.warn({
             event: 'command_dead_lettered',
@@ -201,7 +206,7 @@ export class CommandConsumer {
           });
         } catch {
           this.logger.warn({ event: 'command_dlq_transfer_failed', messageId: originalMessageId });
-          await this.retry(message);
+          if (!this.stopping) await this.retry(message);
         }
       } else {
         this.logger.warn({
@@ -209,7 +214,7 @@ export class CommandConsumer {
           messageId: envelope?.messageId,
           reason: error instanceof DomainError ? error.code : 'PROCESSING_UNAVAILABLE',
         });
-        await this.retry(message);
+        if (!this.stopping) await this.retry(message);
       }
     } finally {
       clearTimeout(deadline);

@@ -13,24 +13,25 @@ export async function provisionCommandQueues(
   maxReceiveCount = 5,
   visibilitySeconds = 30,
 ) {
-  const send = <T>(command: unknown) =>
-    sqs.send(command as Parameters<SQSClient['send']>[0], {
-      abortSignal: AbortSignal.timeout(5000),
-    }) as Promise<T>;
-  const { QueueUrl: dlq } = await send<{ QueueUrl: string }>(
+  const callOptions = () => ({ abortSignal: AbortSignal.timeout(5000) });
+  const { QueueUrl: dlq } = await sqs.send(
     new CreateQueueCommand({
       QueueName: name.replace(/\.fifo$/, '-dlq.fifo'),
       Attributes: { FifoQueue: 'true', MessageRetentionPeriod: '1209600' },
     }),
+    callOptions(),
   );
-  const { Attributes } = await send<{ Attributes: Record<string, string> }>(
+  const { Attributes } = await sqs.send(
     new GetQueueAttributesCommand({ QueueUrl: dlq, AttributeNames: ['QueueArn'] }),
+    callOptions(),
   );
-  if (!Attributes.QueueArn) throw new Error('COMMAND_DLQ_ARN_NOT_FOUND');
-  const { QueueUrl: queue } = await send<{ QueueUrl: string }>(
+  if (!dlq || !Attributes?.QueueArn) throw new Error('COMMAND_DLQ_ARN_NOT_FOUND');
+  const { QueueUrl: queue } = await sqs.send(
     new CreateQueueCommand({ QueueName: name, Attributes: { FifoQueue: 'true' } }),
+    callOptions(),
   );
-  await send(
+  if (!queue) throw new Error('COMMAND_QUEUE_URL_NOT_FOUND');
+  await sqs.send(
     new SetQueueAttributesCommand({
       QueueUrl: queue,
       Attributes: {
@@ -41,6 +42,7 @@ export async function provisionCommandQueues(
         }),
       },
     }),
+    callOptions(),
   );
   return { queue, dlq };
 }
