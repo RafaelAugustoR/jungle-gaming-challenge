@@ -2,6 +2,7 @@ import { DomainError } from '../../../shared/domain/errors/domain-error';
 import { Money } from '../../../shared/domain/money';
 import type { CreateWalletCommand, LedgerQuery } from '../application/wallet-store';
 import type { Wallet } from '../domain/wallet';
+import { decodeLedgerCursor, encodeLedgerCursor } from './ledger-cursor';
 
 export function parseCreateWallet(body: unknown): CreateWalletCommand {
   if (!body || typeof body !== 'object' || Array.isArray(body))
@@ -41,20 +42,9 @@ export function parseLedgerQuery(
   )
     throw new DomainError('INVALID_PAYLOAD');
   if (cursor === undefined) return { limit };
-  try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
-    if (
-      parsed.walletId !== walletId ||
-      !Number.isInteger(parsed.after) ||
-      !Number.isInteger(parsed.upper) ||
-      parsed.after < 0 ||
-      parsed.after >= parsed.upper
-    )
-      throw new Error();
-    return { limit, cursor: { after: parsed.after, upper: parsed.upper } };
-  } catch {
-    throw new DomainError('INVALID_PAYLOAD');
-  }
+  const position = decodeLedgerCursor(cursor, walletId);
+  if (!position) throw new DomainError('INVALID_PAYLOAD');
+  return { limit, cursor: position };
 }
 export function walletResponse(wallet: Wallet) {
   return {
@@ -70,8 +60,6 @@ export function ledgerResponse(
 ) {
   return {
     entries: page.entries,
-    nextCursor: page.next
-      ? Buffer.from(JSON.stringify({ walletId, ...page.next })).toString('base64url')
-      : null,
+    nextCursor: page.next ? encodeLedgerCursor(walletId, page.next) : null,
   };
 }

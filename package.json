@@ -14,7 +14,7 @@
     "test:integration": "bun scripts/test-integration.ts",
     "test:concurrency": "INTEGRATION=1 bun test tests/concurrency",
     "build:frontend": "bun scripts/build-frontend.ts",
-    "test:browser": "BROWSER=1 bun test tests/integration/console.test.ts"
+    "test:browser": "bun run build:frontend && BROWSER=1 bun test tests/integration/console.test.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",
@@ -27,6 +27,7 @@
     "decimal.js": "10.6.0",
     "jose": "6.1.3",
     "keycloak-js": "26.2.2",
+    "prom-client": "15.1.3",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"
   },

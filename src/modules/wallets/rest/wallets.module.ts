@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
   Module,
   Param,
@@ -25,12 +26,16 @@ import {
 } from './wallet-contract';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
 import { Wallets } from '../application/wallets';
+import { MetricsModule } from '../../../observability/metrics.module';
+import { PrometheusWalletReconciliationObserver } from '../infrastructure/observability/prometheus-wallet-reconciliation-observer';
 
 @Controller('wallets')
 @UseGuards(Identity)
 @HumanRole('viewer')
 class WalletsController {
-  constructor(@Inject(Wallets) private readonly wallets: Wallets) {}
+  constructor(
+    @Inject(Wallets) private readonly wallets: Wallets,
+  ) {}
   @Post()
   @HumanRole('demo-operator')
   async create(
@@ -57,16 +62,34 @@ class WalletsController {
     parseUuid(id);
     return ledgerResponse(id, await this.wallets.ledger(id, parseLedgerQuery(id, cursor, limit)));
   }
+  @Post(':walletId/reconciliation')
+  @HumanRole('operator')
+  @HttpCode(200)
+  async reconcile(
+    @Param('walletId') id: string,
+    @Req() request: { principal: Principal; correlationId: string },
+  ) {
+    parseUuid(id);
+    return this.wallets.reconcile(id, {
+      actorId: request.principal.subject,
+      correlationId: request.correlationId,
+    });
+  }
 }
+
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, MetricsModule],
   controllers: [WalletsController],
   providers: [
     WalletRepository,
+    PrometheusWalletReconciliationObserver,
     {
       provide: Wallets,
-      inject: [WalletRepository],
-      useFactory: (repository: WalletRepository) => new Wallets(repository),
+      inject: [WalletRepository, PrometheusWalletReconciliationObserver],
+      useFactory: (
+        repository: WalletRepository,
+        observer: PrometheusWalletReconciliationObserver,
+      ) => new Wallets(repository, observer),
     },
   ],
 })

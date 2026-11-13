@@ -1,6 +1,7 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
+import { decodeJwt } from 'jose';
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 import { disposableDatabase } from '../support/database';
 let database: Awaited<ReturnType<typeof disposableDatabase>>;
@@ -71,6 +72,272 @@ integration(
   },
 );
 
+integration('ledger cursor keeps its captured wallet version while new entries arrive', async () => {
+  const demo = await humanToken('demo-operator');
+  const viewer = await humanToken('viewer');
+  const provider = await providerToken('a');
+  const headers = (token: string) => ({
+    Authorization: `Bearer ${token}`,
+    'Content-Type': 'application/json',
+  });
+  const created = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: headers(demo),
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '100.00', currency: 'BRL' },
+    }),
+  });
+  const wallet = (await created.json()) as { id: string; playerId: string };
+  const wager = async (amount: string) => {
+    const response = await fetch(`${base}/wagering/transactions`, {
+      method: 'POST',
+      headers: { ...headers(provider), 'Idempotency-Key': crypto.randomUUID() },
+      body: JSON.stringify({
+        providerId: 'provider-a',
+        externalTransactionId: crypto.randomUUID(),
+        playerId: wallet.playerId,
+        walletId: wallet.id,
+        roundId: 'cursor-round',
+        gameId: 'cursor-game',
+        kind: 'BET',
+        money: { amount, currency: 'BRL' },
+      }),
+    });
+    expect(response.status).toBe(200);
+  };
+  await wager('10.00');
+  await wager('5.00');
+
+  const first = await fetch(`${base}/wallets/${wallet.id}/ledger?limit=1`, {
+    headers: headers(viewer),
+  });
+  const firstPage = (await first.json()) as {
+    entries: { kind: string; walletVersion: number }[];
+    nextCursor: string;
+  };
+  expect(firstPage.entries).toMatchObject([{ kind: 'OPENING', walletVersion: 1 }]);
+  expect(firstPage.nextCursor).toBeTruthy();
+  await wager('1.00');
+
+  const second = await fetch(
+    `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+    { headers: headers(viewer) },
+  );
+  const secondPage = (await second.json()) as {
+    entries: { kind: string; walletVersion: number }[];
+    nextCursor: string | null;
+  };
+  expect(secondPage.entries).toMatchObject([{ kind: 'BET', walletVersion: 2 }]);
+  expect(secondPage.nextCursor).toBeTruthy();
+  const third = await fetch(
+    `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(secondPage.nextCursor!)}`,
+    { headers: headers(viewer) },
+  );
+  expect(await third.json()).toMatchObject({
+    entries: [{ kind: 'BET', walletVersion: 3 }],
+    nextCursor: null,
+  });
+  const otherCreated = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: headers(demo),
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '1.00', currency: 'BRL' },
+    }),
+  });
+  const otherWallet = (await otherCreated.json()) as { id: string };
+  const crossWalletCursor = await fetch(
+    `${base}/wallets/${otherWallet.id}/ledger?cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+    { headers: headers(viewer) },
+  );
+  expect(crossWalletCursor.status).toBe(400);
+});
+
+integration('reconciliation is operator-only and reports an exact ledger snapshot', async () => {
+  const demo = await humanToken('demo-operator');
+  const viewer = await humanToken('viewer');
+  const operator = await humanToken('operator');
+  const provider = await providerToken('a');
+  const create = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${demo}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '1000000000000000.01', currency: 'BRL' },
+    }),
+  });
+  const wallet = (await create.json()) as { id: string; playerId: string };
+  const bet = await fetch(`${base}/wagering/transactions`, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${provider}`,
+      'Content-Type': 'application/json',
+      'Idempotency-Key': crypto.randomUUID(),
+    },
+    body: JSON.stringify({
+      providerId: 'provider-a',
+      externalTransactionId: crypto.randomUUID(),
+      playerId: wallet.playerId,
+      walletId: wallet.id,
+      roundId: 'reconcile-round',
+      gameId: 'reconcile-game',
+      kind: 'BET',
+      money: { amount: '0.02', currency: 'BRL' },
+    }),
+  });
+  expect(bet.status).toBe(200);
+
+  const viewerAttempt = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${viewer}` },
+  });
+  expect(viewerAttempt.status).toBe(403);
+  const response = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${operator}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    walletId: wallet.id,
+    storedBalance: { amount: '999999999999999.99', currency: 'BRL' },
+    calculatedBalance: { amount: '999999999999999.99', currency: 'BRL' },
+    difference: { amount: '0.00', currency: 'BRL' },
+    consistent: true,
+    checkedEntries: 2,
+  });
+});
+
+integration('reconciliation reports a privileged fixture divergence, log and metric', async () => {
+  const demo = await humanToken('demo-operator');
+  const operator = await humanToken('operator');
+  const viewer = await humanToken('viewer');
+  const created = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${demo}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '12.34', currency: 'BRL' },
+    }),
+  });
+  const wallet = (await created.json()) as { id: string };
+  const scrape = (token?: string) =>
+    fetch(`${base}/internal/metrics`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+  expect((await scrape()).status).toBe(401);
+  const readMetric = async () => {
+    const response = await scrape(viewer);
+    expect(response.status).toBe(200);
+    const exposition = await response.text();
+    const value = /^wallet_reconciliation_divergences_total\s+(\d+)$/m.exec(exposition)?.[1];
+    expect(value).toBeDefined();
+    return Number(value);
+  };
+  const countBefore = await readMetric();
+  await database.owner.em.execute(
+    `alter table wagering.wallets disable trigger wallet_consistency;
+     update wagering.wallets set balance=7.00 where id=?;
+     alter table wagering.wallets enable trigger wallet_consistency`,
+    [wallet.id],
+  );
+
+  const logged: string[] = [];
+  const originalLog = console.log;
+  console.log = (...values: unknown[]) => logged.push(String(values[0]));
+  let response: Response;
+  try {
+    response = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${operator}` },
+    });
+  } finally {
+    console.log = originalLog;
+  }
+  expect(response!.status).toBe(200);
+  const correlationId = response!.headers.get('x-correlation-id');
+  expect(await response!.json()).toMatchObject({
+    storedBalance: { amount: '7.00', currency: 'BRL' },
+    calculatedBalance: { amount: '12.34', currency: 'BRL' },
+    difference: { amount: '-5.34', currency: 'BRL' },
+    consistent: false,
+    checkedEntries: 1,
+  });
+  const parsedLogs = logged.map((line) => JSON.parse(line) as Record<string, unknown>);
+  expect(parsedLogs).toContainEqual(
+    expect.objectContaining({
+      event: 'wallet_reconciliation_divergence',
+      walletId: wallet.id,
+      actorId: decodeJwt(operator).sub,
+      correlationId,
+      checkedEntries: 1,
+    }),
+  );
+  expect(await readMetric()).toBe(countBefore + 1);
+  const stillStored = await database.owner.em.execute(
+    'select balance::text from wagering.wallets where id=?',
+    [wallet.id],
+  );
+  expect(stillStored).toEqual([{ balance: '7.00' }]);
+});
+
+integration('reconciliation formats ledger aggregates beyond the wallet input bound', async () => {
+  const demo = await humanToken('demo-operator');
+  const operator = await humanToken('operator');
+  const created = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${demo}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '12.34', currency: 'BRL' },
+    }),
+  });
+  const wallet = (await created.json()) as { id: string };
+  await database.owner.em.fork().transactional(async (em) => {
+    const [owner] = await em.execute<{ account_id: string; currency: string }[]>(
+      'select account_id,currency from wagering.wallets where id=?',
+      [wallet.id],
+    );
+    const [gaming] = await em.execute<{ id: string }[]>(
+      "select id from wagering.accounts where currency=? and kind='GAMING'",
+      [owner!.currency],
+    );
+    await em.execute('alter table wagering.transactions disable trigger transaction_consistency');
+    await em.execute('alter table wagering.transactions disable trigger external_submission_consistency');
+    await em.execute('alter table wagering.journal disable trigger journal_consistency');
+    for (const walletVersion of [2, 3]) {
+      const transactionId = crypto.randomUUID();
+      await em.execute(
+        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status)
+         values(?,?,'BRL','9999999999999999.99','WIN','PROCESSED')`,
+        [transactionId, wallet.id],
+      );
+      await em.execute(
+        `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version)
+         values(?,?,?,'BRL','9999999999999999.99',?,?,0,'9999999999999999.99',?)`,
+        [crypto.randomUUID(), transactionId, wallet.id, gaming!.id, owner!.account_id, walletVersion],
+      );
+    }
+    await em.execute('set constraints all immediate');
+    await em.execute('alter table wagering.journal enable trigger journal_consistency');
+    await em.execute('alter table wagering.transactions enable trigger external_submission_consistency');
+    await em.execute('alter table wagering.transactions enable trigger transaction_consistency');
+  });
+
+  const response = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${operator}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    storedBalance: { amount: '12.34', currency: 'BRL' },
+    calculatedBalance: { amount: '20000000000000012.32', currency: 'BRL' },
+    difference: { amount: '-19999999999999999.98', currency: 'BRL' },
+    consistent: false,
+    checkedEntries: 3,
+  });
+});
+
 integration(
   'zero opening has version one and no ledger; duplicate player/currency conflicts',
   async () => {
@@ -86,6 +353,18 @@ integration(
     expect(wallet).toMatchObject({ balance: { amount: '0.00', currency: 'BRL' }, version: 1 });
     const ledger = await fetch(`${base}/wallets/${wallet.id}/ledger`, { headers });
     expect(await ledger.json()).toEqual({ entries: [], nextCursor: null });
+    const reconciliation = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+      method: 'POST',
+      headers,
+    });
+    expect(reconciliation.status).toBe(200);
+    expect(await reconciliation.json()).toMatchObject({
+      storedBalance: { amount: '0.00', currency: 'BRL' },
+      calculatedBalance: { amount: '0.00', currency: 'BRL' },
+      difference: { amount: '0.00', currency: 'BRL' },
+      consistent: true,
+      checkedEntries: 0,
+    });
     const duplicate = await fetch(`${base}/wallets`, { method: 'POST', headers, body });
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ code: 'WALLET_ALREADY_EXISTS' });
@@ -144,7 +423,7 @@ integration('wallet HTTP validates payloads, missing wallets and cursor limits',
   }
   expect((await fetch(`${base}/wallets/${crypto.randomUUID()}`, { headers })).status).toBe(404);
   expect((await fetch(`${base}/wallets/not-a-uuid`, { headers })).status).toBe(400);
-  for (const query of ['limit=0', 'limit=101', 'limit=abc', 'cursor=garbage']) {
+  for (const query of ['limit=0', 'limit=101', 'limit=abc', 'cursor=garbage', 'cursor=v1.bad']) {
     expect(
       (await fetch(`${base}/wallets/${crypto.randomUUID()}/ledger?${query}`, { headers })).status,
     ).toBe(400);

@@ -19,7 +19,8 @@ interface AccessPolicy {
   humanRoles?: readonly string[];
 }
 export const Access = (policy: AccessPolicy) => SetMetadata('accessPolicy', policy);
-export const HumanRole = (role: 'viewer' | 'demo-operator') => Access({ humanRoles: [role] });
+export const HumanRole = (role: 'viewer' | 'operator' | 'demo-operator') =>
+  Access({ humanRoles: [role] });
 @Injectable()
 export class Identity implements CanActivate {
   private readonly keys;

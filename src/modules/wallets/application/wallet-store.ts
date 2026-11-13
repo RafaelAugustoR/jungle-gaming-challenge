@@ -11,6 +11,7 @@ export interface WalletContext {
 export interface LedgerEntryView {
   id: string;
   transactionId: string;
+  externalTransactionId: string | null;
   kind: string;
   direction: 'CREDIT' | 'DEBIT';
   amount: string;
@@ -24,6 +25,23 @@ export interface WalletStore {
   transaction<T>(work: (session: WalletSession) => Promise<T>): Promise<T>;
   find(id: string): Promise<Wallet | undefined>;
   ledger(id: string, after: number, upper: number, limit: number): Promise<LedgerEntryView[]>;
+  reconcile(id: string): Promise<WalletReconciliationView | undefined>;
+}
+export interface WalletReconciliationView {
+  storedBalance: string;
+  calculatedBalance: string;
+  difference: string;
+  consistent: boolean;
+  currency: string;
+  checkedEntries: number;
+}
+export interface WalletReconciliationObserver {
+  divergence(input: {
+    walletId: string;
+    actorId?: string;
+    correlationId?: string;
+    checkedEntries: number;
+  }): void;
 }
 export interface LedgerQuery {
   limit: number;
