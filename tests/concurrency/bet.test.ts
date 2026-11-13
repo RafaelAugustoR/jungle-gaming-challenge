@@ -88,7 +88,7 @@ async function untilBlocked(walletId: string, count = 1) {
   const deadline = Date.now() + 5000;
   while (Date.now() < deadline) {
     const [row] = await database.owner.em.execute(
-      `select count(distinct application_name)::int n from pg_stat_activity where datname=current_database() and application_name like 'wagering-api-%' and wait_event_type='Lock' and query like '%from wagering.wallets where id=%'`,
+      `select count(distinct application_name)::int n from pg_stat_activity where datname=current_database() and application_name like 'bet-test-%' and wait_event_type='Lock' and query like '%from wagering.wallets where id=%'`,
     );
     if (row.n >= count) return;
     await Bun.sleep(10);

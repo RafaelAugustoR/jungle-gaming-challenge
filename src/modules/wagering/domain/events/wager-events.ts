@@ -2,7 +2,8 @@ import {
   IntegrationEvent,
   type EventContext,
 } from '../../../../shared/domain/events/integration-event';
-import type { BetCommand } from '../wager-transaction';
+import type { WagerCommand, WagerKind } from '../wager-command';
+import type { WagerFailureCode } from '../submission-receipt';
 import type { MoneyProps } from '../../../../shared/domain/money';
 export interface WagerResultData {
   transactionId: string;
@@ -12,13 +13,13 @@ export interface WagerResultData {
   playerId: string;
   roundId: string;
   gameId: string;
-  kind: 'BET';
+  kind: WagerKind;
   money: MoneyProps;
   balance: MoneyProps;
-  failureCode?: string;
+  failureCode?: WagerFailureCode;
 }
 function resultData(
-  command: BetCommand,
+  command: WagerCommand,
   transactionId: string,
   balance: MoneyProps,
 ): WagerResultData {
@@ -31,7 +32,7 @@ export class WagerTransactionProcessed extends IntegrationEvent<WagerResultData>
     super(data.walletId, at, context, Object.freeze(data));
   }
   static from(
-    command: BetCommand,
+    command: WagerCommand,
     id: string,
     balance: MoneyProps,
     at: string,
@@ -47,10 +48,10 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerResultData> 
     super(data.walletId, at, context, Object.freeze(data));
   }
   static from(
-    command: BetCommand,
+    command: WagerCommand,
     id: string,
     balance: MoneyProps,
-    failureCode: string,
+    failureCode: WagerFailureCode,
     at: string,
     context: EventContext,
   ) {

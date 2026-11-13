@@ -235,6 +235,7 @@ integration(
     const bet = command(w);
     const key = crypto.randomUUID();
     const invalid = [
+      ...['WIN', 'LOSS', 'REFUND', 'ROLLBACK'].map((kind) => ({ ...bet, kind })),
       { ...bet, kind: 'OPENING' },
       { ...bet, surprise: true },
       { ...bet, referenceExternalTransactionId: null },
@@ -467,4 +468,69 @@ integration(
       );
     }
   },
+);
+
+integration(
+  'an accepted key conflicts with a changed nonexistent wallet before resource validation',
+  async () => {
+    const w = await wallet(),
+      bet = command(w),
+      key = crypto.randomUUID();
+    expect((await submit(bet, key)).status).toBe(200);
+    const changed = { ...bet, walletId: crypto.randomUUID() };
+    expect(await submit(changed, key)).toMatchObject({
+      status: 409,
+      body: { code: 'IDEMPOTENCY_CONFLICT' },
+    });
+    expect(await submit(changed)).toMatchObject({
+      status: 404,
+      body: { code: 'WALLET_NOT_FOUND' },
+    });
+  },
+);
+
+integration(
+  'SQL timeout shrinks with the remaining transaction budget after earlier statements consume time',
+  async () => {
+    const w = await wallet(),
+      bet = command(w),
+      key = crypto.randomUUID();
+    const bounded = await createApplication({
+      ...database.config,
+      financialDeadlineMs: 600,
+      financialStatementTimeoutMs: 1000,
+      financialLockTimeoutMs: 50,
+    });
+    await bounded.listen(0, '127.0.0.1');
+    await database.owner.em.execute(`create sequence wagering.test_remaining_limit start 1000;
+    grant usage,update on sequence wagering.test_remaining_limit to jungle_runtime;
+    create function wagering.test_consume_budget() returns trigger language plpgsql as $$ begin
+      if tg_table_name='journal' then perform setval('wagering.test_remaining_limit', (extract(epoch from current_setting('statement_timeout')::interval)*1000)::integer); end if;
+      perform pg_sleep(0.35); return new;
+    end $$;
+    create trigger test_consume_budget before insert on wagering.transactions for each row execute function wagering.test_consume_budget();
+    create trigger test_consume_budget before insert on wagering.journal for each row execute function wagering.test_consume_budget()`);
+    try {
+      const response = await fetch(`${await bounded.getUrl()}/wagering/transactions`, {
+        method: 'POST',
+        headers: { ...headers(provider), 'Idempotency-Key': key },
+        body: JSON.stringify(bet),
+      });
+      expect(response.status).toBe(503);
+      const recorded = (
+        await database.owner.em.execute('select last_value::int from wagering.test_remaining_limit')
+      )[0].last_value;
+      expect(recorded).toBeGreaterThan(1);
+      expect(recorded).toBeLessThan(600);
+      const read = await fetch(`${base}/wallets/${w.id}`, { headers: headers(viewer) });
+      expect(await read.json()).toMatchObject({ balance: { amount: '100.00' }, version: 1 });
+    } finally {
+      await bounded.close();
+      await database.owner.em.execute(
+        'drop trigger test_consume_budget on wagering.transactions; drop trigger test_consume_budget on wagering.journal; drop function wagering.test_consume_budget(); drop sequence wagering.test_remaining_limit',
+      );
+    }
+    expect((await submit(bet, key)).status).toBe(200);
+  },
+  10000,
 );

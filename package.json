@@ -11,7 +11,7 @@
     "test": "bun test",
     "migrate:up": "bun scripts/migrate.ts up",
     "migrate:down": "bun scripts/migrate.ts down",
-    "test:integration": "INTEGRATION=1 bun test tests/integration tests/concurrency",
+    "test:integration": "bun scripts/test-integration.ts",
     "test:concurrency": "INTEGRATION=1 bun test tests/concurrency",
     "build:frontend": "bun scripts/build-frontend.ts",
     "test:browser": "BROWSER=1 bun test tests/integration/console.test.ts"

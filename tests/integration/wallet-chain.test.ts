@@ -251,3 +251,29 @@ integration(
     ).rejects.toMatchObject({ code: '23514' });
   },
 );
+
+integration('SQL and domain policy allow only the documented state transition edges', async () => {
+  const states = ['PENDING', 'PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'];
+  for (const from of states)
+    for (const to of states) {
+      const allowed =
+        (from === 'PENDING' &&
+          ['PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'].includes(to)) ||
+        (from === 'PENDING_REFERENCE' && ['PROCESSED', 'REJECTED', 'FAILED'].includes(to));
+      const write = database.owner.em.fork().transactional(async (em) => {
+        const w = await wallet(em),
+          id = crypto.randomUUID();
+        await em.execute(
+          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,failure_code) values(?,?,'BRL',0,'WIN',?,?)`,
+          [id, w.id, from, ['REJECTED', 'FAILED'].includes(from) ? 'INSUFFICIENT_FUNDS' : null],
+        );
+        await em.execute('update wagering.transactions set status=?,failure_code=? where id=?', [
+          to,
+          ['REJECTED', 'FAILED'].includes(to) ? 'INSUFFICIENT_FUNDS' : null,
+          id,
+        ]);
+      });
+      if (allowed) await write;
+      else await expect(write).rejects.toMatchObject({ code: '23514' });
+    }
+});

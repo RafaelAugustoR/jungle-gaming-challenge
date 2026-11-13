@@ -4,14 +4,15 @@ import { Wallet } from '../../domain/wallet';
 import { Money } from '../../../../shared/domain/money';
 import type { WalletSession, WalletStore, LedgerEntryView } from '../../application/wallet-store';
 import { PostgresWalletSession } from './opening-session';
-import { databaseOperation } from './database-error';
+import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
 
 @Injectable()
 export class WalletRepository implements WalletStore {
   constructor(@Inject(MikroORM) private readonly orm: MikroORM) {}
   transaction<T>(work: (session: WalletSession) => Promise<T>): Promise<T> {
-    return databaseOperation(() =>
-      this.orm.em.fork().transactional((em) => work(new PostgresWalletSession(em))),
+    return databaseOperation(
+      () => this.orm.em.fork().transactional((em) => work(new PostgresWalletSession(em))),
+      { wallets_player_id_currency_key: 'WALLET_ALREADY_EXISTS' },
     );
   }
   find(id: string): Promise<Wallet | undefined> {

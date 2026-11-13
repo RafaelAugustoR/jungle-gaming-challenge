@@ -4,31 +4,80 @@ import type { AppConfig } from '../../../../config/config';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { DomainError } from '../../../../shared/domain/errors/domain-error';
 import {
-  isTransientPostgresError,
   isRetryableTransactionError,
+  pgCode,
+  pgConstraint,
 } from '../../../../shared/infrastructure/postgres-error';
+import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
+import { WagerTransaction } from '../../domain/wager-transaction';
+import type { WagerKind } from '../../domain/wager-command';
+import type { SubmissionReceipt, WagerFailureCode } from '../../domain/submission-receipt';
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
-  AcceptedSubmission,
   TransactionView,
   WageringSession,
   WageringStore,
 } from '../../application/wagering-store';
 
+interface TransactionRow {
+  id: string;
+  wallet_id: string;
+  provider_id: string | null;
+  external_transaction_id: string | null;
+  idempotency_key: string | null;
+  request_hash: string | null;
+  player_id: string;
+  round_id: string | null;
+  game_id: string | null;
+  kind: string;
+  status: TransactionView['status'];
+  failure_code: WagerFailureCode | null;
+  amount: string;
+  currency: string;
+  created_at: Date;
+  processed_at: Date | null;
+  http_status: number | null;
+  body: SubmissionReceipt['body'] | null;
+}
+function receiptFrom(row: TransactionRow): SubmissionReceipt {
+  if (row.http_status === 200 && row.body?.status === 'PROCESSED')
+    return { httpStatus: 200, body: row.body };
+  if (row.http_status === 422 && row.body?.status === 'REJECTED')
+    return { httpStatus: 422, body: row.body };
+  throw new Error('Inconsistent persisted submission receipt');
+}
 async function submission(
   em: EntityManager,
   providerId: string,
   key: string,
-): Promise<AcceptedSubmission | undefined> {
-  const [row] = await em.execute<
-    { request_hash: string; http_status: 200 | 422; body: AcceptedSubmission['receipt']['body'] }[]
-  >(
-    `select t.request_hash, r.http_status, r.body from wagering.transactions t join wagering.submission_receipts r on r.transaction_id=t.id where t.provider_id=? and t.idempotency_key=?`,
+): Promise<WagerTransaction | undefined> {
+  const [row] = await em.execute<TransactionRow[]>(
+    `select t.*,t.amount::text as amount,r.http_status,r.body from wagering.transactions t join wagering.submission_receipts r on r.transaction_id=t.id where t.provider_id=? and t.idempotency_key=?`,
     [providerId, key],
   );
   return (
-    row && { hash: row.request_hash, receipt: { httpStatus: row.http_status, body: row.body } }
+    row &&
+    WagerTransaction.rehydrate({
+      id: row.id,
+      command: {
+        providerId: row.provider_id!,
+        externalTransactionId: row.external_transaction_id!,
+        walletId: row.wallet_id,
+        playerId: row.player_id,
+        roundId: row.round_id!,
+        gameId: row.game_id!,
+        kind: row.kind as WagerKind,
+        money: Money.rehydrate({ amount: row.amount, currency: row.currency }),
+      },
+      idempotencyKey: row.idempotency_key!,
+      payloadHash: row.request_hash!,
+      createdAt: new Date(row.created_at).toISOString(),
+      processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : undefined,
+      status: row.status,
+      ...(row.failure_code ? { failureCode: row.failure_code } : {}),
+      receipt: receiptFrom(row),
+    })
   );
 }
 async function external(em: EntityManager, providerId: string, id: string): Promise<boolean> {
@@ -41,15 +90,6 @@ async function external(em: EntityManager, providerId: string, id: string): Prom
     ).length > 0
   );
 }
-async function query<T>(work: () => Promise<T>): Promise<T> {
-  try {
-    return await work();
-  } catch (error) {
-    if (error instanceof DomainError) throw error;
-    if (isTransientPostgresError(error)) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
-    throw error;
-  }
-}
 @Injectable()
 export class WageringRepository implements WageringStore {
   constructor(
@@ -57,34 +97,34 @@ export class WageringRepository implements WageringStore {
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
   async transaction<T>(work: (session: WageringSession) => Promise<T>): Promise<T> {
-    return query(async () => {
+    return databaseOperation(async () => {
       const deadline = Date.now() + this.config.financialDeadlineMs;
       for (let attempt = 1; ; attempt++) {
         try {
           return await this.orm.em.fork().transactional(async (em) => {
-            await em.execute("select set_config('application_name',?,true)", [
-              `wagering-api-${process.pid}`,
-            ]);
-            return work(new PostgresWageringSession(em, this.config, deadline));
+            const session = new PostgresWageringSession(em, this.config, deadline);
+            const result = await work(session);
+            await session.beforeCommit();
+            return result;
           });
         } catch (error) {
-          const { code, constraint } = error as { code?: string; constraint?: string };
+          const identityRace =
+            pgCode(error) === '23505' &&
+            ['provider_idempotency_key', 'provider_external_transaction'].includes(
+              pgConstraint(error) ?? '',
+            );
+          // transactional() has rolled back before another attempt reads the winner.
           if (
-            code === '23505' &&
-            ['provider_idempotency_key', 'provider_external_transaction'].includes(constraint ?? '')
+            attempt < 3 &&
+            Date.now() < deadline &&
+            (identityRace || isRetryableTransactionError(error))
           )
-            throw new DomainError('SUBMISSION_RACE');
-          if (attempt < 3 && Date.now() < deadline && isRetryableTransactionError(error)) continue;
+            continue;
+          if (identityRace) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
           throw error;
         }
       }
     });
-  }
-  findSubmission(providerId: string, key: string) {
-    return query(() => submission(this.orm.em.fork(), providerId, key));
-  }
-  externalExists(providerId: string, id: string) {
-    return query(() => external(this.orm.em.fork(), providerId, id));
   }
   find(id: string) {
     return this.read('t.id=?', [id]);
@@ -93,26 +133,12 @@ export class WageringRepository implements WageringStore {
     return this.read('t.provider_id=? and t.external_transaction_id=?', [providerId, id]);
   }
   private read(where: string, params: string[]): Promise<TransactionView | undefined> {
-    return query(async () => {
-      const [row] = await this.orm.em.fork().execute<
-        Array<{
-          id: string;
-          wallet_id: string;
-          provider_id: string | null;
-          external_transaction_id: string | null;
-          player_id: string;
-          round_id: string | null;
-          game_id: string | null;
-          kind: string;
-          status: TransactionView['status'];
-          failure_code: string | null;
-          amount: string;
-          currency: string;
-          created_at: Date;
-          processed_at: Date | null;
-          body: AcceptedSubmission['receipt']['body'] | null;
-        }>
-      >(`select t.*, t.amount::text as amount, w.player_id, r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
+    return databaseOperation(async () => {
+      const [row] = await this.orm.em
+        .fork()
+        .execute<
+          TransactionRow[]
+        >(`select t.*, t.amount::text as amount, w.player_id, r.http_status,r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
       return (
         row && {
           transactionId: row.id,
@@ -135,6 +161,7 @@ export class WageringRepository implements WageringStore {
   }
 }
 class PostgresWageringSession implements WageringSession {
+  private limits?: { statement: number; lock: number };
   constructor(
     private readonly em: EntityManager,
     private readonly config: AppConfig,
@@ -143,14 +170,21 @@ class PostgresWageringSession implements WageringSession {
   private async budget() {
     const remaining = this.deadline - Date.now();
     if (remaining <= 0) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
+    const limits = {
+      statement: Math.min(this.config.financialStatementTimeoutMs, remaining),
+      lock: Math.min(this.config.financialLockTimeoutMs, remaining),
+    };
+    if (this.limits?.statement === limits.statement && this.limits.lock === limits.lock) return;
     await this.em.execute(
       "select set_config('statement_timeout',?,true),set_config('lock_timeout',?,true)",
-      [
-        `${Math.min(this.config.financialStatementTimeoutMs, remaining)}ms`,
-        `${Math.min(this.config.financialLockTimeoutMs, remaining)}ms`,
-      ],
+      [`${limits.statement}ms`, `${limits.lock}ms`],
     );
+    this.limits = limits;
   }
+  beforeCommit() {
+    return this.budget();
+  }
+
   private async execute<T extends object[] = Record<string, unknown>[]>(
     sql: string,
     params: unknown[] = [],
@@ -201,37 +235,34 @@ class PostgresWageringSession implements WageringSession {
     return { counterpartAccountId: row.id, occurredAt: new Date(row.now).toISOString() };
   }
   async save(input: Parameters<WageringSession['save']>[0]) {
-    const { command, transaction, wallet, receipt, occurredAt } = input;
+    const { transaction, wallet } = input;
+    const state = transaction.toProps(),
+      command = transaction.command,
+      receipt = transaction.getReceipt(),
+      occurredAt = state.createdAt;
     await this.execute(
-      `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at) values(?,?,?,?,?,'PENDING',?,?,?,?,?,?,?,?)`,
+      `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at,failure_code,processed_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         transaction.id,
-        wallet.id,
-        command.money.currency,
-        command.money.toProps().amount,
-        command.kind,
-        command.providerId,
-        command.externalTransactionId,
-        input.key,
-        input.hash,
+        transaction.walletId,
+        transaction.money.currency,
+        transaction.money.toProps().amount,
+        transaction.kind,
+        state.status,
+        transaction.providerId,
+        transaction.externalTransactionId,
+        transaction.idempotencyKey,
+        transaction.payloadHash,
         command.playerId,
         command.roundId,
         command.gameId,
         occurredAt,
-      ],
-    );
-    const state = transaction.toProps();
-    await this.execute(
-      'update wagering.transactions set status=?,failure_code=?,processed_at=? where id=?',
-      [
-        state.status,
         state.failureCode ?? null,
-        state.status === 'PROCESSED' ? occurredAt : null,
-        transaction.id,
+        state.processedAt ?? null,
       ],
     );
-    if (input.movement) {
-      const entry = input.movement.entry.toProps();
+    if (input.change) {
+      const entry = input.change.entry.toProps();
       await this.execute(
         `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version,created_at) values(?,?,?,?,?,?,?,?,?,?,?)`,
         [
@@ -263,7 +294,7 @@ class PostgresWageringSession implements WageringSession {
       [wallet.id],
     );
     let sequence = last!.sequence;
-    for (const event of [input.movement?.balanceEvent, input.resultEvent]) {
+    for (const event of [input.change?.event, transaction.resultEvent]) {
       if (!event) continue;
       const envelope = event.toJSON();
       await this.execute(

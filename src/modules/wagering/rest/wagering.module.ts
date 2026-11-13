@@ -12,63 +12,53 @@ import {
 } from '@nestjs/common';
 import { APP_CONFIG } from '../../../config/infrastructure.module';
 import type { AppConfig } from '../../../config/config';
-import {
-  Identity,
-  IdentityModule,
-  WagerAccess,
-  type Principal,
-} from '../../identity/identity.module';
+import { Identity, IdentityModule, Access, type Principal } from '../../identity/identity.module';
 import { apiError } from '../../../shared/rest/api-error';
-import { parseWalletId } from '../../wallets/rest/wallet-contract';
-import { SubmitBet } from '../application/submit-bet';
+import { parseUuid } from '../../../shared/rest/parse-uuid';
+import { SubmitWagerTransaction } from '../application/submit-wager-transaction';
+import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
-import { identifier, parseBet } from './wager-contract';
-import type { TransactionView } from '../application/wagering-store';
+import { identifier, parseWagerCommand } from './wager-contract';
 
 interface RequestContext {
   principal: Principal;
   correlationId: string;
   headers: Record<string, string | undefined>;
 }
-function owned(view: TransactionView | undefined, principal: Principal) {
-  if (!view || (principal.kind === 'provider' && view.providerId !== principal.providerId))
-    throw apiError(404, 'TRANSACTION_NOT_FOUND');
-  return view;
-}
 @Controller()
 @UseGuards(Identity)
 class WageringController {
   constructor(
-    @Inject(SubmitBet) private readonly submitBet: SubmitBet,
-    @Inject(WageringRepository) private readonly repository: WageringRepository,
+    @Inject(SubmitWagerTransaction) private readonly submitTransaction: SubmitWagerTransaction,
+    @Inject(WagerQueries) private readonly queries: WagerQueries,
   ) {}
   @Post('wagering/transactions')
-  @WagerAccess('submit')
+  @Access({ provider: true })
   async submit(
     @Body() body: unknown,
     @Req() request: RequestContext,
     @Res({ passthrough: true }) response: { status(value: number): void },
   ) {
-    const command = parseBet(body);
+    const command = parseWagerCommand(body);
     const key = identifier(request.headers['idempotency-key']);
     if (
       request.principal.kind !== 'provider' ||
       request.principal.providerId !== command.providerId
     )
       throw apiError(403, 'PROVIDER_IDENTITY_MISMATCH');
-    const receipt = await this.submitBet.execute(command, key, {
+    const receipt = await this.submitTransaction.execute(command, key, {
       correlationId: request.correlationId,
     });
     response.status(receipt.httpStatus);
     return receipt.body;
   }
   @Get('wagering/transactions/:transactionId')
-  @WagerAccess('read')
+  @Access({ provider: true, humanRoles: ['viewer'] })
   async get(@Param('transactionId') id: string, @Req() request: RequestContext) {
-    return owned(await this.repository.find(parseWalletId(id)), request.principal);
+    return this.queries.get(parseUuid(id), request.principal);
   }
   @Get('providers/:providerId/wagering/transactions/:externalTransactionId')
-  @WagerAccess('read')
+  @Access({ provider: true, humanRoles: ['viewer'] })
   async getExternal(
     @Param('providerId') providerId: string,
     @Param('externalTransactionId') externalId: string,
@@ -76,9 +66,7 @@ class WageringController {
   ) {
     identifier(providerId);
     identifier(externalId);
-    if (request.principal.kind === 'provider' && request.principal.providerId !== providerId)
-      throw apiError(404, 'TRANSACTION_NOT_FOUND');
-    return owned(await this.repository.findExternal(providerId, externalId), request.principal);
+    return this.queries.getExternal(providerId, externalId, request.principal);
   }
 }
 @Module({
@@ -87,10 +75,15 @@ class WageringController {
   providers: [
     WageringRepository,
     {
-      provide: SubmitBet,
+      provide: WagerQueries,
+      inject: [WageringRepository],
+      useFactory: (repository: WageringRepository) => new WagerQueries(repository),
+    },
+    {
+      provide: SubmitWagerTransaction,
       inject: [WageringRepository, APP_CONFIG],
       useFactory: (repository: WageringRepository, config: AppConfig) =>
-        new SubmitBet(repository, new Set(Object.values(config.providerClients))),
+        new SubmitWagerTransaction(repository, new Set(Object.values(config.providerClients))),
     },
   ],
 })

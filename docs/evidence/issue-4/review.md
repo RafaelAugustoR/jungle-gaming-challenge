@@ -8,7 +8,7 @@ Sem violações objetivas de padrões documentados. Domínio sem NestJS/ORM, SQL
 
 Duas sugestões P3 foram tratadas:
 
-- `WageringSession.save` recebia journal e evento como opcionais independentes. Agora `movement?: { entry, balanceEvent }` exige o conjunto completo, seguindo o padrão de `WalletOpening` da #3.
+- `WageringSession.save` recebia journal e evento como opcionais independentes. A correção inicial agrupou os opcionais; a revisão externa consolidou `change?: { entry, event }` produzido pela própria wallet, exigindo o conjunto completo, seguindo o padrão de `WalletOpening` da #3.
 - Classificação transitória PostgreSQL duplicada entre wallet/wagering. Agora é compartilhada em `src/shared/infrastructure/postgres-error.ts`, preservando o tratamento específico de constraints por módulo.
 
 Revisão incremental confirmou ambas resolvidas e nenhum novo bloqueador/violação documentada.
@@ -22,3 +22,5 @@ Um achado P2 foi reproduzido e corrigido:
 Revisão incremental confirmou a resolução. Autenticação/ownership, hash, escopo, conflitos pós-rollback, recibos históricos, atomicidade, zero/versão, terminais e três processos foram avaliados sem outros achados no recorte BET.
 
 **Final: Standards — 0 violações / 0 sugestões pendentes; Spec — 0 achados pendentes.**
+
+A avaliação dos comentários posteriores do revisor e as decisões finais estão em [review-follow-up.md](review-follow-up.md).

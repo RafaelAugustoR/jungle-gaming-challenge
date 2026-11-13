@@ -11,8 +11,9 @@ docker compose up -d --wait postgres sqs keycloak
 docker compose run --rm provision
 bun run build
 docker compose up -d --build --wait api
+mkdir -p artifacts/issue-4
 INTEGRATION=1 BROWSER=1 CHROME_PATH=/usr/bin/google-chrome \
-  BET_EVIDENCE_PATH=/tmp/bet-concurrency.json bun test
+  BET_EVIDENCE_PATH=artifacts/issue-4/concurrency.json bun test 2>&1 | tee artifacts/issue-4/full-suite.txt
 ```
 
 Chrome é opcional: com Chromium do Playwright instalado, omita `CHROME_PATH`. A suíte usa bancos descartáveis, runtime restrito, Keycloak e SQS reais; browser consulta a API do Compose. O harness de BET inicia três processos da implementação em teste, com IPC para readiness e encerramento, sem mocks de banco, saldo, autorização ou locks. `bun run test:concurrency` executa só esse recorte; `bun run test:integration` o inclui na CI.
@@ -34,16 +35,11 @@ A auditoria pela interface SQL, aprovada para invariantes do schema, compara sal
 
 ## Resultados
 
-Execução completa: **61 pass, 0 fail, 395 expect() calls, 16 arquivos, 19.52 s**. `bun run build` e `git diff --check` passaram. [Log completo](full-suite.txt); [resultados brutos dos três processos](concurrency.json).
+A revisão externa tem decisões e validação rastreadas em [review-follow-up.md](review-follow-up.md). Execução local final após as correções: **65 testes passaram, 0 falhas, 436 asserções, 21.03 s**, com build e formatação válidos. O diretório versionado mantém apenas metodologia, critérios e resultados resumidos.
 
-- PIDs iniciais: **26210, 26231, 26273**; PID após reinício: **26307**.
-- 50 submissões: **1 aceite + 49 replays**, **1 BET / 1 débito / 1 recibo / 1 evento de resultado**, saldo armazenado/reconstruído **20.00**, versão **2**.
-- Disputa: status **200 e 422**, **2 BET / 1 débito / 2 recibos**, um evento de aprovação e outro de rejeição, saldo armazenado/reconstruído **20.00**, versão **2**.
-- Independência: outra wallet concluiu com a primeira ainda bloqueada; ambas reconciliadas por SUM NUMERIC.
-- Browser real: login PKCE, criação/consulta e permissões herdadas da #3 passaram com a API atual reconstruída no Compose.
-- Schema: up/down/up completo e upgrade/down/up preservando abertura, imutabilidade, rejeição de escrita parcial e timeouts reais passaram.
+Na [CI do PR #17](https://github.com/RafaelAugustoR/jungle-gaming-challenge/pull/17/checks), abra a execução de `verify`: o passo de integração imprime `BET_CONCURRENCY_EVIDENCE` com PIDs e auditoria em JSON. Os logs da execução podem ser baixados pelo GitHub; o passo de navegador preserva sua própria saída. A retenção segue a configuração do repositório. Os comandos acima regeneram os mesmos arquivos localmente em `artifacts/`, ignorado pelo Git. Nenhum token ou credencial é gravado no relatório.
 
-O Docker Desktop apresentou um bind mount antigo em `provision`; recriar apenas esse container restabeleceu a execução. Nenhum volume foi apagado. [Revisão de padrões e spec](review.md) concluída: nenhum achado pendente após as correções, incluindo retry de statement_timeout com teste red/green em PostgreSQL real.
+Resultados obrigatórios: 50 submissões com 1 aceite/49 replays e um débito; duas BET de 80 com status 200/422 e saldo 20.00; outra wallet conclui enquanto a primeira permanece bloqueada; stored balance = SUM NUMERIC do journal e pares balanceados. Reinício preserva replay. Build, autenticação/PKCE, falhas atômicas, timeout/retry e migrations fazem parte da validação.
 
 ## Limites do recorte
 

@@ -87,7 +87,7 @@ Recibo persistido atomicamente para toda operação aceita, inclusive rejeição
 
 **A:** locks por wallet, transações curtas e nenhuma chamada de rede dentro da transação financeira.
 
-**D:** ordem comum a todos os caminhos: adquirir inbox aplicável; bloquear wallet; localizar/reservar a identidade da transação; ler/validar referência; aplicar estado e lançar ledger/outbox. Worker de referências seleciona candidatos sem manter lock na transação antes de obter a wallet e revalida tudo sob o lock. Não bloquear outra wallet ao descobrir referência incompatível. Conflito UNIQUE é resolvido após rollback, consultando registro existente para replay ou 409; não continuar em uma transação abortada. Deadlock/timeout recebe retry limitado, até três tentativas por chamada, respeitando o prazo total.
+**D:** ordem comum a todos os caminhos: adquirir inbox aplicável; bloquear wallet; localizar/reservar a identidade da transação; ler/validar referência; aplicar estado e lançar ledger/outbox. Worker de referências seleciona candidatos sem manter lock na transação antes de obter a wallet e revalida tudo sob o lock. Não bloquear outra wallet ao descobrir referência incompatível. Conflito UNIQUE é resolvido após rollback, consultando registro existente para replay ou 409; não continuar em uma transação abortada. Deadlock/timeout recebe retry limitado, até três tentativas por chamada, respeitando o prazo total. Uma consulta antecipada de recibo, somente leitura e sem lock/reserva, pode resolver replay ou conflito de chave antes de validar uma wallet divergente; novas operações revalidam o recibo sob o lock da wallet antes de reservar identidade ou aplicar efeitos.
 
 | Registro | Garantias no banco |
 | --- | --- |

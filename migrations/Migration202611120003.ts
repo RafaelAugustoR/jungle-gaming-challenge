@@ -32,7 +32,10 @@ export class Migration202611120003 extends Migration {
         if (to_jsonb(new) - array['status','failure_code','processed_at']) is distinct from (to_jsonb(old) - array['status','failure_code','processed_at']) then
           raise exception 'IMMUTABLE_TRANSACTION_FIELDS' using errcode='23514';
         end if;
-        if old.status not in ('PENDING','PENDING_REFERENCE') or new.status not in ('PENDING_REFERENCE','PROCESSED','REJECTED','FAILED') or old.status=new.status then
+        if not (case old.status
+          when 'PENDING' then new.status in ('PENDING_REFERENCE','PROCESSED','REJECTED','FAILED')
+          when 'PENDING_REFERENCE' then new.status in ('PROCESSED','REJECTED','FAILED')
+          else false end) then
           raise exception 'INVALID_TRANSACTION_TRANSITION' using errcode='23514';
         end if;
         return new;
@@ -47,9 +50,9 @@ export class Migration202611120003 extends Migration {
         if t.provider_id is not null then
           if not exists(select from wagering.wallets where id=t.wallet_id and player_id=t.player_id) then raise exception 'PLAYER_MISMATCH' using errcode='23514'; end if;
           if not exists(select from wagering.submission_receipts where transaction_id=t.id) then raise exception 'RECEIPT_REQUIRED' using errcode='23514'; end if;
-          if not exists(select from wagering.outbox where transaction_id=t.id and event_type=case t.status
+          if t.status in ('PROCESSED','REJECTED','PENDING_REFERENCE') and not exists(select from wagering.outbox where transaction_id=t.id and event_type=case t.status
             when 'PROCESSED' then 'WagerTransactionProcessed' when 'REJECTED' then 'WagerTransactionRejected'
-            when 'PENDING_REFERENCE' then 'WagerTransactionPendingReference' when 'FAILED' then 'WagerTransactionFailed' else '' end)
+            when 'PENDING_REFERENCE' then 'WagerTransactionPendingReference' else '' end)
           then raise exception 'RESULT_EVENT_REQUIRED' using errcode='23514'; end if;
         end if;
         return null;

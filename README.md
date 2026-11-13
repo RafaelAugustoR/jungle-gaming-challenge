@@ -94,7 +94,7 @@ O PR #16 / Issue #3 foi mergeado com o baseline financeiro consolidado em 0002. 
 }
 ```
 
-O recibo contém `transactionId`, `status`, `balance: { amount, currency }` e `idempotentReplay`. Uma BET processada retorna 200; saldo insuficiente retorna 422 com `failureCode`, `code`, `message` e `correlationId`, sem débito. O mesmo provedor/chave/conteúdo retorna o recibo persistido, mudando somente `idempotentReplay`, mesmo após outras apostas ou reinício. No replay 422, o `correlationId` do corpo é original; `X-Correlation-Id` identifica o transporte atual. Payload divergente sob a mesma chave retorna 409 `IDEMPOTENCY_CONFLICT`; outra chave para a mesma identidade externa retorna 409 `EXTERNAL_TRANSACTION_CONFLICT`. Provedores diferentes têm escopos independentes.
+O recibo contém `transactionId`, `status`, `balance: { amount, currency }` e `idempotentReplay`. Uma BET processada retorna 200; saldo insuficiente retorna 422 com `failureCode`, `code`, `message` e `correlationId`, sem débito. O mesmo provedor/chave/conteúdo retorna o recibo persistido, mudando somente `idempotentReplay`, mesmo após outras apostas ou reinício. No replay 422, o `correlationId` do corpo é original; `X-Correlation-Id` identifica o transporte atual. Payload divergente sob a mesma chave retorna 409 `IDEMPOTENCY_CONFLICT`, inclusive se trocar a wallet por um UUID válido inexistente; outra chave para a mesma identidade externa retorna 409 `EXTERNAL_TRANSACTION_CONFLICT`. Provedores diferentes têm escopos independentes.
 
 `GET /wagering/transactions/:transactionId` e `GET /providers/:providerId/wagering/transactions/:externalTransactionId` retornam o estado persistido e resultado financeiro. Viewer/operator/demo-operator consultam; provedores consultam somente suas operações. Recurso de outro provedor retorna 404. Humanos não submetem apostas diretamente. OPENING e referências em BET são recusados com 400, assim como campos desconhecidos. Wallet ausente retorna 404; jogador ou moeda incompatíveis são validações anteriores ao aceite (400 `PLAYER_MISMATCH` / `CURRENCY_MISMATCH`) e não consomem a chave. Identidade incompatível retorna 403.
 
@@ -110,6 +110,8 @@ bun run test:integration
 # Relatório JSON opcional dos três processos:
 BET_EVIDENCE_PATH=/tmp/bet-concurrency.json bun run test:concurrency
 ```
+
+O coordenador `SubmitWagerTransaction` compartilha transação, idempotência e persistência; apenas a etapa BET está habilitada. A entidade carrega identidade e resultado e produz recibo/evento tipados. CI publica logs e PIDs nos logs baixáveis da execução, sem versionar dados locais.
 
 As provas usam três processos Bun da API com PIDs distintos e barreiras observáveis em `pg_stat_activity`, além de um lock controlado no banco. O harness cobre 50 duplicatas, disputa de saldo, wallets independentes, conflitos UNIQUE entre wallets e replay após reinício. [Evidências da Issue #4](docs/evidence/issue-4/README.md).
 

@@ -27,11 +27,6 @@ export function parseCreateWallet(body: unknown): CreateWalletCommand {
     initialBalance: Money.create(initial.amount, initial.currency),
   };
 }
-export function parseWalletId(id: string): string {
-  if (!/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(id))
-    throw new DomainError('INVALID_PAYLOAD');
-  return id;
-}
 export function parseLedgerQuery(
   walletId: string,
   cursor?: string,
