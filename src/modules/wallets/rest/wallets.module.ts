@@ -92,5 +92,6 @@ class WalletsController {
       ) => new Wallets(repository, observer),
     },
   ],
+  exports: [Wallets],
 })
 export class WalletsModule {}

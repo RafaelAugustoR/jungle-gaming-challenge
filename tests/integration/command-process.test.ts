@@ -1,3 +1,5 @@
+import { lockWalletRows, waitForWalletLock } from '../support/sql-barrier';
+import { drainQueue } from '../support/queue';
 import { expect, test } from 'bun:test';
 import { commandSuite, retryUntil } from '../support/command-fixture';
 import { loadCommandConfig } from '../../src/messaging/commands/config';
@@ -61,7 +63,7 @@ integration(
     const { wallet, envelope } = await fixture();
     const locker = state.database.owner.em.fork();
     await locker.begin();
-    await locker.execute('select id from wagering.wallets where id=? for update', [wallet.id]);
+    await lockWalletRows(locker, wallet.id);
     await send(envelope);
     const worker = commandWorker(state.database.config, state.queue, state.dlq, {
       COMMAND_TEST_DRAIN: '100',
@@ -70,15 +72,7 @@ integration(
     });
     try {
       await worker.wait('ready');
-      await retryUntil(
-        () =>
-          state.database.owner.em
-            .fork()
-            .execute<
-              { waiting: boolean }[]
-            >(`select exists(select 1 from pg_stat_activity where datname=current_database() and pid<>pg_backend_pid() and wait_event_type='Lock') as waiting`),
-        (r) => r[0]!.waiting,
-      );
+      await waitForWalletLock(state.database.owner);
       // Observe several visibility-renewal cycles while a real PostgreSQL lock keeps work in flight.
       const end = Date.now() + 1500;
       do {
@@ -135,26 +129,7 @@ integration(
       for (const w of workers) w.child.send('release');
       await Promise.all(Array.from({ length: 50 }, () => send(fixtures[0]!.envelope)));
       // Flush every distinct transport delivery through the inbox, not FIFO deduplication.
-      const { GetQueueAttributesCommand } = await import('@aws-sdk/client-sqs');
-      await retryUntil(
-        async () => {
-          const { Attributes } = await state.sqs.send(
-            new GetQueueAttributesCommand({
-              QueueUrl: state.queue,
-              AttributeNames: [
-                'ApproximateNumberOfMessages',
-                'ApproximateNumberOfMessagesNotVisible',
-              ],
-            }),
-          );
-          return (
-            Number(Attributes!.ApproximateNumberOfMessages) +
-            Number(Attributes!.ApproximateNumberOfMessagesNotVisible)
-          );
-        },
-        (n) => n === 0,
-        15000,
-      );
+      await drainQueue(state.sqs, state.queue);
       for (const { wallet, envelope } of fixtures) {
         const wallets = new Wallets(new WalletRepository(state.orm), { divergence() {} });
         expect((await wallets.get(wallet.id)).balance.toProps().amount).toBe('80.00');
@@ -238,22 +213,14 @@ integration(
     const { wallet, envelope } = await fixture(),
       locker = state.database.owner.em.fork();
     await locker.begin();
-    await locker.execute('select id from wagering.wallets where id=? for update', [wallet.id]);
+    await lockWalletRows(locker, wallet.id);
     await send(envelope);
     const worker = commandWorker(state.database.config, state.queue, state.dlq, {
       COMMAND_TEST_DRAIN: '2000',
     });
     try {
       await worker.wait('ready');
-      await retryUntil(
-        () =>
-          state.database.owner.em
-            .fork()
-            .execute<
-              { waiting: boolean }[]
-            >(`select exists(select 1 from pg_stat_activity where datname=current_database() and wait_event_type='Lock') as waiting`),
-        (rows) => rows[0]!.waiting,
-      );
+      await waitForWalletLock(state.database.owner);
       const stopping = worker.stop();
       await locker.rollback();
       expect(await stopping).toBe(0);
@@ -355,7 +322,7 @@ integration(
     const { wallet, envelope } = await fixture(),
       locker = state.database.owner.em.fork();
     await locker.begin();
-    await locker.execute('select id from wagering.wallets where id=? for update', [wallet.id]);
+    await lockWalletRows(locker, wallet.id);
     await send(envelope);
     let sawRenewal!: () => void, release!: () => void;
     const renewing = new Promise<void>((resolve) => {

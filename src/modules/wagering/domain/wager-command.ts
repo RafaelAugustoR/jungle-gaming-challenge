@@ -2,8 +2,13 @@ import { createHash } from 'node:crypto';
 import type { Money } from '../../../shared/domain/money';
 export const wagerKinds = ['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'] as const;
 export type WagerKind = (typeof wagerKinds)[number];
+export const transactionKinds = ['OPENING', ...wagerKinds] as const;
+export type TransactionKind = (typeof transactionKinds)[number];
 export function isWagerKind(value: unknown): value is WagerKind {
   return typeof value === 'string' && wagerKinds.includes(value as WagerKind);
+}
+export function isTransactionKind(value: unknown): value is TransactionKind {
+  return typeof value === 'string' && transactionKinds.includes(value as TransactionKind);
 }
 export interface WagerCommand {
   providerId: string;

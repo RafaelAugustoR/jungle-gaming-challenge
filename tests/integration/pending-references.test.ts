@@ -1,4 +1,5 @@
 import { MetricsRegistry, submissionMetricsObserver } from '../../src/observability/metrics.module';
+import { lockWalletRows } from '../support/sql-barrier';
 import { openDatabase } from '../../src/config/orm';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
@@ -296,7 +297,7 @@ integration(
       new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
     );
     await db.owner.em.fork().transactional(async (em) => {
-      await em.execute('select id from wagering.wallets where id=? for update', [w.id]);
+      await lockWalletRows(em, w.id);
       await expect(
         impatient.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
       ).rejects.toMatchObject({ code: 'INFRASTRUCTURE_UNAVAILABLE' });

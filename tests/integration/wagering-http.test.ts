@@ -1,3 +1,4 @@
+import { lockWalletRows } from '../support/sql-barrier';
 import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
@@ -148,6 +149,102 @@ integration(
     ]);
   },
 );
+
+integration(
+  'viewer filters the transaction list and sees the original receipt beside current state',
+  async () => {
+    const w = await wallet();
+    const bet = command(w);
+    const receipt = await submit(bet);
+    const response = await fetch(
+      `${base}/wagering/transactions?walletId=${w.id}&status=PROCESSED&kind=BET&limit=10`,
+      { headers: headers(viewer) },
+    );
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      nextCursor: null,
+      transactions: [
+        {
+          transactionId: receipt.body.transactionId,
+          status: 'PROCESSED',
+          money: { amount: '20.00', currency: 'BRL' },
+          originalReceipt: {
+            httpStatus: 200,
+            body: { status: 'PROCESSED', balance: { amount: '80.00' } },
+          },
+        },
+      ],
+    });
+    const forbidden = await fetch(`${base}/wagering/transactions`, { headers: headers(provider) });
+    expect(forbidden.status).toBe(403);
+  },
+);
+
+integration('transaction cursor stays on the original result set across inserts and includes OPENING', async () => {
+  const w = await wallet();
+  const first = await submit(command(w, '20.00'));
+  const second = await submit(command(w, '15.00'));
+  const snapshotResponse = await fetch(`${base}/wagering/transactions?walletId=${w.id}&limit=100`, {
+    headers: headers(viewer),
+  });
+  const snapshot = (await snapshotResponse.json()) as {
+    transactions: Array<{ transactionId: string; kind: string; originalReceipt: unknown }>;
+  };
+  expect(snapshot.transactions).toHaveLength(3);
+  expect(snapshot.transactions.find((item) => item.kind === 'OPENING')?.originalReceipt).toBeNull();
+  const expected = snapshot.transactions.map((item) => item.transactionId);
+
+  const pageOneResponse = await fetch(`${base}/wagering/transactions?walletId=${w.id}&limit=1`, {
+    headers: headers(viewer),
+  });
+  const pageOne = (await pageOneResponse.json()) as {
+    transactions: Array<{ transactionId: string }>;
+    nextCursor: string;
+  };
+  expect(pageOne.transactions[0]?.transactionId).toBe(expected[0]);
+  expect(pageOne.nextCursor).toBeTruthy();
+  await submit(command(w, '1.00'));
+
+  const collected = [...pageOne.transactions.map((item) => item.transactionId)];
+  let cursor: string | null = pageOne.nextCursor;
+  while (cursor) {
+    const pageResponse = await fetch(
+      `${base}/wagering/transactions?walletId=${w.id}&limit=1&cursor=${encodeURIComponent(cursor)}`,
+      { headers: headers(viewer) },
+    );
+    const pageBody = await pageResponse.json();
+    if (pageResponse.status !== 200) throw new Error(JSON.stringify({ pageBody, cursor }));
+    expect(pageResponse.status).toBe(200);
+    const page = pageBody as {
+      transactions: Array<{ transactionId: string }>;
+      nextCursor: string | null;
+    };
+    collected.push(...page.transactions.map((item) => item.transactionId));
+    cursor = page.nextCursor;
+  }
+  expect(collected).toEqual(expected);
+  const opening = snapshot.transactions.find((item) => item.kind === 'OPENING');
+  expect(opening).toBeTruthy();
+  const openingDetail = await fetch(`${base}/wagering/transactions/${opening!.transactionId}`, {
+    headers: headers(viewer),
+  });
+  expect(await openingDetail.json()).toMatchObject({ kind: 'OPENING', originalReceipt: null });
+  const invalidCursor = `t2.${Buffer.from(JSON.stringify({
+    scope: { walletId: w.id, status: null, kind: null, providerId: null, limit: 1 },
+    position: { createdAt: '2026-02-30T12:00:00.000000Z', id: opening!.transactionId },
+  })).toString('base64url')}`;
+  const badCursor = await fetch(
+    `${base}/wagering/transactions?walletId=${w.id}&limit=1&cursor=${invalidCursor}`,
+    { headers: headers(viewer) },
+  );
+  expect(badCursor.status).toBe(400);
+  const zeroLimit = await fetch(`${base}/wagering/transactions?limit=0`, {
+    headers: headers(viewer),
+  });
+  expect(zeroLimit.status).toBe(400);
+  expect(first.status).toBe(200);
+  expect(second.status).toBe(200);
+});
 
 integration(
   'canonical replay retains historical balance; changed payload or new key conflicts; providers have independent scope',
@@ -395,7 +492,7 @@ integration(
       key = crypto.randomUUID();
     const lock = database.owner.em.fork();
     await lock.begin();
-    await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    await lockWalletRows(lock, w.id);
     const lockCount = (text: string) =>
       Number(text.match(/wallet_lock_conflicts_total\{source="financial"\} (\d+)/)?.[1] ?? 0);
     const beforeLock = lockCount(await app.get(MetricsRegistry).scrape());

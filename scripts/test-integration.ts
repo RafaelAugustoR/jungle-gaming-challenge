@@ -1,22 +1,22 @@
-import { mkdir } from 'node:fs/promises';
-import { dirname } from 'node:path';
+import { resetEvidence, runBunTests, printEvidence } from './run-bun-tests';
 
-// The existing CI step runs this command. Keep execution data out of Git and
-// publish it in the run's downloadable logs without changing workflow permissions.
 const evidencePath = process.env.BET_EVIDENCE_PATH ?? 'artifacts/issue-4/concurrency.json';
-await mkdir(dirname(evidencePath), { recursive: true });
-await Bun.write(evidencePath, '');
-const child = Bun.spawn([process.execPath, 'test', 'tests/integration', 'tests/concurrency'], {
-  env: { ...process.env, INTEGRATION: '1', BET_EVIDENCE_PATH: evidencePath },
-  stdout: 'inherit',
-  stderr: 'inherit',
-});
-const status = await child.exited;
+const recoveryPath = process.env.RECOVERY_EVIDENCE_PATH ?? 'artifacts/recovery/integrated.json';
+await resetEvidence([evidencePath, recoveryPath]);
+const { exitCode } = await runBunTests(
+  ['tests/integration', 'tests/concurrency', 'tests/recovery'],
+  {
+    INTEGRATION: '1',
+    RECOVERY: '1',
+    BET_EVIDENCE_PATH: evidencePath,
+    RECOVERY_EVIDENCE_PATH: recoveryPath,
+  },
+);
 try {
-  const evidence: unknown = await Bun.file(evidencePath).json();
-  console.log('BET_CONCURRENCY_EVIDENCE', JSON.stringify(evidence));
-  process.exitCode = status;
+  await printEvidence('BET_CONCURRENCY_EVIDENCE', evidencePath);
+  await printEvidence('RECOVERY_EVIDENCE', recoveryPath);
+  process.exitCode = exitCode;
 } catch {
-  console.error('Concurrency evidence was not generated; see the test failures above.');
-  process.exitCode = status || 1;
+  console.error('Concurrency/recovery evidence was not generated; see the test failures above.');
+  process.exitCode = exitCode || 1;
 }

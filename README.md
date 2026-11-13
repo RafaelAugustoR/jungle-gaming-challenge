@@ -12,7 +12,7 @@ curl --fail http://localhost:3000/health/live
 curl --fail http://localhost:3000/health/ready
 ```
 
-O Compose aplica migrations antes de iniciar a API. A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080; Prometheus 9090; Grafana 3001. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Abra **http://localhost:3000** para acessar o console. Keycloak importa o realm `jungle` com os usuários `viewer`, `operator` e `demo-operator`, todos com senha local `demo-only`. Use `demo-operator` para criar wallets; os demais perfis consultam. Administração local: `admin` / `local-demo-only` no Keycloak e `admin` / `local-demo-only` no Grafana; defina `GRAFANA_ADMIN_PASSWORD` antes de compartilhar o ambiente.
+O Compose aplica migrations antes de iniciar a API. A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080; Prometheus 9090; Grafana 3001. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Abra **http://localhost:3000** para acessar o console. Keycloak importa o realm `jungle` com os usuários `viewer`, `operator` e `demo-operator`, todos com senha local `demo-only`. Use `demo-operator` para criar wallets e executar cenários; os demais perfis consultam. Administração local: `admin` / `local-demo-only` no Keycloak e `admin` / `local-demo-only` no Grafana; defina `GRAFANA_ADMIN_PASSWORD` antes de compartilhar o ambiente.
 
 ```sh
 bun install --frozen-lockfile
@@ -39,13 +39,13 @@ bun run build:frontend
 bun run dev
 ```
 
-As migrations criam o schema `wagering`. `migrate:down` é para desenvolvimento em banco descartável; os testes usam um banco temporário próprio. Para parar os serviços sem apagar o volume: `docker compose down`.
+As migrations criam os schemas `wagering` e `demo`. `migrate:down` é para desenvolvimento em banco descartável; os testes usam um banco temporário próprio. Para parar os serviços sem apagar o volume: `docker compose down`.
 
-A Issue #3 entrega autenticação, criação/consulta de wallet e ledger de abertura. `initialBalance` positivo confirma wallet, transação interna OPENING, journal e evento `WalletBalanceChanged` na mesma transação SQL. Abertura zero não gera transação, ledger ou evento. Em ambos os casos a versão inicial é 1. A Issue #4 acrescenta BET autenticada e idempotente, recibos estáveis e consultas de transações. As demais operações de apostas, publicação da outbox e reconciliação pertencem aos próximos tickets.
+A Issue #3 entrega autenticação, criação/consulta de wallet e ledger de abertura. `initialBalance` positivo confirma wallet, transação interna OPENING, journal e evento `WalletBalanceChanged` na mesma transação SQL. Abertura zero não gera transação, ledger ou evento. Em ambos os casos a versão inicial é 1. A Issue #4 acrescenta BET autenticada e idempotente, recibos estáveis e consultas de transações. As issues seguintes acrescentaram os demais tipos de operação, referências, SQS, outbox recuperável, ledger/reconciliação e este console de transações e demonstrações.
 
 ### Login e contratos
 
-O navegador usa o adaptador oficial Keycloak com Authorization Code + PKCE S256. Tokens permanecem em memória. A API verifica assinatura RS256, issuer, audience `jungle-api`, expiração, cliente e perfis. Os clientes de máquina `provider-a` e `provider-b` usam Client Credentials e claims `providerId` distintos; não acessam wallets/ledger. O mapeamento de cliente para providerId vem de `PROVIDER_CLIENTS` (JSON; exemplo em `.env.example`), também repassado pelo Compose. O backend não mantém uma lista fixa de provedores no guard. Segredos locais respectivos: `provider-a-demo-only` e `provider-b-demo-only`. Não usar essas credenciais fora da demonstração local.
+O navegador usa o adaptador oficial Keycloak com Authorization Code + PKCE S256. Tokens permanecem em memória. A API verifica assinatura RS256, issuer, audience `jungle-api`, expiração, cliente e perfis. Os clientes de máquina `provider-a` e `provider-b` usam Client Credentials e claims `providerId` distintos; não acessam wallets/ledger. O mapeamento de cliente para providerId vem de `PROVIDER_CLIENTS` (JSON). Os segredos server-side usados apenas pelo serviço API vêm de `DEMO_PROVIDER_CLIENT_SECRETS` (JSON; exemplo em `.env.example`); eles não são retornados ao navegador nem passados aos workers. As credenciais locais são exclusivas da demonstração e não devem ser usadas fora dela.
 
 `POST /wallets` exige demo-operator e recebe:
 
@@ -97,6 +97,12 @@ O PR #16 / Issue #3 foi mergeado com o baseline financeiro consolidado em 0002. 
 O recibo contém `transactionId`, `status`, `balance: { amount, currency }` e `idempotentReplay`. Uma BET processada retorna 200; saldo insuficiente retorna 422 com `failureCode`, `code`, `message` e `correlationId`, sem débito. O mesmo provedor/chave/conteúdo retorna o recibo persistido, mudando somente `idempotentReplay`, mesmo após outras apostas ou reinício. No replay 422, o `correlationId` do corpo é original; `X-Correlation-Id` identifica o transporte atual. Payload divergente sob a mesma chave retorna 409 `IDEMPOTENCY_CONFLICT`, inclusive se trocar a wallet por um UUID válido inexistente; outra chave para a mesma identidade externa retorna 409 `EXTERNAL_TRANSACTION_CONFLICT`. Provedores diferentes têm escopos independentes.
 
 `GET /wagering/transactions/:transactionId` e `GET /providers/:providerId/wagering/transactions/:externalTransactionId` retornam o estado persistido e resultado financeiro. Viewer/operator/demo-operator consultam; provedores consultam somente suas operações. Recurso de outro provedor retorna 404. Humanos não submetem apostas diretamente. OPENING e referências em BET são recusados com 400, assim como campos desconhecidos. Wallet ausente retorna 404; jogador ou moeda incompatíveis são validações anteriores ao aceite (400 `PLAYER_MISMATCH` / `CURRENCY_MISMATCH`) e não consomem a chave. Identidade incompatível retorna 403.
+
+### Console de transações e cenários — Issue #10
+
+`GET /wagering/transactions` lista operações para viewer, operator e demo-operator. Aceita filtros `walletId`, `status`, `kind`, `providerId`, mais `limit` (padrão 50, máximo 100) e cursor opaco vinculado aos filtros. A paginação keyset por data e ID evita repetição ou omissão quando novas operações são inseridas. Valores monetários seguem como strings decimais; a mensagem do console informa quantas transações foram carregadas, pois a consulta é paginada. Cada operação inclui `originalReceipt` (HTTP e corpo imutáveis do aceite) ao lado de `status`, `balance` e timestamps atuais; OPENING não tem recibo de submissão.
+
+`POST /demo/scenarios` exige demo-operator e aceita `scenario` (`duplicate`, `race` ou `out-of-order`), `walletId` e `amount` decimal exato opcional. O servidor obtém token Client Credentials com `DEMO_PROVIDER_CLIENT_SECRETS` e envia as operações pelo endpoint HTTP usado pelos provedores. Duplicação e disputa executam requisições concorrentes; a disputa calcula duas apostas iguais a 80% do saldo disponível, garantindo que apenas uma caiba. Referência fora de ordem envia um REFUND antes da BET referenciada. A resposta preserva todos os recibos originais; o console acompanha cada transação por GET e mostra o estado atual separadamente. Se a consulta terminar ainda pendente, esse estado permanece explícito. Cada execução registra intenção antes dos submits e depois associa ator, provedor, cenário, wallet, IDs e recibos na tabela `demo.scenario_audit`. Os cenários usam saldos fictícios, criam ledger real e não corrigem divergências de reconciliação.
 
 BET zero retorna 200 e evento de resultado, sem journal, incremento de versão ou evento de saldo. BET positiva aprovada incrementa a versão uma vez e confirma partidas dobradas, recibo e eventos de saldo/resultado na mesma transação. A outbox tem sequência própria por wallet; não publica nada durante o processamento financeiro.
 
@@ -263,3 +269,25 @@ Preserve `messageId` e a chave em reentregas do mesmo conteúdo. Conteúdo corri
 estados terminais não são reabertos. Confirme o envio antes de apagar a cópia da DLQ.
 
 Evidências reproduzíveis: [Issue #7](docs/evidence/issue-7/README.md).
+
+### Recuperação integrada — Issue #12
+
+O README do desafio exige concorrência real (≥3 processos), morte após commit antes
+do ack, dois publishers, referências fora de ordem e consistência final (§13).
+Com PostgreSQL, LocalStack SQS e Keycloak locais disponíveis e `.env` configurado:
+
+```sh
+bun run test:recovery
+# Apenas o cenário integrado, sem repetir as provas anteriores:
+RECOVERY=1 bun test tests/recovery/integrated.test.ts
+```
+
+O comando reúne migrations/constraints, concorrência financeira, redelivery/DLQ e
+um roteiro integrado em 18 estágios: 25 HTTP paralelas sobrepostas a 25 SQS
+serializadas pelo grupo FIFO da wallet, interrupções coordenadas por IPC,
+falhas isoladas de dependências e reconciliação de **todas** as wallets criadas.
+Usa bancos descartáveis, filas exclusivas e portas efêmeras; não interrompe a
+infraestrutura compartilhada. Evidências JSON e logs ficam em `artifacts/recovery/`
+(ou `RECOVERY_ARTIFACT_DIR`); execução interrompida retorna erro e não reaproveita
+um JSON de sucesso anterior. O cenário integrado também roda em `test:integration`
+na CI. [Roteiro, cobertura e limites](docs/evidence/issue-12/README.md).

@@ -6,7 +6,9 @@ export interface AppConfig {
   metricsAllowedCidr: string;
   metricsAllowedNetwork?: ParsedMetricsCidr;
   keycloakIssuer: string;
+  keycloakTokenUrl: string;
   providerClients: Readonly<Record<string, string>>;
+  demoProvider?: { clientId: string; providerId: string; secret: string };
   keycloakJwksUrl: string;
   databaseUrl: string;
   sqsEndpoint: string;
@@ -74,9 +76,43 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   } catch {
     throw new Error('Invalid PROVIDER_CLIENTS');
   }
+  let demoProviderClientSecrets: Record<string, string>;
+  try {
+    const parsed: unknown = JSON.parse(env.DEMO_PROVIDER_CLIENT_SECRETS || '{}');
+    if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      Object.entries(parsed).some(
+        ([provider, secret]) => !provider.trim() || typeof secret !== 'string' || !secret,
+      )
+    )
+      throw new Error();
+    demoProviderClientSecrets = Object.freeze({ ...parsed }) as Record<string, string>;
+  } catch {
+    throw new Error('Invalid DEMO_PROVIDER_CLIENT_SECRETS');
+  }
+  for (const provider of Object.keys(demoProviderClientSecrets))
+    if (!Object.values(providerClients).includes(provider))
+      throw new Error('Invalid DEMO_PROVIDER_CLIENT_SECRETS');
+  const demoProviderEntry = Object.entries(providerClients).find(
+    ([, providerId]) => demoProviderClientSecrets[providerId],
+  );
+  const demoProvider = demoProviderEntry
+    ? {
+        clientId: demoProviderEntry[0],
+        providerId: demoProviderEntry[1],
+        secret: demoProviderClientSecrets[demoProviderEntry[1]]!,
+      }
+    : undefined;
   return {
     providerClients,
+    ...(demoProvider ? { demoProvider: Object.freeze(demoProvider) } : {}),
     keycloakIssuer: urlWithDefault('KEYCLOAK_ISSUER', 'http://localhost:18080/realms/jungle'),
+    keycloakTokenUrl: urlWithDefault(
+      'KEYCLOAK_TOKEN_URL',
+      `${env.KEYCLOAK_ISSUER || 'http://localhost:18080/realms/jungle'}/protocol/openid-connect/token`,
+    ),
     keycloakJwksUrl: urlWithDefault(
       'KEYCLOAK_JWKS_URL',
       `${env.KEYCLOAK_ISSUER || 'http://localhost:18080/realms/jungle'}/protocol/openid-connect/certs`,
