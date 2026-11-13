@@ -137,12 +137,11 @@ export class WagerTransaction {
     this.state = Object.freeze({ status, ...(failureCode ? { failureCode } : {}) });
   }
   complete(outcome: WagerOutcome, at: string, context: EventContext): void {
-    const originalReceipt = this.receipt;
     const balance = outcome.wallet.balance.toProps();
     const common = { transactionId: this.id, balance, idempotentReplay: false };
     if (outcome.status === 'REJECTED') {
       this.transition('REJECTED', outcome.failureCode);
-      this.receipt = {
+      this.receipt ??= {
         httpStatus: submissionHttpStatus.REJECTED,
         body: {
           ...common,
@@ -163,7 +162,7 @@ export class WagerTransaction {
       );
     } else if (outcome.status === 'PENDING_REFERENCE') {
       this.transition('PENDING_REFERENCE');
-      this.receipt = {
+      this.receipt ??= {
         httpStatus: submissionHttpStatus.PENDING_REFERENCE,
         body: { ...common, status: 'PENDING_REFERENCE' },
       };
@@ -177,7 +176,7 @@ export class WagerTransaction {
     } else {
       this.transition('PROCESSED');
       this.processedAt = at;
-      this.receipt = {
+      this.receipt ??= {
         httpStatus: submissionHttpStatus.PROCESSED,
         body: { ...common, status: 'PROCESSED' },
       };
@@ -188,7 +187,6 @@ export class WagerTransaction {
         ...this.state,
         referenceTransactionId: outcome.referenceTransactionId,
       });
-    this.receipt = originalReceipt ?? this.receipt;
   }
   getReceipt(idempotentReplay = false): SubmissionReceipt {
     const receipt = this.receipt;

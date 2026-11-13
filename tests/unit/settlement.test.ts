@@ -90,6 +90,11 @@ test('references validate every shared context field and reversal-specific rules
     failureCode: 'REFERENCE_KIND_MISMATCH',
   });
   expect(evaluate('REFUND', reference, true)).toMatchObject({ failureCode: 'ALREADY_REVERSED' });
+  for (const status of ['REJECTED', 'FAILED'] as const)
+    expect(evaluate('REFUND', { ...reference, status })).toMatchObject({
+      status: 'REJECTED',
+      failureCode: 'REFERENCE_NOT_PROCESSED',
+    });
   expect(evaluate('REFUND', undefined)).toMatchObject({ status: 'PENDING_REFERENCE' });
   expect(evaluate('WIN', reference)).toMatchObject({ status: 'PROCESSED' });
 });

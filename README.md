@@ -136,3 +136,13 @@ Monólito modular NestJS/TypeScript em Bun, MikroORM, PostgreSQL e SQS, com proc
 O projeto usa apenas dados de demonstração e não integra dinheiro real. `build` verifica tipos; Bun executa o mesmo fonte em desenvolvimento, testes e Docker.
 
 Os comandos acima cobrem o bootstrap; as demais entregas seguirão as Issues aprovadas.
+
+### Referências pendentes — Issue #6
+
+REFUND/ROLLBACK exigem referência; WIN/LOSS podem informar referência a BET. Quando a referência ainda não chegou ou está pendente, o aceite retorna 202 `PENDING_REFERENCE`, sem movimentar saldo. O replay mantém esse recibo original, inclusive depois da conclusão. Consulte os endpoints GET de transação para obter o estado e saldo do resultado atual.
+
+O Compose inicia `reference-worker` em processo separado. Fora do Docker, execute `bun run worker:references` junto da API. Ambos usam o mesmo PostgreSQL; nenhum estado de retry depende da memória do processo. `REFERENCE_TTL_MS` (900000) fixa o prazo no aceite; `REFERENCE_BASE_MS` (1000) e `REFERENCE_MAX_MS` (30000) controlam backoff exponencial com jitter de 50–100%. `REFERENCE_POLL_MS` (500) e `REFERENCE_BATCH_SIZE` (50) controlam a varredura. Replays não prorrogam o prazo.
+
+No vencimento, referência ausente gera `REFERENCE_NOT_FOUND`; existente mas ainda pendente ou processada após o prazo gera `REFERENCE_NOT_READY`. Uma referência processada dentro do prazo pode concluir mesmo se a varredura atrasar. Referência rejeitada/falha gera `REFERENCE_NOT_PROCESSED`; incompatibilidades conhecidas são rejeitadas sem aguardar TTL. Erros de infraestrutura preservam a pendência para nova tentativa. O worker serializa revalidação, expiração e partidas sob o mesmo lock de wallet das submissões; vários processos são seguros. Retry ainda pendente não duplica eventos; resultado terminal, journal, saldo e outbox confirmam atomicamente.
+
+A migration 0005 adiciona a agenda persistente e recupera pendências preexistentes. Seu down recusa remover uma agenda ainda ativa. Evidências reproduzíveis: `INTEGRATION=1 bun test tests/integration/pending-references.test.ts` e [relatório da Issue #6](docs/issue-6-evidence.md).
