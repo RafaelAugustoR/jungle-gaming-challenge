@@ -21,9 +21,15 @@ A reference absent or still pending is accepted as PENDING_REFERENCE with a pers
 Executed in an isolated worktree using disposable PostgreSQL databases, ephemeral API ports and the existing healthy Keycloak/SQS infrastructure. No shared database reset or container shutdown was performed.
 
 - `bun run build`: strict typecheck and frontend build passed.
-- `bun test tests/unit`: 23 passed, 142 assertions.
+- `bun test tests/unit`: 24 passed, 146 assertions.
 - `bun run test:integration`: 53 passed, 1 browser test skipped, 370 assertions. Includes existing BET three-process proofs and migration up/down/up through migration 0004.
 - Added six HTTP settlement scenarios: WIN/LOSS/zero, all reversible kinds, historical replay, reference validation, reversal insufficient balance, overflow and pending acceptance.
 - Added three-process race: twelve distinct REFUND operations against one BET produced exactly one processed refund and eleven ALREADY_REVERSED rejections, wallet 100.00/version 3, one refund journal entry, reconstructed balance 100.00. A direct SQL insert bypassing the application independently failed the reversal unique index.
 
 The skipped browser test is unchanged and gated by BROWSER=1. This ticket changes no frontend behavior. Issue #9 owns console ledger/reconciliation enhancements in a separate branch.
+
+## Coordinated review corrections
+
+The public Wallet.credit interface now checks currency compatibility even for zero amounts; a regression test first failed with a zero USD credit on a BRL wallet and passes after moving exact addition before the zero shortcut. The original wallet remains unchanged on either path.
+
+Operation policies explicitly own their allowed reference kinds and movement: BET debits without references, WIN credits, LOSS has no movement, REFUND credits a BET reversal, and ROLLBACK chooses the inverse direction from its validated reference. Shared reference validation no longer dispatches on the submitted operation kind.

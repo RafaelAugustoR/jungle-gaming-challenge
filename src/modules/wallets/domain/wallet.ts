@@ -145,8 +145,8 @@ export class Wallet {
     context: EventContext;
   }): WalletMovementResult {
     if (input.money.isNegative()) throw new DomainError('INVALID_PAYLOAD');
-    if (input.money.isZero()) return { status: 'PROCESSED', wallet: this };
     const balance = this.balance.add(input.money);
+    if (input.money.isZero()) return { status: 'PROCESSED', wallet: this };
     const wallet = new Wallet(this.id, this.playerId, this.accountId, balance, this.version + 1);
     const entry = JournalEntry.create({
       walletId: this.id,
