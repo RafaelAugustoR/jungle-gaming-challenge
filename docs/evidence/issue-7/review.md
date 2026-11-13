@@ -47,3 +47,9 @@ Os dois follow-ups foram feitos neste PR: withBackendCancellation com comentári
 sobre a corrida de registro do listener e divisão da suíte em cinco arquivos. A
 fixture usa o provisionador real com RedrivePolicy. Produção e harness executam o
 mesmo runCommandWorker e o mesmo tratamento de sinais do runtime compartilhado.
+
+Revisão da correção, base `9a86c40`, commit `4babaf8`: Standards — zero achados;
+Spec — zero achados. Confirmadas a atomicidade do insert final da inbox, a
+precedência de diagnóstico explicitada, a renovação cancelável e limitada e a
+transferência à DLQ antes do delete. As threads do revisor serão respondidas,
+permanecendo abertas para que ele avalie as alterações.

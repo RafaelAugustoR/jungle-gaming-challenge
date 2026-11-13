@@ -107,3 +107,8 @@ Execução local após os ajustes: 23 testes do consumidor em cinco arquivos pas
 126 assertions, zero falhas, cerca de 28 s; build/typecheck e os 35 unitários passaram.
 O teste novo de privilégios falhou antes da mudança da migration e passou após a
 retirada de UPDATE, mantendo NOT NULL/FK/PK como proteções da inbox.
+
+Validação completa após a revisão: `bun run test:integration` passou com 103 testes,
+715 assertions e zero falhas (o teste de navegador é separado); `test:browser`
+passou com um teste/7 assertions. Os logs ficam em `artifacts/issue-7/review-*.log`.
+A nova revisão Standards/Spec sobre `9a86c40...4babaf8` não identificou achados.
