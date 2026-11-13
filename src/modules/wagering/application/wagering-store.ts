@@ -21,7 +21,6 @@ export interface TransactionView extends TransactionState {
 export interface PendingReference {
   transaction: WagerTransaction;
   deadline: string;
-  nextAttemptAt: string;
   attempts: number;
   context: { correlationId: string; causationId?: string };
 }
@@ -30,6 +29,12 @@ export interface PendingReferenceCandidate {
   walletId: string;
 }
 export interface WageringSession {
+  referenceSchedule(id: string): Promise<{ attempts: number; now: string } | undefined>;
+  scheduleReference(
+    id: string,
+    schedule: { deadline: string; nextAttemptAt: string },
+    context: { correlationId: string; causationId?: string },
+  ): Promise<void>;
   pendingReference(id: string): Promise<PendingReference | undefined>;
   rescheduleReference(id: string, nextAttemptAt: string): Promise<void>;
   savePendingResult(

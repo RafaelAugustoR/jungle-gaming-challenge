@@ -137,21 +137,23 @@ export class WagerTransaction {
     this.state = Object.freeze({ status, ...(failureCode ? { failureCode } : {}) });
   }
   complete(outcome: WagerOutcome, at: string, context: EventContext): void {
+    const accepting = this.state.status === 'PENDING';
     const balance = outcome.wallet.balance.toProps();
     const common = { transactionId: this.id, balance, idempotentReplay: false };
     if (outcome.status === 'REJECTED') {
       this.transition('REJECTED', outcome.failureCode);
-      this.receipt ??= {
-        httpStatus: submissionHttpStatus.REJECTED,
-        body: {
-          ...common,
-          status: 'REJECTED',
-          failureCode: outcome.failureCode,
-          code: outcome.failureCode,
-          message: wagerFailureMessages[outcome.failureCode],
-          correlationId: context.correlationId,
-        },
-      };
+      if (accepting)
+        this.receipt = {
+          httpStatus: submissionHttpStatus.REJECTED,
+          body: {
+            ...common,
+            status: 'REJECTED',
+            failureCode: outcome.failureCode,
+            code: outcome.failureCode,
+            message: wagerFailureMessages[outcome.failureCode],
+            correlationId: context.correlationId,
+          },
+        };
       this.event = WagerTransactionRejected.from(
         this.command,
         this.id,
@@ -162,10 +164,11 @@ export class WagerTransaction {
       );
     } else if (outcome.status === 'PENDING_REFERENCE') {
       this.transition('PENDING_REFERENCE');
-      this.receipt ??= {
-        httpStatus: submissionHttpStatus.PENDING_REFERENCE,
-        body: { ...common, status: 'PENDING_REFERENCE' },
-      };
+      if (accepting)
+        this.receipt = {
+          httpStatus: submissionHttpStatus.PENDING_REFERENCE,
+          body: { ...common, status: 'PENDING_REFERENCE' },
+        };
       this.event = WagerTransactionPendingReference.from(
         this.command,
         this.id,
@@ -176,10 +179,11 @@ export class WagerTransaction {
     } else {
       this.transition('PROCESSED');
       this.processedAt = at;
-      this.receipt ??= {
-        httpStatus: submissionHttpStatus.PROCESSED,
-        body: { ...common, status: 'PROCESSED' },
-      };
+      if (accepting)
+        this.receipt = {
+          httpStatus: submissionHttpStatus.PROCESSED,
+          body: { ...common, status: 'PROCESSED' },
+        };
       this.event = WagerTransactionProcessed.from(this.command, this.id, balance, at, context);
     }
     if (outcome.status !== 'PENDING_REFERENCE' && outcome.referenceTransactionId)

@@ -75,9 +75,6 @@ services:
     command: ["bun", "src/bootstrap/reference-worker.ts"]
     environment:
       <<: *backend-env
-      REFERENCE_TTL_MS: ${REFERENCE_TTL_MS:-900000}
-      REFERENCE_BASE_MS: ${REFERENCE_BASE_MS:-1000}
-      REFERENCE_MAX_MS: ${REFERENCE_MAX_MS:-30000}
       REFERENCE_POLL_MS: ${REFERENCE_POLL_MS:-500}
       REFERENCE_BATCH_SIZE: ${REFERENCE_BATCH_SIZE:-50}
     stop_grace_period: 25s

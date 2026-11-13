@@ -223,7 +223,9 @@ integration(
       'create trigger fail_reference_event before insert on wagering.outbox for each row execute function wagering.fail_reference_event()',
     );
     try {
-      await expect(runner.runBatch(50)).rejects.toThrow();
+      await expect(
+        runner.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
+      ).rejects.toThrow();
     } finally {
       await db.owner.em.execute('drop trigger fail_reference_event on wagering.outbox');
       await db.owner.em.execute('drop function wagering.fail_reference_event()');
@@ -297,11 +299,15 @@ integration(
       await expect(
         impatient.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
       ).rejects.toMatchObject({ code: 'INFRASTRUCTURE_UNAVAILABLE' });
+      expect(await impatient.runBatch(50)).toBe(0);
     });
     expect(await current(pending.body.transactionId)).toMatchObject({
       status: 'PENDING_REFERENCE',
     });
-    expect((await schedule(pending.body.transactionId)).attempts).toBe(0);
+    const deferred = await schedule(pending.body.transactionId);
+    expect(deferred.attempts).toBe(1);
+    expect(new Date(deferred.next_attempt_at).getTime()).toBeGreaterThan(Date.now());
+    await due(pending.body.transactionId);
     await runner.execute({ walletId: w.id, transactionId: pending.body.transactionId });
     expect(await current(pending.body.transactionId)).toMatchObject({
       status: 'REJECTED',
@@ -326,5 +332,47 @@ integration(
     expect(invalid.status).toBe(422);
     expect(invalid.body.failureCode).toBe('REFERENCE_AMOUNT_MISMATCH');
     expect(await schedule(invalid.body.transactionId)).toBeUndefined();
+  },
+);
+
+integration(
+  'a failed first candidate is deferred while a healthy second candidate completes',
+  async () => {
+    const broken = await wallet(),
+      healthy = await wallet(),
+      a = command(broken, 'BET'),
+      b = command(healthy, 'BET');
+    const first = await submit(command(broken, 'REFUND', '20.00', a.externalTransactionId));
+    const second = await submit(command(healthy, 'REFUND', '20.00', b.externalTransactionId));
+    await submit(a);
+    await submit(b);
+    await due(first.body.transactionId);
+    await due(second.body.transactionId);
+    // Force ordering and a deterministic storage failure on the first candidate only.
+    await db.owner.em.execute(
+      "update wagering.reference_retries set next_attempt_at=clock_timestamp()-interval '2 seconds' where transaction_id=?",
+      [first.body.transactionId],
+    );
+    await db.owner.em.execute(
+      `create function wagering.fail_first_reference() returns trigger language plpgsql as $$ begin if NEW.transaction_id='${first.body.transactionId}' and NEW.event_type='WagerTransactionProcessed' then raise exception 'first candidate failure'; end if; return NEW; end $$`,
+    );
+    await db.owner.em.execute(
+      'create trigger fail_first_reference before insert on wagering.outbox for each row execute function wagering.fail_first_reference()',
+    );
+    try {
+      expect(await runner.runBatch(50)).toBe(1);
+      expect(await current(first.body.transactionId)).toMatchObject({
+        status: 'PENDING_REFERENCE',
+      });
+      expect(await current(second.body.transactionId)).toMatchObject({ status: 'PROCESSED' });
+      const failed = await schedule(first.body.transactionId);
+      expect(failed.attempts).toBe(1);
+      expect(new Date(failed.next_attempt_at).getTime()).toBeGreaterThan(Date.now());
+    } finally {
+      await db.owner.em.execute('drop trigger fail_first_reference on wagering.outbox');
+      await db.owner.em.execute('drop function wagering.fail_first_reference()');
+    }
+    await audit(broken.id);
+    await audit(healthy.id);
   },
 );

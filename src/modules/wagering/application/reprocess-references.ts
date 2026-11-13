@@ -1,13 +1,16 @@
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import { ReferenceRetryPolicy } from '../domain/reference-retry';
-import { wagerStepFor } from '../domain/wager-step';
-import type { WagerOutcome } from '../domain/wager-transaction';
+import { settleWager } from './settle-wager';
 import type { PendingReferenceCandidate, WageringStore } from './wagering-store';
 
 export class ReprocessReferences {
   constructor(
     private readonly store: WageringStore,
     private readonly policy: ReferenceRetryPolicy,
+    private readonly onError: (
+      candidate: PendingReferenceCandidate,
+      error: unknown,
+    ) => void = () => {},
   ) {}
 
   async runBatch(limit: number, signal?: AbortSignal): Promise<number> {
@@ -15,7 +18,28 @@ export class ReprocessReferences {
     let completed = 0;
     for (const candidate of candidates) {
       if (signal?.aborted) break;
-      if (await this.execute(candidate)) completed++;
+      try {
+        if (await this.execute(candidate)) completed++;
+      } catch (error) {
+        this.onError(candidate, error);
+        // Financial work has rolled back. Deferral must not require the failed receipt,
+        // wallet lock or reference lookup, and must never make a terminal decision.
+        try {
+          await this.store.transaction(async (session) => {
+            const schedule = await session.referenceSchedule(candidate.transactionId);
+            if (!schedule) return;
+            const now = new Date(schedule.now);
+            // Infrastructure backoff must remain in the future even after business TTL.
+            const horizon = new Date(now.getTime() + this.policy.options.maxMs);
+            await session.rescheduleReference(
+              candidate.transactionId,
+              this.policy.next(now, schedule.attempts + 1, horizon).toISOString(),
+            );
+          });
+        } catch (deferralError) {
+          this.onError(candidate, deferralError);
+        }
+      }
     }
     return completed;
   }
@@ -28,33 +52,15 @@ export class ReprocessReferences {
       const pending = await session.pendingReference(candidate.transactionId);
       if (!pending) return false;
       const { transaction, context } = pending;
-      const resources = await session.resources(wallet.currency);
-      const now = new Date(resources.occurredAt),
-        deadline = new Date(pending.deadline);
-      const reference = transaction.command.referenceExternalTransactionId
-        ? await session.findReference(
-            transaction.providerId,
-            transaction.command.referenceExternalTransactionId,
-          )
-        : undefined;
-      let outcome: WagerOutcome = wagerStepFor(transaction.kind).apply(
-        transaction,
+      const { outcome, occurredAt } = await settleWager(
+        session,
+        () => transaction,
         wallet,
-        { ...resources, referenceDeadline: pending.deadline },
         context,
-        reference,
+        pending.deadline,
       );
-      if (now >= deadline) {
-        // A worker delayed past expiry may apply a reference confirmed before the deadline.
-        // A late reference must never resurrect an expired operation.
-        if (outcome.status === 'PENDING_REFERENCE') {
-          outcome = {
-            status: 'REJECTED',
-            wallet,
-            failureCode: reference ? 'REFERENCE_NOT_READY' : 'REFERENCE_NOT_FOUND',
-          };
-        }
-      }
+      const now = new Date(occurredAt),
+        deadline = new Date(pending.deadline);
       if (outcome.status === 'PENDING_REFERENCE') {
         await session.rescheduleReference(
           transaction.id,
@@ -62,10 +68,10 @@ export class ReprocessReferences {
         );
         return false;
       }
-      transaction.complete(outcome, resources.occurredAt, context);
+      transaction.complete(outcome, occurredAt, context);
       await session.savePendingResult(
         { transaction, wallet: outcome.wallet, change: outcome.change },
-        resources.occurredAt,
+        occurredAt,
       );
       return true;
     });

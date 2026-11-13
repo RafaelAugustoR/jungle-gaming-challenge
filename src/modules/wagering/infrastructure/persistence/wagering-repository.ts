@@ -16,7 +16,6 @@ import {
   type SubmissionReceipt,
   type WagerFailureCode,
 } from '../../domain/submission-receipt';
-import { ReferenceRetryPolicy } from '../../domain/reference-retry';
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
@@ -44,7 +43,7 @@ interface TransactionRow {
   processed_at: Date | null;
   reference_external_transaction_id: string | null;
   reference_transaction_id: string | null;
-  current_balance?: string | null;
+  result_balance: string | null;
   http_status: number | null;
   body: SubmissionReceipt['body'] | null;
 }
@@ -153,7 +152,7 @@ export class WageringRepository implements WageringStore {
         .fork()
         .execute<
           TransactionRow[]
-        >(`select t.*, t.amount::text as amount, w.player_id, rr.result_balance::text as current_balance, r.http_status,r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id left join wagering.reference_retries rr on rr.transaction_id=t.id where ${where}`, params);
+        >(`select t.*, t.amount::text as amount, w.player_id, t.result_balance::text as result_balance from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id where ${where}`, params);
       return (
         row && {
           transactionId: row.id,
@@ -173,16 +172,14 @@ export class WageringRepository implements WageringStore {
           status: row.status,
           ...(row.failure_code ? { failureCode: row.failure_code } : {}),
           money: Money.rehydrate({ amount: row.amount, currency: row.currency }).toProps(),
-          ...(row.current_balance !== null && row.current_balance !== undefined
+          ...(row.result_balance !== null
             ? {
                 balance: Money.rehydrate({
-                  amount: row.current_balance,
+                  amount: row.result_balance,
                   currency: row.currency,
                 }).toProps(),
               }
-            : row.body
-              ? { balance: row.body.balance }
-              : {}),
+            : {}),
           createdAt: new Date(row.created_at).toISOString(),
           processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
         }
@@ -290,14 +287,13 @@ class PostgresWageringSession implements WageringSession {
     const [row] = await this.execute<
       (TransactionRow & {
         deadline: Date;
-        next_attempt_at: Date;
         attempts: number;
         correlation_id: string;
         causation_id: string | null;
       })[]
     >(
-      `select t.*,r.http_status,r.body,s.deadline,s.next_attempt_at,s.attempts,s.correlation_id,s.causation_id
-       from wagering.transactions t join wagering.submission_receipts r on r.transaction_id=t.id join wagering.reference_retries s on s.transaction_id=t.id
+      `select t.*,s.deadline,s.attempts,s.correlation_id,s.causation_id
+       from wagering.transactions t join wagering.reference_retries s on s.transaction_id=t.id
        where t.id=? and t.status='PENDING_REFERENCE' and s.completed_at is null and s.next_attempt_at<=clock_timestamp()`,
       [id],
     );
@@ -307,7 +303,6 @@ class PostgresWageringSession implements WageringSession {
     return {
       transaction,
       deadline: new Date(row.deadline).toISOString(),
-      nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
       attempts: row.attempts,
       context: {
         correlationId: row.correlation_id,
@@ -321,61 +316,95 @@ class PostgresWageringSession implements WageringSession {
       [nextAttemptAt, id],
     );
   }
-  save(input: Parameters<WageringSession['save']>[0]) {
-    return this.persist(input, false, input.transaction.toProps().createdAt);
+  async referenceSchedule(id: string) {
+    const [row] = await this.execute<{ attempts: number; now: Date }[]>(
+      `select r.attempts,clock_timestamp() as now from wagering.reference_retries r join wagering.transactions t on t.id=r.transaction_id
+       where r.transaction_id=? and r.completed_at is null and r.next_attempt_at<=clock_timestamp() and t.status='PENDING_REFERENCE' for update of r skip locked`,
+      [id],
+    );
+    return (
+      row && {
+        attempts: row.attempts,
+        now: new Date(row.now).toISOString(),
+      }
+    );
   }
-  savePendingResult(input: Parameters<WageringSession['savePendingResult']>[0], at: string) {
-    return this.persist(input, true, at);
+  async scheduleReference(
+    id: string,
+    schedule: { deadline: string; nextAttemptAt: string },
+    context: { correlationId: string; causationId?: string },
+  ) {
+    await this.execute(
+      `insert into wagering.reference_retries(transaction_id,deadline,next_attempt_at,correlation_id,causation_id) values(?,?,?,?,?)`,
+      [
+        id,
+        schedule.deadline,
+        schedule.nextAttemptAt,
+        context.correlationId,
+        context.causationId ?? null,
+      ],
+    );
   }
-  private async persist(
+  async save(input: Parameters<WageringSession['save']>[0]) {
+    const { transaction, wallet } = input,
+      state = transaction.toProps(),
+      command = transaction.command,
+      receipt = transaction.getReceipt();
+    await this.execute(
+      `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at,failure_code,processed_at,reference_external_transaction_id,reference_transaction_id,result_balance) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      [
+        transaction.id,
+        transaction.walletId,
+        transaction.money.currency,
+        transaction.money.toProps().amount,
+        transaction.kind,
+        state.status,
+        transaction.providerId,
+        transaction.externalTransactionId,
+        transaction.idempotencyKey,
+        transaction.payloadHash,
+        command.playerId,
+        command.roundId,
+        command.gameId,
+        state.createdAt,
+        state.failureCode ?? null,
+        state.processedAt ?? null,
+        command.referenceExternalTransactionId ?? null,
+        state.referenceTransactionId ?? null,
+        wallet.balance.toProps().amount,
+      ],
+    );
+    await this.execute(
+      'insert into wagering.submission_receipts(transaction_id,http_status,body) values(?,?,?::jsonb)',
+      [transaction.id, receipt.httpStatus, JSON.stringify(receipt.body)],
+    );
+    await this.saveFinancialEffects(input, state.createdAt);
+  }
+  async savePendingResult(input: Parameters<WageringSession['savePendingResult']>[0], at: string) {
+    const { transaction, wallet } = input,
+      state = transaction.toProps();
+    await this.execute(
+      `update wagering.transactions set status=?,failure_code=?,processed_at=?,reference_transaction_id=?,result_balance=? where id=?`,
+      [
+        state.status,
+        state.failureCode ?? null,
+        state.processedAt ?? null,
+        state.referenceTransactionId ?? null,
+        wallet.balance.toProps().amount,
+        transaction.id,
+      ],
+    );
+    await this.execute(
+      `update wagering.reference_retries set completed_at=?,next_attempt_at=null,attempts=attempts+1 where transaction_id=?`,
+      [at, transaction.id],
+    );
+    await this.saveFinancialEffects(input, at);
+  }
+  private async saveFinancialEffects(
     input: Parameters<WageringSession['save']>[0],
-    existing: boolean,
     occurredAt: string,
   ) {
     const { transaction, wallet } = input;
-    const state = transaction.toProps(),
-      command = transaction.command,
-      receipt = transaction.getReceipt();
-    if (existing) {
-      await this.execute(
-        `update wagering.transactions set status=?,failure_code=?,processed_at=?,reference_transaction_id=? where id=?`,
-        [
-          state.status,
-          state.failureCode ?? null,
-          state.processedAt ?? null,
-          state.referenceTransactionId ?? null,
-          transaction.id,
-        ],
-      );
-      await this.execute(
-        `update wagering.reference_retries set completed_at=?,next_attempt_at=null,attempts=attempts+1,result_balance=? where transaction_id=?`,
-        [occurredAt, wallet.balance.toProps().amount, transaction.id],
-      );
-    } else {
-      await this.execute(
-        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at,failure_code,processed_at,reference_external_transaction_id,reference_transaction_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
-        [
-          transaction.id,
-          transaction.walletId,
-          transaction.money.currency,
-          transaction.money.toProps().amount,
-          transaction.kind,
-          state.status,
-          transaction.providerId,
-          transaction.externalTransactionId,
-          transaction.idempotencyKey,
-          transaction.payloadHash,
-          command.playerId,
-          command.roundId,
-          command.gameId,
-          occurredAt,
-          state.failureCode ?? null,
-          state.processedAt ?? null,
-          command.referenceExternalTransactionId ?? null,
-          state.referenceTransactionId ?? null,
-        ],
-      );
-    }
     if (input.change) {
       const entry = input.change.entry.toProps();
       await this.execute(
@@ -399,32 +428,6 @@ class PostgresWageringSession implements WageringSession {
         wallet.version,
         wallet.id,
       ]);
-    }
-    if (!existing) {
-      await this.execute(
-        'insert into wagering.submission_receipts(transaction_id,http_status,body) values(?,?,?::jsonb)',
-        [transaction.id, receipt.httpStatus, JSON.stringify(receipt.body)],
-      );
-      if (state.status === 'PENDING_REFERENCE') {
-        const policy = new ReferenceRetryPolicy({
-          ttlMs: this.config.referenceTtlMs,
-          baseMs: this.config.referenceBaseMs,
-          maxMs: this.config.referenceMaxMs,
-        });
-        const acceptedAt = new Date(state.createdAt);
-        const deadline = policy.deadline(acceptedAt);
-        const envelope = transaction.resultEvent.toJSON();
-        await this.execute(
-          `insert into wagering.reference_retries(transaction_id,deadline,next_attempt_at,correlation_id,causation_id) values(?,?,?,?,?)`,
-          [
-            transaction.id,
-            deadline.toISOString(),
-            policy.next(acceptedAt, 0, deadline).toISOString(),
-            envelope.correlationId,
-            envelope.causationId ?? null,
-          ],
-        );
-      }
     }
     const [last] = await this.execute<{ sequence: number }[]>(
       'select coalesce(max(sequence),0)::int as sequence from wagering.outbox where aggregate_id=?',
