@@ -18,7 +18,9 @@
     "worker:outbox": "bun src/bootstrap/outbox-publisher.ts",
     "worker:events": "bun src/bootstrap/event-consumer.ts",
     "provision:events": "bun scripts/provision-events.ts",
-    "outbox:retry": "bun scripts/retry-outbox.ts"
+    "outbox:retry": "bun scripts/retry-outbox.ts",
+
+    "worker:references": "bun src/bootstrap/reference-worker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",

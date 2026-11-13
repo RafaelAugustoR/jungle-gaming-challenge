@@ -17,6 +17,7 @@ export interface WagerReference {
   status: TransactionStatus;
   money: Money;
   reversedBy: ReadonlySet<WagerKind>;
+  processedAt?: string;
 }
 type ResolvedReference = WagerReference & { status: 'PROCESSED' };
 interface Resources {
@@ -44,6 +45,7 @@ interface WagerStep {
     resources: Resources,
     context: EventContext,
     reference?: WagerReference,
+    deadline?: string,
   ): WagerOutcome;
 }
 interface ReferencePolicy {
@@ -66,10 +68,22 @@ function resolveReference(
   policy: ReferencePolicy,
   transaction: WagerTransaction,
   wallet: Wallet,
-  reference?: WagerReference,
-): ResolvedReference | WagerOutcome {
-  if (!reference) return { status: 'PENDING_REFERENCE', wallet };
-  const reject = (code: WagerFailureCode) => rejected(wallet, code, reference.id);
+  reference: WagerReference | undefined,
+  resources: Resources,
+  deadline?: string,
+): { ready: true; reference: ResolvedReference } | { ready: false; outcome: WagerOutcome } {
+  const expired = deadline !== undefined && new Date(resources.occurredAt) >= new Date(deadline);
+  if (!reference)
+    return {
+      ready: false,
+      outcome: expired
+        ? rejected(wallet, 'REFERENCE_NOT_FOUND')
+        : { status: 'PENDING_REFERENCE', wallet },
+    };
+  const reject = (code: WagerFailureCode) => ({
+    ready: false as const,
+    outcome: rejected(wallet, code, reference.id),
+  });
   const { command } = transaction;
   // Store resolves by (providerId, externalTransactionId); identity is scoped there.
   if (
@@ -84,10 +98,18 @@ function resolveReference(
     return reject('REFERENCE_AMOUNT_MISMATCH');
   if (reference.status === 'REJECTED' || reference.status === 'FAILED')
     return reject('REFERENCE_NOT_PROCESSED');
-  if (reference.status !== 'PROCESSED') return { status: 'PENDING_REFERENCE', wallet };
+  if (reference.status !== 'PROCESSED')
+    return {
+      ready: false,
+      outcome: expired
+        ? rejected(wallet, 'REFERENCE_NOT_READY', reference.id)
+        : { status: 'PENDING_REFERENCE', wallet },
+    };
+  if (deadline && (!reference.processedAt || new Date(reference.processedAt) > new Date(deadline)))
+    return reject('REFERENCE_NOT_READY');
   if (policy.reversal && reference.reversedBy.has(transaction.kind))
     return reject('ALREADY_REVERSED');
-  return { ...reference, status: 'PROCESSED' };
+  return { ready: true, reference: { ...reference, status: 'PROCESSED' } };
 }
 function attachReference(outcome: WagerOutcome, reference: ResolvedReference): WagerOutcome {
   return outcome.status === 'PENDING_REFERENCE'
@@ -97,7 +119,7 @@ function attachReference(outcome: WagerOutcome, reference: ResolvedReference): W
 function optionalReferenceStep(movement: Movement): WagerStep {
   return {
     validate: validateReference,
-    apply(transaction, wallet, resources, context, reference) {
+    apply(transaction, wallet, resources, context, reference, deadline) {
       if (!transaction.command.referenceExternalTransactionId)
         return movement(transaction, wallet, resources, context);
       const resolution = resolveReference(
@@ -105,16 +127,21 @@ function optionalReferenceStep(movement: Movement): WagerStep {
         transaction,
         wallet,
         reference,
+        resources,
+        deadline,
       );
-      if ('wallet' in resolution) return resolution;
-      return attachReference(movement(transaction, wallet, resources, context), resolution);
+      if (!resolution.ready) return resolution.outcome;
+      return attachReference(
+        movement(transaction, wallet, resources, context),
+        resolution.reference,
+      );
     },
   };
 }
 function reversalStep(allowedKinds: readonly WagerKind[], movement: ReferencedMovement): WagerStep {
   return {
     validate: validateReference,
-    apply(transaction, wallet, resources, context, reference) {
+    apply(transaction, wallet, resources, context, reference, deadline) {
       if (!transaction.command.referenceExternalTransactionId)
         return rejected(wallet, 'REFERENCE_REQUIRED');
       const resolution = resolveReference(
@@ -122,11 +149,13 @@ function reversalStep(allowedKinds: readonly WagerKind[], movement: ReferencedMo
         transaction,
         wallet,
         reference,
+        resources,
+        deadline,
       );
-      if ('wallet' in resolution) return resolution;
+      if (!resolution.ready) return resolution.outcome;
       return attachReference(
-        movement(transaction, wallet, resources, context, resolution),
-        resolution,
+        movement(transaction, wallet, resources, context, resolution.reference),
+        resolution.reference,
       );
     },
   };

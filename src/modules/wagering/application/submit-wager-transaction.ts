@@ -3,7 +3,8 @@ import type { EventContext } from '../../../shared/domain/events/integration-eve
 import { WagerTransaction } from '../domain/wager-transaction';
 import type { WagerCommand } from '../domain/wager-command';
 import { WagerPayload } from '../domain/wager-payload';
-import { wagerStepFor } from '../domain/wager-step';
+import { ReferenceRetryPolicy } from '../domain/reference-retry';
+import { settleWager } from './settle-wager';
 import type { SubmissionReceipt } from '../domain/submission-receipt';
 import type { WageringStore } from './wagering-store';
 
@@ -15,6 +16,7 @@ export class SubmitWagerTransaction {
   constructor(
     private readonly store: WageringStore,
     private readonly knownProviders: ReadonlySet<string>,
+    private readonly policy: ReferenceRetryPolicy,
   ) {}
   async execute(
     input: WagerCommand,
@@ -24,7 +26,6 @@ export class SubmitWagerTransaction {
     if (!this.knownProviders.has(input.providerId)) throw new DomainError('UNKNOWN_PROVIDER');
     const payload = WagerPayload.create(input);
     const command = payload.command;
-    const step = wagerStepFor(command.kind);
     return this.store.transaction(async (session) => {
       // Read-only preflight makes an accepted key authoritative even for a changed wallet.
       const accepted = await session.findSubmission(command.providerId, key);
@@ -38,18 +39,31 @@ export class SubmitWagerTransaction {
         throw new DomainError('EXTERNAL_TRANSACTION_CONFLICT');
       if (wallet.playerId !== command.playerId) throw new DomainError('PLAYER_MISMATCH');
       if (wallet.currency !== command.money.currency) throw new DomainError('CURRENCY_MISMATCH');
-      const resources = await session.resources(wallet.currency);
-      const reference = command.referenceExternalTransactionId
-        ? await session.findReference(command.providerId, command.referenceExternalTransactionId)
-        : undefined;
-      const transaction = WagerTransaction.create({
-        payload,
-        idempotencyKey: key,
-        createdAt: resources.occurredAt,
-      });
-      const outcome = step.apply(transaction, wallet, resources, context, reference);
-      transaction.complete(outcome, resources.occurredAt, context);
+      const { transaction, outcome, occurredAt } = await settleWager(
+        session,
+        (at) =>
+          WagerTransaction.create({
+            payload,
+            idempotencyKey: key,
+            createdAt: at,
+          }),
+        wallet,
+        context,
+      );
+      transaction.complete(outcome, occurredAt, context);
       await session.save({ transaction, wallet: outcome.wallet, change: outcome.change });
+      if (outcome.status === 'PENDING_REFERENCE') {
+        const acceptedAt = new Date(occurredAt),
+          deadline = this.policy.deadline(acceptedAt);
+        await session.scheduleReference(
+          transaction.id,
+          {
+            deadline: deadline.toISOString(),
+            nextAttemptAt: this.policy.next(acceptedAt, 0, deadline).toISOString(),
+          },
+          context,
+        );
+      }
       return transaction.getReceipt();
     });
   }

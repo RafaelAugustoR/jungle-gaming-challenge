@@ -15,6 +15,8 @@ import type { AppConfig } from '../../../config/config';
 import { Identity, IdentityModule, Access, type Principal } from '../../identity/identity.module';
 import { apiError } from '../../../shared/rest/api-error';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
+import { ReferenceRetryModule } from '../infrastructure/reference-retry.provider';
+import { ReferenceRetryPolicy } from '../domain/reference-retry';
 import { SubmitWagerTransaction } from '../application/submit-wager-transaction';
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
@@ -70,7 +72,7 @@ class WageringController {
   }
 }
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, ReferenceRetryModule],
   controllers: [WageringController],
   providers: [
     WageringRepository,
@@ -81,9 +83,17 @@ class WageringController {
     },
     {
       provide: SubmitWagerTransaction,
-      inject: [WageringRepository, APP_CONFIG],
-      useFactory: (repository: WageringRepository, config: AppConfig) =>
-        new SubmitWagerTransaction(repository, new Set(Object.values(config.providerClients))),
+      inject: [WageringRepository, APP_CONFIG, ReferenceRetryPolicy],
+      useFactory: (
+        repository: WageringRepository,
+        config: AppConfig,
+        policy: ReferenceRetryPolicy,
+      ) =>
+        new SubmitWagerTransaction(
+          repository,
+          new Set(Object.values(config.providerClients)),
+          policy,
+        ),
     },
   ],
 })
