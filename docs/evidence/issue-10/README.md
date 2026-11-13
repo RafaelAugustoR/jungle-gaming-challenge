@@ -32,8 +32,9 @@ browser shows every operation and uses GET to follow pending results. Race amoun
 are derived with integer minor units from the wallet balance: a balance of 100.00
 produces two 80.00 bets, with one processed and one rejected. Client credentials
 and HTTP remain server-side to exercise the actual provider authentication boundary
-from ADR 0003; `DemoProviderClient` owns that transport. Client 4xx errors retain
-their status/code, while dependency failures map to 503. Audit intent persists
+from ADR 0003; `DemoProviderClient` owns that transport. Business 4xx errors retain
+their status/code; dependency authentication (401/403), network and server failures
+map to 503. Audit intent persists
 before submission, and audit completion failure cannot replace the original error.
 
 Validation of the review corrections:
@@ -52,3 +53,10 @@ different wallet, and then releases the old response. The current selection and
 hidden transaction detail remain unchanged. Build/typecheck and the final browser
 run passed (21 assertions without repeating screenshots; the responsive capture
 run above included three additional viewport assertions).
+
+The second review centralizes scenario steps and IDs for both audit and execution,
+and removes duplicate polling-result loops. Concurrent submissions still settle
+before propagating a failure, so successful partial results remain in the audit.
+Provider authentication failure never impersonates an operator session/role error.
+Build, 36 unit tests (217 assertions), the real demo integration (33 assertions),
+and the final browser flow (21 assertions) passed after these changes.

@@ -21,6 +21,43 @@ interface RequestContext {
   principal: Principal;
   socket: { localPort: number };
 }
+interface ScenarioStep {
+  kind: WagerKind;
+  externalTransactionId: string;
+  idempotencyKey: string;
+  referenceExternalTransactionId?: string;
+}
+
+function scenarioPlan(scenario: DemoScenario, auditId: string) {
+  const id = (suffix: string) => `demo-${auditId}-${suffix}`;
+  const step = (
+    kind: WagerKind,
+    suffix: string,
+    key: string,
+    referenceExternalTransactionId?: string,
+  ): ScenarioStep => ({
+    kind,
+    externalTransactionId: id(suffix),
+    idempotencyKey: id(key),
+    ...(referenceExternalTransactionId ? { referenceExternalTransactionId } : {}),
+  });
+  if (scenario === 'duplicate') {
+    const bet = step('BET', 'bet', 'key');
+    return { concurrent: true, steps: [bet, bet] };
+  }
+  if (scenario === 'race')
+    return {
+      concurrent: true,
+      steps: [step('BET', 'race-a', 'key-a'), step('BET', 'race-b', 'key-b')],
+    };
+  return {
+    concurrent: false,
+    steps: [
+      step('REFUND', 'refund', 'refund-key', id('source')),
+      step('BET', 'source', 'source-key'),
+    ],
+  };
+}
 
 function input(value: unknown): ScenarioInput {
   if (!value || typeof value !== 'object' || Array.isArray(value))
@@ -82,12 +119,10 @@ class DemoController {
         ? Money.create(disputeAmount(wallet.balance.toProps().amount), wallet.balance.currency).toProps()
         : amount.toProps();
     const auditId = crypto.randomUUID();
-    const externalTransactionIds =
-      selected.scenario === 'duplicate'
-        ? [`demo-${auditId}-bet`]
-        : selected.scenario === 'race'
-          ? [`demo-${auditId}-race-a`, `demo-${auditId}-race-b`]
-          : [`demo-${auditId}-refund`, `demo-${auditId}-source`];
+    const plan = scenarioPlan(selected.scenario, auditId);
+    const externalTransactionIds = [...new Set(
+      plan.steps.map(({ externalTransactionId }) => externalTransactionId),
+    )];
     const started = new Date().toISOString();
     let submissions: DemoSubmission[] = [];
     await this.audit.start({
@@ -100,12 +135,10 @@ class DemoController {
       started,
     });
     try {
-      const token = await this.provider.accessToken();
-      const command = (
-        kind: WagerKind,
-        externalTransactionId: string,
-        referenceExternalTransactionId?: string,
-      ): DemoCommand => ({
+      const token = await this.provider.accessToken(provider);
+      const command = ({
+        kind, externalTransactionId, referenceExternalTransactionId,
+      }: ScenarioStep): DemoCommand => ({
         providerId: provider.providerId,
         externalTransactionId,
         playerId: wallet.playerId,
@@ -116,34 +149,15 @@ class DemoController {
         money: operationAmount,
         ...(referenceExternalTransactionId ? { referenceExternalTransactionId } : {}),
       });
-      const submit = (operation: DemoCommand, key: string) =>
-        this.provider.submit(request.socket.localPort, token, operation, key);
+      const submit = (step: ScenarioStep) =>
+        this.provider.submit(request.socket.localPort, token, command(step), step.idempotencyKey);
 
-      if (selected.scenario === 'duplicate') {
-        const externalId = `demo-${auditId}-bet`;
-        const key = `demo-${auditId}-key`;
-        const outcome = await this.submitConcurrent([
-          submit(command('BET', externalId), key),
-          submit(command('BET', externalId), key),
-        ]);
-        submissions = outcome.submissions;
-        if (outcome.failed) throw outcome.error;
-      } else if (selected.scenario === 'race') {
-        const outcome = await this.submitConcurrent([
-          submit(command('BET', `demo-${auditId}-race-a`), `demo-${auditId}-key-a`),
-          submit(command('BET', `demo-${auditId}-race-b`), `demo-${auditId}-key-b`),
-        ]);
+      if (plan.concurrent) {
+        const outcome = await this.submitConcurrent(plan.steps.map(submit));
         submissions = outcome.submissions;
         if (outcome.failed) throw outcome.error;
       } else {
-        const source = `demo-${auditId}-source`;
-        submissions.push(
-          await submit(
-            command('REFUND', `demo-${auditId}-refund`, source),
-            `demo-${auditId}-refund-key`,
-          ),
-        );
-        submissions.push(await submit(command('BET', source), `demo-${auditId}-source-key`));
+        for (const step of plan.steps) submissions.push(await submit(step));
       }
       await this.audit.finish(auditId, started, 'SUBMITTED', submissions);
       return {

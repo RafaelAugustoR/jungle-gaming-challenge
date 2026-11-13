@@ -388,30 +388,29 @@ element<HTMLFormElement>('scenario').addEventListener('submit', (event) => {
     const walletId = selected?.id;
     if (!walletId) throw new Error('Consulte ou crie uma wallet antes de executar o cenário.');
     const request = ++scenarioRequest;
+    const stale = () => request !== scenarioRequest || selected?.id !== walletId;
     const scenario = element<HTMLSelectElement>('scenario-kind').value as DemoScenarioResult['scenario'];
     const result = (await api('/demo/scenarios', {
       scenario,
       walletId,
       ...(scenario === 'race' ? {} : { amount: element<HTMLInputElement>('scenario-amount').value }),
     })) as DemoScenarioResult;
-    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    if (stale()) return;
     element('demo-results').hidden = false;
     element('demo-results-list').replaceChildren();
     element('demo-results-state').textContent =
       `${result.scenario} · ${result.providerId} · ${result.amount.amount} ${result.amount.currency} por operação. Consultando estados por GET…`;
     await loadTransactions();
-    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    if (stale()) return;
     const updateRows = result.transactions.map(showDemoResult);
     const current = await Promise.all(
       result.transactions.map((submission) =>
-        currentTransaction(submission.originalReceipt.body.transactionId, () =>
-          request === scenarioRequest && selected?.id === walletId,
-        ).catch(() => undefined),
+        currentTransaction(submission.originalReceipt.body.transactionId, () => !stale())
+          .catch(() => undefined),
       ),
     );
-    if (request !== scenarioRequest || selected?.id !== walletId) return;
-    for (const [index, view] of current.entries()) if (view) updateRows[index]?.(view);
-    for (const [index, view] of current.entries()) if (!view) updateRows[index]?.();
+    if (stale()) return;
+    for (const [index, view] of current.entries()) updateRows[index]?.(view);
     const failed = current.some((view) => !view);
     const pending = current.some(
       (view) => view && ['PENDING', 'PENDING_REFERENCE'].includes(view.status),
@@ -422,9 +421,9 @@ element<HTMLFormElement>('scenario').addEventListener('submit', (event) => {
         ? 'Algumas operações seguem pendentes. Os estados mostrados vêm de GET; abra o detalhe para consultar novamente.'
         : 'Todas as operações têm estado terminal confirmado por GET.';
     const refreshedWallet = (await api(`/wallets/${walletId}`)) as Wallet;
-    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    if (stale()) return;
     await showWallet(refreshedWallet);
-    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    if (stale()) return;
     const first = result.transactions[0]?.originalReceipt.body.transactionId;
     if (first) await showTransaction(first);
     notice('Cenário enviado. Confira cada recibo e o estado atual consultado por GET.');

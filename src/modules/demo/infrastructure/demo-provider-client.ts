@@ -12,9 +12,7 @@ import type { DemoCommand, DemoSubmission } from '../demo-contract';
 export class DemoProviderClient {
   constructor(@Inject(APP_CONFIG) private readonly config: AppConfig) {}
 
-  async accessToken() {
-    const provider = this.config.demoProvider;
-    if (!provider) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
+  async accessToken(provider: NonNullable<AppConfig['demoProvider']>) {
     let response: Response;
     try {
       response = await fetch(this.config.keycloakTokenUrl, {
@@ -72,7 +70,8 @@ export class DemoProviderClient {
     } catch {
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     }
-    if (response.status >= 500) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
+    if (response.status >= 500 || response.status === 401 || response.status === 403)
+      throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     const hasTransactionId =
       body && typeof body === 'object' && 'transactionId' in body &&
       typeof body.transactionId === 'string';

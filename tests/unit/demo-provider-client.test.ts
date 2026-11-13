@@ -3,7 +3,7 @@ import { HttpException } from '@nestjs/common';
 import { loadConfig } from '../../src/config/config';
 import { DemoProviderClient } from '../../src/modules/demo/infrastructure/demo-provider-client';
 
-test('demo provider preserves non-financial 4xx statuses and maps upstream server failures to 503', async () => {
+test('demo provider preserves business 4xx and maps dependency authentication/server failures to 503', async () => {
   const client = new DemoProviderClient(
     loadConfig({
       DATABASE_URL: 'postgresql://user:pass@localhost/db',
@@ -22,7 +22,7 @@ test('demo provider preserves non-financial 4xx statuses and maps upstream serve
   };
   const originalFetch = globalThis.fetch;
   try {
-    for (const status of [400, 403, 409, 422]) {
+    for (const status of [400, 404, 409, 422, 401, 403]) {
       globalThis.fetch = (async () =>
         new Response(JSON.stringify({ code: 'UPSTREAM_REJECTION' }), {
           status,
@@ -35,8 +35,11 @@ test('demo provider preserves non-financial 4xx statuses and maps upstream serve
         failure = error;
       }
       expect(failure).toBeInstanceOf(HttpException);
-      expect((failure as HttpException).getStatus()).toBe(status);
-      expect((failure as HttpException).getResponse()).toMatchObject({ code: 'UPSTREAM_REJECTION' });
+      const dependencyFailure = status === 401 || status === 403;
+      expect((failure as HttpException).getStatus()).toBe(dependencyFailure ? 503 : status);
+      expect((failure as HttpException).getResponse()).toMatchObject({
+        code: dependencyFailure ? 'INFRASTRUCTURE_UNAVAILABLE' : 'UPSTREAM_REJECTION',
+      });
     }
     globalThis.fetch = (async () => new Response('unavailable', { status: 500 })) as unknown as typeof fetch;
     let serverFailure: unknown;
