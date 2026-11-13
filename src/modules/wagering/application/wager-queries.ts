@@ -1,6 +1,6 @@
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { Principal } from '../../identity/principal';
-import type { TransactionView, WageringStore } from './wagering-store';
+import type { TransactionFilter, TransactionView, WageringStore } from './wagering-store';
 export class WagerQueries {
   constructor(private readonly store: WageringStore) {}
   private owned(view: TransactionView | undefined, principal: Principal): TransactionView {
@@ -17,5 +17,15 @@ export class WagerQueries {
     principal: Principal,
   ): Promise<TransactionView> {
     return this.owned(await this.store.findExternal(providerId, externalId), principal);
+  }
+  async list(filter: TransactionFilter, principal: Principal) {
+    const result = await this.store.list(filter);
+    const transactions = result.transactions.filter(
+      (view) => principal.kind !== 'provider' || view.providerId === principal.providerId,
+    );
+    return {
+      transactions,
+      next: result.next,
+    };
   }
 }

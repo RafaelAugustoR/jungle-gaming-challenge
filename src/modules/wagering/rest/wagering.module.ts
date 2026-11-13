@@ -6,6 +6,7 @@ import {
   Module,
   Param,
   Post,
+  Query,
   Req,
   Res,
   UseGuards,
@@ -20,6 +21,44 @@ import { SubmitWagerTransaction } from '../application/submit-wager-transaction'
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
 import { identifier, parseWagerCommand } from '../application/wager-contract';
+import { isWagerKind } from '../domain/wager-command';
+import { decodeTransactionCursor, encodeTransactionCursor } from './transaction-cursor';
+
+function transactionFilter(query: Record<string, unknown>) {
+  const allowed = new Set(['walletId', 'status', 'kind', 'providerId', 'limit', 'cursor']);
+  if (Object.keys(query).some((key) => !allowed.has(key))) throw apiError(400, 'INVALID_PAYLOAD');
+  const status = query.status;
+  if (
+    status !== undefined &&
+    !['PENDING', 'PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'].includes(String(status))
+  )
+    throw apiError(400, 'INVALID_PAYLOAD');
+  if (query.kind !== undefined && query.kind !== 'OPENING' && !isWagerKind(query.kind))
+    throw apiError(400, 'INVALID_PAYLOAD');
+  const number = (value: unknown, fallback: number, max: number) => {
+    if (value === undefined) return fallback;
+    if (typeof value !== 'string' || !/^(0|[1-9][0-9]*)$/.test(value))
+      throw apiError(400, 'INVALID_PAYLOAD');
+    const parsed = Number(value);
+    if (parsed > max) throw apiError(400, 'INVALID_PAYLOAD');
+    if (parsed < 1) throw apiError(400, 'INVALID_PAYLOAD');
+    return parsed;
+  };
+  const filter = {
+    ...(query.walletId === undefined ? {} : { walletId: parseUuid(identifier(query.walletId)) }),
+    ...(status === undefined ? {} : { status: String(status) }),
+    ...(query.kind === undefined ? {} : { kind: String(query.kind) }),
+    ...(query.providerId === undefined ? {} : { providerId: identifier(query.providerId) }),
+    limit: number(query.limit, 50, 100),
+  };
+  if (query.cursor !== undefined) {
+    if (typeof query.cursor !== 'string') throw apiError(400, 'INVALID_PAYLOAD');
+    const cursor = decodeTransactionCursor(query.cursor, filter);
+    if (!cursor) throw apiError(400, 'INVALID_PAYLOAD');
+    return { ...filter, cursor };
+  }
+  return filter;
+}
 
 interface RequestContext {
   principal: Principal;
@@ -68,6 +107,16 @@ class WageringController {
     identifier(providerId);
     identifier(externalId);
     return this.queries.getExternal(providerId, externalId, request.principal);
+  }
+  @Get('wagering/transactions')
+  @Access({ humanRoles: ['viewer'] })
+  async list(@Query() query: Record<string, unknown>, @Req() request: RequestContext) {
+    const filter = transactionFilter(query);
+    const page = await this.queries.list(filter, request.principal);
+    return {
+      transactions: page.transactions,
+      nextCursor: page.next ? encodeTransactionCursor(filter, page.next) : null,
+    };
   }
 }
 @Module({

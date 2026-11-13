@@ -17,6 +17,21 @@ export interface TransactionView extends TransactionState {
   referenceTransactionId?: string;
   createdAt: string;
   processedAt: string | null;
+  originalReceipt: { httpStatus: number; body: Record<string, unknown> } | null;
+}
+export interface TransactionFilter {
+  walletId?: string;
+  status?: string;
+  kind?: string;
+  providerId?: string;
+  limit: number;
+  cursor?: TransactionCursorPosition;
+}
+export interface TransactionCursorPosition {
+  upperCreatedAt: string;
+  upperId: string;
+  afterCreatedAt: string;
+  afterId: string;
 }
 export interface PendingReference {
   transaction: WagerTransaction;
@@ -65,4 +80,8 @@ export interface WageringStore {
   transaction<T>(work: (session: WageringSession) => Promise<T>, signal?: AbortSignal): Promise<T>;
   find(id: string): Promise<TransactionView | undefined>;
   findExternal(providerId: string, externalId: string): Promise<TransactionView | undefined>;
+  list(filter: TransactionFilter): Promise<{
+    transactions: TransactionView[];
+    next: TransactionCursorPosition | null;
+  }>;
 }

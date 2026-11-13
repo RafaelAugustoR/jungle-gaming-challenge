@@ -15,6 +15,12 @@ test('configuration rejects invalid ports and missing URLs without exposing cred
 
 test('provider client mappings are configured and malformed mappings fail at boot', () => {
   expect(
+    loadConfig({ ...env, KEYCLOAK_ISSUER: 'http://keycloak:8080/realms/jungle' }).keycloakTokenUrl,
+  ).toBe('http://keycloak:8080/realms/jungle/protocol/openid-connect/token');
+  expect(
+    loadConfig({ ...env, KEYCLOAK_TOKEN_URL: 'http://keycloak:8080/token' }).keycloakTokenUrl,
+  ).toBe('http://keycloak:8080/token');
+  expect(
     loadConfig({ ...env, PROVIDER_CLIENTS: '{"arcade":"provider-42"}' }).providerClients,
   ).toEqual({ arcade: 'provider-42' });
   for (const PROVIDER_CLIENTS of [
@@ -26,6 +32,16 @@ test('provider client mappings are configured and malformed mappings fail at boo
   ]) {
     expect(() => loadConfig({ ...env, PROVIDER_CLIENTS })).toThrow('Invalid PROVIDER_CLIENTS');
   }
+  expect(
+    loadConfig({
+      ...env,
+      DEMO_PROVIDER_CLIENT_SECRETS: '{"provider-42":"demo-secret"}',
+      PROVIDER_CLIENTS: '{"arcade":"provider-42"}',
+    }).demoProviderClientSecrets,
+  ).toEqual({ 'provider-42': 'demo-secret' });
+  expect(() =>
+    loadConfig({ ...env, DEMO_PROVIDER_CLIENT_SECRETS: '{"unknown":"secret"}' }),
+  ).toThrow('Invalid DEMO_PROVIDER_CLIENT_SECRETS');
 });
 
 test('financial time budgets are configurable and reject invalid values', () => {

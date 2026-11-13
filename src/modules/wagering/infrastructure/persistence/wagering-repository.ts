@@ -21,6 +21,7 @@ import {
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
+  TransactionFilter,
   TransactionView,
   WageringSession,
   WageringStore,
@@ -42,12 +43,48 @@ interface TransactionRow {
   amount: string;
   currency: string;
   created_at: Date;
+  cursor_created_at: string;
   processed_at: Date | null;
   reference_external_transaction_id: string | null;
   reference_transaction_id: string | null;
   result_balance: string | null;
   http_status: number | null;
   body: SubmissionReceipt['body'] | null;
+}
+function transactionView(row: TransactionRow): TransactionView {
+  return {
+    transactionId: row.id,
+    providerId: row.provider_id,
+    externalTransactionId: row.external_transaction_id,
+    playerId: row.player_id,
+    walletId: row.wallet_id,
+    roundId: row.round_id,
+    gameId: row.game_id,
+    kind: row.kind,
+    ...(row.reference_external_transaction_id
+      ? { referenceExternalTransactionId: row.reference_external_transaction_id }
+      : {}),
+    ...(row.reference_transaction_id
+      ? { referenceTransactionId: row.reference_transaction_id }
+      : {}),
+    status: row.status,
+    ...(row.failure_code ? { failureCode: row.failure_code } : {}),
+    money: Money.rehydrate({ amount: row.amount, currency: row.currency }).toProps(),
+    ...(row.result_balance !== null
+      ? {
+          balance: Money.rehydrate({
+            amount: row.result_balance,
+            currency: row.currency,
+          }).toProps(),
+        }
+      : {}),
+    createdAt: new Date(row.created_at).toISOString(),
+    processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
+    originalReceipt:
+      row.http_status === null || row.body === null
+        ? null
+        : { httpStatus: row.http_status, body: { ...row.body } },
+  };
 }
 async function submission(
   em: EntityManager,
@@ -154,44 +191,58 @@ export class WageringRepository implements WageringStore {
   findExternal(providerId: string, id: string) {
     return this.read('t.provider_id=? and t.external_transaction_id=?', [providerId, id]);
   }
+  list(filter: TransactionFilter) {
+    return databaseOperation(async () => {
+      const clauses: string[] = [];
+      const params: unknown[] = [];
+      for (const [column, value] of [
+        ['t.wallet_id', filter.walletId],
+        ['t.status', filter.status],
+        ['t.kind', filter.kind],
+        ['t.provider_id', filter.providerId],
+      ] as const) {
+        if (value !== undefined) {
+          clauses.push(`${column}=?`);
+          params.push(value);
+        }
+      }
+      if (filter.cursor) {
+        clauses.push('(t.created_at,t.id)<=(?::timestamptz,?::uuid)');
+        params.push(filter.cursor.upperCreatedAt, filter.cursor.upperId);
+        clauses.push('(t.created_at,t.id)<(?::timestamptz,?::uuid)');
+        params.push(filter.cursor.afterCreatedAt, filter.cursor.afterId);
+      }
+      const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
+      const em = this.orm.em.fork();
+      const rows = await em.execute<TransactionRow[]>(
+        `select t.*,t.amount::text as amount,t.result_balance::text as result_balance,w.player_id,r.http_status,r.body,to_char(t.created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_created_at from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id ${where} order by t.created_at desc,t.id desc limit ?`,
+        [...params, filter.limit + 1],
+      );
+      const hasMore = rows.length > filter.limit;
+      const pageRows = hasMore ? rows.slice(0, filter.limit) : rows;
+      const first = pageRows[0];
+      const last = pageRows.at(-1);
+      return {
+        transactions: pageRows.map(transactionView),
+        next: hasMore && first && last
+          ? {
+              upperCreatedAt: filter.cursor?.upperCreatedAt ?? first.cursor_created_at,
+              upperId: filter.cursor?.upperId ?? first.id,
+              afterCreatedAt: last.cursor_created_at,
+              afterId: last.id,
+            }
+          : null,
+      };
+    });
+  }
   private read(where: string, params: string[]): Promise<TransactionView | undefined> {
     return databaseOperation(async () => {
       const [row] = await this.orm.em
         .fork()
         .execute<
           TransactionRow[]
-        >(`select t.*, t.amount::text as amount, w.player_id, t.result_balance::text as result_balance from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id where ${where}`, params);
-      return (
-        row && {
-          transactionId: row.id,
-          providerId: row.provider_id,
-          externalTransactionId: row.external_transaction_id,
-          playerId: row.player_id,
-          walletId: row.wallet_id,
-          roundId: row.round_id,
-          gameId: row.game_id,
-          kind: row.kind,
-          ...(row.reference_external_transaction_id
-            ? { referenceExternalTransactionId: row.reference_external_transaction_id }
-            : {}),
-          ...(row.reference_transaction_id
-            ? { referenceTransactionId: row.reference_transaction_id }
-            : {}),
-          status: row.status,
-          ...(row.failure_code ? { failureCode: row.failure_code } : {}),
-          money: Money.rehydrate({ amount: row.amount, currency: row.currency }).toProps(),
-          ...(row.result_balance !== null
-            ? {
-                balance: Money.rehydrate({
-                  amount: row.result_balance,
-                  currency: row.currency,
-                }).toProps(),
-              }
-            : {}),
-          createdAt: new Date(row.created_at).toISOString(),
-          processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
-        }
-      );
+        >(`select t.*, t.amount::text as amount, w.player_id, t.result_balance::text as result_balance,r.http_status,r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
+      return row && transactionView(row);
     });
   }
 }

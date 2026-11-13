@@ -4,6 +4,7 @@ import { ApiErrorFilter } from '../shared/rest/api-error';
 import { resolve } from 'node:path';
 import { WalletsModule } from '../modules/wallets/rest/wallets.module';
 import { WageringModule } from '../modules/wagering/rest/wagering.module';
+import { DemoModule } from '../modules/demo/demo.module';
 import { DynamicModule, Module } from '@nestjs/common';
 import { NestFactory } from '@nestjs/core';
 import { InfrastructureModule } from '../config/infrastructure.module';
@@ -16,7 +17,13 @@ export class ApiModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: ApiModule,
-      imports: [InfrastructureModule.register(config), HealthModule, WalletsModule, WageringModule],
+      imports: [
+        InfrastructureModule.register(config),
+        HealthModule,
+        WalletsModule,
+        WageringModule,
+        DemoModule,
+      ],
     };
   }
 }
