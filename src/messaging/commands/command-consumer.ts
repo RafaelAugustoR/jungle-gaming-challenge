@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import {
   ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
+  GetQueueAttributesCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
   type Message,
@@ -13,8 +14,6 @@ import { JsonLogger } from '../../observability/logger';
 import { retryDelay } from '../outbox/publication-policy';
 import { commandInboxHash, diagnosticMessageId, parseCommandEnvelope } from './command-envelope';
 import { classify, type CommandLogContext, type Disposition } from './disposition';
-import type { MetricsRegistry } from '../../observability/metrics.module';
-import { pgCode } from '../../shared/infrastructure/postgres-error';
 export interface CommandConsumerOptions {
   queueUrl: string;
   dlqUrl: string;
@@ -29,6 +28,8 @@ export interface CommandConsumerOptions {
 export interface CommandConsumerObserver {
   committed?(messageId: string): Promise<void>;
   deadLetterSent?(messageId: string): Promise<void>;
+  retryScheduled?(reason: 'message_retry'): void;
+  dlqDepth?(depth: number): void;
 }
 type ReceivedCommand = Message & { MessageId: string; ReceiptHandle: string };
 export class CommandConsumer {
@@ -37,12 +38,12 @@ export class CommandConsumer {
   private stopping = false;
   private active?: AbortController;
   private drainTimer?: ReturnType<typeof setTimeout>;
+  private lastDlqSampleAt = 0;
   constructor(
     private readonly submit: SubmitWagerTransaction,
     private readonly sqs: SQSClient,
     private readonly options: CommandConsumerOptions,
     private readonly observer: CommandConsumerObserver = {},
-    private readonly metrics?: MetricsRegistry,
   ) {}
   stop() {
     this.stopping = true;
@@ -100,7 +101,35 @@ export class CommandConsumer {
       const disposition = await this.withLease(message, (signal) => this.handle(message, signal));
       await this.settle(message, disposition);
     }
+    await this.refreshDlqDepth();
     return messages.length;
+  }
+  private async refreshDlqDepth() {
+    if (!this.observer.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
+    this.lastDlqSampleAt = Date.now();
+    try {
+      const { Attributes } = await this.sqs.send(
+        new GetQueueAttributesCommand({
+          QueueUrl: this.options.dlqUrl,
+          AttributeNames: [
+            'ApproximateNumberOfMessages',
+            'ApproximateNumberOfMessagesNotVisible',
+            'ApproximateNumberOfMessagesDelayed',
+          ],
+        }),
+        this.callOptions(),
+      );
+      const depth = (
+        [
+          'ApproximateNumberOfMessages',
+          'ApproximateNumberOfMessagesNotVisible',
+          'ApproximateNumberOfMessagesDelayed',
+        ] as const
+      ).reduce((total, name) => total + Number(Attributes?.[name] ?? 0), 0);
+      if (Number.isFinite(depth)) this.observer.dlqDepth(depth);
+    } catch {
+      // Keep the last approximate depth when SQS cannot answer; worker health is reported separately.
+    }
   }
   private async withLease(
     message: ReceivedCommand,
@@ -137,7 +166,6 @@ export class CommandConsumer {
     }
   }
   private async handle(message: ReceivedCommand, signal: AbortSignal): Promise<Disposition> {
-    const startedAt = performance.now();
     const messageId = diagnosticMessageId(message.Body ?? '') ?? message.MessageId;
     const context: CommandLogContext = {
       messageId,
@@ -146,7 +174,6 @@ export class CommandConsumer {
     };
     try {
       const envelope = parseCommandEnvelope(message.Body ?? '');
-      const operation = envelope.command.kind;
       Object.assign(context, {
         providerId: envelope.command.providerId,
         walletId: envelope.command.walletId,
@@ -164,25 +191,12 @@ export class CommandConsumer {
             hash: commandInboxHash(envelope.command, envelope.key),
           },
           signal,
+          channel: 'sqs',
         },
       );
       context.transactionId = receipt.body.transactionId;
-      this.metrics?.transactionAttempts.inc({ operation, channel: 'sqs', status: receipt.body.status });
-      this.metrics?.transactionDuration.observe(
-        { operation, channel: 'sqs', status: receipt.body.status },
-        (performance.now() - startedAt) / 1000,
-      );
-      if (receipt.body.idempotentReplay)
-        this.metrics?.transactionDuplicates.inc({ operation, channel: 'sqs' });
       return { kind: 'ack', context };
     } catch (error) {
-      const code = pgCode(error);
-      if (code === '55P03' || code === '40P01')
-        this.metrics?.walletLockConflicts.inc({ source: 'sqs' });
-      this.metrics?.transactionDuration.observe(
-        { operation: 'unknown', channel: 'sqs', status: 'error' },
-        (performance.now() - startedAt) / 1000,
-      );
       return { ...classify(error), context };
     }
   }
@@ -241,7 +255,6 @@ export class CommandConsumer {
       }),
       this.callOptions(),
     );
-    this.metrics?.workerDeadLetters.inc({ worker: 'command' });
     await this.observer.deadLetterSent?.(disposition.context.messageId);
   }
   private async retry(message: ReceivedCommand) {
@@ -251,6 +264,6 @@ export class CommandConsumer {
       : Math.max(1, Math.ceil(retryDelay(attempts, this.options) / 1000));
     // Financial work/cancellation has finished before returning visibility.
     await this.visibility(message, seconds).catch(() => undefined);
-    if (!this.stopping) this.metrics?.workerRetries.inc({ worker: 'command' });
+    if (!this.stopping) this.observer.retryScheduled?.('message_retry');
   }
 }

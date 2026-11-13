@@ -10,6 +10,15 @@ export interface ReservedEvent {
   token: string;
   attempts: number;
 }
+export function outboxLogContext(event: ReservedEvent) {
+  return {
+    eventId: event.eventId,
+    aggregateId: event.aggregateId,
+    transactionId: event.transactionId,
+    correlationId: event.correlationId,
+    providerId: event.providerId,
+  };
+}
 interface OutboxRow {
   event_id: string;
   aggregate_id: string;
@@ -47,16 +56,12 @@ export class OutboxRepository {
         [limit, crypto.randomUUID(), leaseMs],
       );
       return rows.map((row) => {
-        const data = row.payload.data;
-        const providerId = data && typeof data === 'object' && 'providerId' in data
-          ? (data as { providerId?: unknown }).providerId
-          : undefined;
+        const context = eventLogContext(row.payload);
         return {
           eventId: row.event_id,
           aggregateId: row.aggregate_id,
           transactionId: row.transaction_id,
-          ...(typeof row.payload.correlationId === 'string' ? { correlationId: row.payload.correlationId } : {}),
-          ...(typeof providerId === 'string' ? { providerId } : {}),
+          ...context,
           sequence: row.sequence,
           payload: row.payload,
           token: row.lease_token,
@@ -96,4 +101,19 @@ export class OutboxRepository {
     );
     return rows.length === 1;
   }
+}
+
+function eventLogContext(
+  payload: Record<string, unknown>,
+): Pick<ReservedEvent, 'correlationId' | 'providerId'> {
+  const eventData = payload.data;
+  const correlationId = payload.correlationId;
+  const providerId =
+    eventData && typeof eventData === 'object' && 'providerId' in eventData
+      ? (eventData as { providerId?: unknown }).providerId
+      : undefined;
+  return {
+    correlationId: typeof correlationId === 'string' ? correlationId : undefined,
+    providerId: typeof providerId === 'string' ? providerId : undefined,
+  };
 }

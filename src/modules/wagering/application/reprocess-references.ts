@@ -1,3 +1,4 @@
+import type { SubmissionObserver } from './submit-wager-transaction';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import { ReferenceRetryPolicy } from '../domain/reference-retry';
 import { settleWager } from './settle-wager';
@@ -11,6 +12,7 @@ export class ReprocessReferences {
       candidate: PendingReferenceCandidate,
       error: unknown,
     ) => void = () => {},
+    private readonly observer: SubmissionObserver = {},
   ) {}
 
   async runBatch(limit: number, signal?: AbortSignal): Promise<number> {
@@ -44,36 +46,58 @@ export class ReprocessReferences {
     return completed;
   }
 
-  execute(candidate: PendingReferenceCandidate): Promise<boolean> {
-    return this.store.transaction(async (session) => {
-      // Same wallet-first ordering as submissions. Candidate scans hold no locks.
-      const wallet = await session.lockWallet(candidate.walletId);
-      if (!wallet) throw new DomainError('WALLET_NOT_FOUND');
-      const pending = await session.pendingReference(candidate.transactionId);
-      if (!pending) return false;
-      const { transaction, context } = pending;
-      const { outcome, occurredAt } = await settleWager(
-        session,
-        () => transaction,
-        wallet,
-        context,
-        pending.deadline,
-      );
-      const now = new Date(occurredAt),
-        deadline = new Date(pending.deadline);
-      if (outcome.status === 'PENDING_REFERENCE') {
-        await session.rescheduleReference(
-          transaction.id,
-          this.policy.next(now, pending.attempts + 1, deadline).toISOString(),
+  async execute(candidate: PendingReferenceCandidate): Promise<boolean> {
+    const startedAt = performance.now();
+    let operation = 'unknown';
+    let status = 'skipped';
+    try {
+      const completed = await this.store.transaction(async (session) => {
+        // Same wallet-first ordering as submissions. Candidate scans hold no locks.
+        const wallet = await session.lockWallet(candidate.walletId);
+        if (!wallet) throw new DomainError('WALLET_NOT_FOUND');
+        const pending = await session.pendingReference(candidate.transactionId);
+        if (!pending) return false;
+        const { transaction, context } = pending;
+        operation = transaction.kind;
+        const { outcome, occurredAt } = await settleWager(
+          session,
+          () => transaction,
+          wallet,
+          context,
+          pending.deadline,
         );
-        return false;
-      }
-      transaction.complete(outcome, occurredAt, context);
-      await session.savePendingResult(
-        { transaction, wallet: outcome.wallet, change: outcome.change },
-        occurredAt,
-      );
-      return true;
-    });
+        status = outcome.status;
+        const now = new Date(occurredAt),
+          deadline = new Date(pending.deadline);
+        if (outcome.status === 'PENDING_REFERENCE') {
+          await session.rescheduleReference(
+            transaction.id,
+            this.policy.next(now, pending.attempts + 1, deadline).toISOString(),
+          );
+          return false;
+        }
+        transaction.complete(outcome, occurredAt, context);
+        await session.savePendingResult(
+          { transaction, wallet: outcome.wallet, change: outcome.change },
+          occurredAt,
+        );
+        return true;
+      });
+      this.observer.completed?.({
+        operation,
+        channel: 'reference',
+        status,
+        durationSeconds: (performance.now() - startedAt) / 1000,
+        idempotentReplay: false,
+      });
+      return completed;
+    } catch (error) {
+      this.observer.failed?.({
+        operation,
+        channel: 'reference',
+        durationSeconds: (performance.now() - startedAt) / 1000,
+      });
+      throw error;
+    }
   }
 }

@@ -28,3 +28,17 @@ export function isTransientPostgresError(error: unknown): boolean {
 export function isRetryableTransactionError(error: unknown): boolean {
   return retryableCodes.has(pgCode(error) ?? '');
 }
+export function isLockConflict(error: unknown): boolean {
+  const code = pgCode(error);
+  return code === '55P03' || code === '40P01';
+}
+
+const transactionRetryReasons: Readonly<Record<string, string>> = {
+  '40001': 'serialization_failure',
+  '40P01': 'deadlock',
+  '55P03': 'lock_timeout',
+  '57014': 'statement_timeout',
+};
+export function transactionRetryReason(error: unknown): string {
+  return transactionRetryReasons[pgCode(error) ?? ''] ?? 'unknown_retryable';
+}

@@ -1,0 +1,318 @@
+{
+  "at": "2026-11-13T22:29:53.162Z",
+  "stage": "recovered",
+  "http": {
+    "liveness": 200,
+    "readiness": 200,
+    "metrics": 200,
+    "unauthenticatedMetrics": 401
+  },
+  "durableSuccess": 1,
+  "durableAgeSeconds": 1.094,
+  "samples": [
+    {
+      "query": "up",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "172.31.22.5:9467",
+              "job": "outbox-publisher"
+            },
+            "value": [
+              1794608993.153,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "172.31.22.4:9466",
+              "job": "command-consumer"
+            },
+            "value": [
+              1794608993.153,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "172.31.22.2:9465",
+              "job": "reference-worker"
+            },
+            "value": [
+              1794608993.153,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "172.31.22.6:9468",
+              "job": "event-consumer"
+            },
+            "value": [
+              1794608993.153,
+              "1"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "up",
+              "instance": "172.31.22.3:9464",
+              "job": "api"
+            },
+            "value": [
+              1794608993.153,
+              "1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "wager_transactions",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "wager_transactions",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "BET",
+              "status": "PROCESSED"
+            },
+            "value": [
+              1794608993.155,
+              "37"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "wager_transactions",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "BET",
+              "status": "REJECTED"
+            },
+            "value": [
+              1794608993.155,
+              "19"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "wager_transactions",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "OPENING",
+              "status": "PROCESSED"
+            },
+            "value": [
+              1794608993.155,
+              "4"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "wager_transaction_attempts_total",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "wager_transaction_attempts_total",
+              "channel": "http",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "BET",
+              "status": "PROCESSED"
+            },
+            "value": [
+              1794608993.155,
+              "36"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "wager_transaction_attempts_total",
+              "channel": "http",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "BET",
+              "status": "REJECTED"
+            },
+            "value": [
+              1794608993.155,
+              "12"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "wager_transaction_duplicates_total",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "wager_transaction_duplicates_total",
+              "channel": "http",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "operation": "BET"
+            },
+            "value": [
+              1794608993.156,
+              "12"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "jungle_retries_total",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "jungle_retries_total",
+              "component": "financial",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "reason": "lock_timeout"
+            },
+            "value": [
+              1794608993.158,
+              "2"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "jungle_retries_total",
+              "component": "reference",
+              "instance": "172.31.22.2:9465",
+              "job": "reference-worker",
+              "reason": "batch_error"
+            },
+            "value": [
+              1794608993.158,
+              "14"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "jungle_retries_total",
+              "component": "publisher",
+              "instance": "172.31.22.5:9467",
+              "job": "outbox-publisher",
+              "reason": "iteration_error"
+            },
+            "value": [
+              1794608993.158,
+              "12"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "wallet_lock_conflicts_total",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "wallet_lock_conflicts_total",
+              "instance": "172.31.22.3:9464",
+              "job": "api",
+              "source": "financial"
+            },
+            "value": [
+              1794608993.158,
+              "2"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "worker_dlq_messages",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "worker_dlq_messages",
+              "instance": "172.31.22.4:9466",
+              "job": "command-consumer",
+              "worker": "command"
+            },
+            "value": [
+              1794608993.159,
+              "3"
+            ]
+          },
+          {
+            "metric": {
+              "__name__": "worker_dlq_messages",
+              "instance": "172.31.22.6:9468",
+              "job": "event-consumer",
+              "worker": "event-consumer"
+            },
+            "value": [
+              1794608993.159,
+              "0"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "durable_snapshot_success{job=\"api\"}",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "durable_snapshot_success",
+              "instance": "172.31.22.3:9464",
+              "job": "api"
+            },
+            "value": [
+              1794608993.16,
+              "1"
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "query": "durable_snapshot_age_seconds{job=\"api\"}",
+      "data": {
+        "resultType": "vector",
+        "result": [
+          {
+            "metric": {
+              "__name__": "durable_snapshot_age_seconds",
+              "instance": "172.31.22.3:9464",
+              "job": "api"
+            },
+            "value": [
+              1794608993.16,
+              "0"
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

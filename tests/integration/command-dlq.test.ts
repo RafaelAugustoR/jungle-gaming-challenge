@@ -1,3 +1,7 @@
+import {
+  MetricsRegistry,
+  commandConsumerMetricsObserver,
+} from '../../src/observability/metrics.module';
 import { expect, test } from 'bun:test';
 import { commandSuite, retryUntil } from '../support/command-fixture';
 import { loadCommandConfig } from '../../src/messaging/commands/config';
@@ -170,6 +174,17 @@ integration(
         (messages) => messages.length > 0,
       );
       expect(JSON.parse(dead[0]!.Body!).messageId).toBe(envelope.messageId);
+      // A fresh observer reads DLQ depth from SQS, even though this consumer sent no explicit dead letter.
+      const registry = new MetricsRegistry();
+      const restarted = await consumer(
+        { waitSeconds: 0 },
+        commandConsumerMetricsObserver(registry),
+      );
+      await restarted.runOnce();
+      const scrape = await registry.scrape();
+      expect(scrape).toContain('worker_dlq_messages{worker="command"} 1');
+      expect(scrape).not.toContain('worker_dead_letters_total{worker="command"} 1');
+
       expect(
         (
           await new Wallets(new WalletRepository(state.orm), { divergence() {} }).get(wallet.id)

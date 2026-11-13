@@ -9,6 +9,11 @@ import {
   type CommandConsumerOptions,
 } from './command-consumer';
 import type { loadCommandConfig } from './config';
+import {
+  commandConsumerMetricsObserver,
+  submissionMetricsObserver,
+  wageringRepositoryMetricsObserver,
+} from '../../observability/metrics.module';
 type Options = ReturnType<typeof loadCommandConfig> &
   Partial<Pick<CommandConsumerOptions, 'queueUrl' | 'dlqUrl'>>;
 export async function runCommandWorker(
@@ -29,8 +34,25 @@ export async function runCommandWorker(
         const source = options.queueUrl ?? (await queueUrl(sqs, options.queueName, resolveOptions));
         const dlq =
           options.dlqUrl ?? (await queueUrl(sqs, dlqName(options.queueName), resolveOptions));
+        const measured = commandConsumerMetricsObserver(metrics);
+        const observer: CommandConsumerObserver = {
+          committed: hooks.observer?.committed,
+          deadLetterSent: async (messageId) => {
+            await measured.deadLetterSent?.(messageId);
+            await hooks.observer?.deadLetterSent?.(messageId);
+          },
+          retryScheduled: (reason) => {
+            measured.retryScheduled?.(reason);
+            hooks.observer?.retryScheduled?.(reason);
+          },
+          dlqDepth: measured.dlqDepth,
+        };
         return new CommandConsumer(
-          createSubmission(new WageringRepository(orm, config, metrics), config),
+          createSubmission(
+            new WageringRepository(orm, config, wageringRepositoryMetricsObserver(metrics)),
+            config,
+            submissionMetricsObserver(metrics),
+          ),
           sqs,
           {
             ...options,
@@ -38,8 +60,7 @@ export async function runCommandWorker(
             dlqUrl: dlq,
             financialDeadlineMs: config.financialDeadlineMs,
           },
-          hooks.observer,
-          metrics,
+          observer,
         );
       },
       { config, once: hooks.once ?? false, pollMs: hooks.pollMs ?? 0, onReady: hooks.onReady },

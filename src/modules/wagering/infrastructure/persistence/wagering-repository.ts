@@ -1,11 +1,13 @@
 import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
 import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
-import { Inject, Injectable, Optional } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { DomainError } from '../../../../shared/domain/errors/domain-error';
 import {
+  isLockConflict,
+  transactionRetryReason,
   isRetryableTransactionError,
   pgCode,
   pgConstraint,
@@ -25,7 +27,11 @@ import type {
   WageringSession,
   WageringStore,
 } from '../../application/wagering-store';
-import { MetricsRegistry } from '../../../../observability/metrics.module';
+
+export interface WageringRepositoryObserver {
+  lockConflict?(): void;
+  retry?(reason: string): void;
+}
 
 interface TransactionRow {
   id: string;
@@ -102,7 +108,7 @@ export class WageringRepository implements WageringStore {
   constructor(
     @Inject(MikroORM) private readonly orm: MikroORM,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Optional() @Inject(MetricsRegistry) private readonly metrics?: MetricsRegistry,
+    private readonly observer: WageringRepositoryObserver = {},
   ) {}
   async transaction<T>(
     work: (session: WageringSession) => Promise<T>,
@@ -121,9 +127,7 @@ export class WageringRepository implements WageringStore {
             }),
           );
         } catch (error) {
-          const code = pgCode(error);
-          if (code === '55P03' || code === '40P01')
-            this.metrics?.walletLockConflicts.inc({ source: 'financial' });
+          if (isLockConflict(error)) this.observer.lockConflict?.();
           const identityRace =
             pgCode(error) === '23505' &&
             ['provider_idempotency_key', 'provider_external_transaction'].includes(
@@ -136,14 +140,8 @@ export class WageringRepository implements WageringStore {
             Date.now() < deadline &&
             (identityRace || isRetryableTransactionError(error))
           ) {
-            const reason = identityRace
-              ? 'identity_conflict'
-              : code === '55P03'
-                ? 'lock_timeout'
-                : code === '40P01'
-                  ? 'deadlock'
-                  : 'statement_timeout';
-            this.metrics?.wageringTransactionRetries.inc({ reason });
+            const reason = identityRace ? 'identity_conflict' : transactionRetryReason(error);
+            this.observer.retry?.(reason);
             continue;
           }
           if (identityRace) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');

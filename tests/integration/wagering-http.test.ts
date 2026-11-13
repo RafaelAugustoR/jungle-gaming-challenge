@@ -3,7 +3,7 @@ import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
 import { disposableDatabase } from '../support/database';
 import { humanToken, providerToken } from '../support/keycloak';
-import { MetricsRegistry } from '../../src/observability/metrics.module';
+import { DurableMetricsCollector, MetricsRegistry } from '../../src/observability/metrics.module';
 
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 let database: Awaited<ReturnType<typeof disposableDatabase>>;
@@ -78,7 +78,9 @@ integration(
         bet = command(w),
         result = await submit(bet);
       expect(result.status).toBe(200);
-      const lines = output.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      const lines = output.mock.calls.map(
+        ([line]) => JSON.parse(String(line)) as Record<string, unknown>,
+      );
       const event = lines.find((line) => line.event === 'wager_submission_completed');
       expect(event).toMatchObject({
         event: 'wager_submission_completed',
@@ -302,48 +304,85 @@ integration(
 );
 
 integration(
-  'a table lock bounds durable metrics queries and releasing it lets the next scrape recover',
+  'concurrent HTTP scrapes share one real DB query and serve the previous snapshot through failure and recovery',
   async () => {
     const metricsApp = await createApplication(database.config);
+    await metricsApp.listen(0, '127.0.0.1');
+    const metricsBase = await metricsApp.getUrl();
+    const collector = metricsApp.get(DurableMetricsCollector);
     const lock = database.owner.em.fork();
-    await lock.begin();
-    await lock.execute('lock table wagering.transactions in access exclusive mode');
+    const scrape = async () => {
+      const response = await fetch(`${metricsBase}/internal/metrics`, { headers: headers(viewer) });
+      expect(response.status).toBe(200);
+      return response.text();
+    };
     try {
-      await expect(metricsApp.get(MetricsRegistry).scrape()).rejects.toThrow();
-    } finally {
+      const before = await scrape();
+      const durableLines = (text: string) =>
+        text.split('\n').filter((line) => line.startsWith('wager_transactions{'));
+      await lock.begin();
+      await lock.execute('lock table wagering.transactions in access exclusive mode');
+      await Bun.sleep(2100); // expire the documented collector cache
+      const pending = Promise.all(Array.from({ length: 10 }, () => scrape()));
+      const timeout = Date.now() + 500;
+      let waiting = 0;
+      while (Date.now() < timeout) {
+        const [row] = await database.owner.em
+          .fork()
+          .execute(
+            `select count(*)::int n from pg_stat_activity where datname=current_database() and wait_event_type='Lock' and query like '%transaction_counts as%'`,
+          );
+        waiting = row.n;
+        if (waiting) break;
+        await Bun.sleep(10);
+      }
+      expect(waiting).toBe(1); // singleflight, observed at PostgreSQL rather than a query mock
+      const stale = await pending;
+      for (const text of stale) {
+        expect(text).toContain('durable_snapshot_success 0');
+        expect(text).toMatch(/durable_snapshot_age_seconds [1-9]/);
+        expect(durableLines(text)).toEqual(durableLines(before));
+      }
       await lock.commit();
-    }
-    try {
-      expect(await metricsApp.get(MetricsRegistry).scrape()).toContain('outbox_pending_events');
+      await collector.refresh();
+      expect(await scrape()).toContain('durable_snapshot_success 1');
     } finally {
+      if (lock.isInTransaction()) await lock.rollback();
       await metricsApp.close();
     }
   },
 );
 
 integration(
-  'an internal deadlock retry is counted before persistence errors are translated',
+  'internal deadlock and serialization retries retain their distinct PostgreSQL reasons',
   async () => {
-    const w = await wallet(),
-      bet = command(w),
-      key = crypto.randomUUID();
-    await database.owner.em.execute(`create sequence wagering.test_retry_once start 1;
+    for (const [code, reason] of [
+      ['40P01', 'deadlock'],
+      ['40001', 'serialization_failure'],
+    ]) {
+      const w = await wallet(),
+        bet = command(w),
+        key = crypto.randomUUID();
+      await database.owner.em.execute(`create sequence wagering.test_retry_once start 1;
       grant usage,update on sequence wagering.test_retry_once to jungle_runtime;
       create function wagering.test_retry_once() returns trigger language plpgsql as $$
       begin
         if nextval('wagering.test_retry_once')=1 then
-          raise exception 'injected deadlock for observability test' using errcode='40P01';
+          raise exception 'injected deadlock for observability test' using errcode='${code}';
         end if;
         return new;
       end $$;
       create trigger test_retry_once before insert on wagering.transactions for each row execute function wagering.test_retry_once()`);
-    try {
-      expect((await submit(bet, key)).status).toBe(200);
-      expect(await app.get(MetricsRegistry).scrape()).toContain('wagering_transaction_retries_total{reason="deadlock"} 1');
-    } finally {
-      await database.owner.em.execute(
-        'drop trigger test_retry_once on wagering.transactions; drop function wagering.test_retry_once(); drop sequence wagering.test_retry_once',
-      );
+      try {
+        expect((await submit(bet, key)).status).toBe(200);
+        expect(await app.get(MetricsRegistry).scrape()).toContain(
+          `jungle_retries_total{component="financial",reason="${reason}"} 1`,
+        );
+      } finally {
+        await database.owner.em.execute(
+          'drop trigger test_retry_once on wagering.transactions; drop function wagering.test_retry_once(); drop sequence wagering.test_retry_once',
+        );
+      }
     }
   },
 );
@@ -357,17 +396,24 @@ integration(
     const lock = database.owner.em.fork();
     await lock.begin();
     await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    const lockCount = (text: string) =>
+      Number(text.match(/wallet_lock_conflicts_total\{source="financial"\} (\d+)/)?.[1] ?? 0);
+    const beforeLock = lockCount(await app.get(MetricsRegistry).scrape());
     let scrape = '';
     try {
       expect(await submit(bet, key)).toMatchObject({
         status: 503,
         body: { code: 'INFRASTRUCTURE_UNAVAILABLE' },
       });
+      await app.get(DurableMetricsCollector).refresh();
       scrape = await app.get(MetricsRegistry).scrape();
     } finally {
       await lock.commit();
     }
-    expect(scrape).toMatch(/wallet_lock_conflicts_total\{source="financial"\} [1-9]\d*/);
+    expect(lockCount(scrape) - beforeLock).toBe(3); // one per PG failure, not a fourth transport increment
+    expect(scrape).toMatch(
+      /wager_transaction_attempts_total\{operation="BET",channel="http",status="error"\} [1-9]\d*/,
+    );
     expect(scrape).toMatch(/wager_transactions\{operation="OPENING",status="PROCESSED"\} [1-9]\d*/);
     expect((await submit(bet, key)).status).toBe(200);
     const next = command(w),

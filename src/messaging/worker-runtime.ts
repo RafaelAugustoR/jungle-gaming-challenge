@@ -25,8 +25,8 @@ export async function runWorker(
   const config = options.config ?? loadConfig(),
     orm = await openDatabase(config),
     sqs = createSqsClient(config),
-    metrics = new MetricsRegistry(orm),
-    metricsServer = startMetricsListener(metrics, config.metricsPort, false, config.metricsAllowedCidr),
+    metrics = new MetricsRegistry(),
+    metricsServer = startMetricsListener(metrics, config.metricsPort, config.metricsAllowedNetwork),
     logger = new JsonLogger(),
     shutdown = new AbortController();
   let runner: Runner | undefined;
@@ -45,7 +45,7 @@ export async function runWorker(
       try {
         await runner.runOnce();
       } catch (error) {
-        metrics.workerRetries.inc({ worker: name });
+        metrics.retries.inc({ component: name, reason: 'iteration_error' });
         logger.error({ event: 'worker_iteration_failed', worker: name, error });
         if (options.once) throw error;
         if (error instanceof WorkerBackoff) delayMs = error.delayMs;

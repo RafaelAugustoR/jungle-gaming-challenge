@@ -31,6 +31,7 @@ export interface PendingReferenceCandidate {
 export interface SubmissionExecution {
   inbox?: { consumerName: string; messageId: string; hash: string };
   signal?: AbortSignal;
+  channel?: 'http' | 'sqs' | 'reference';
 }
 export interface WageringSession {
   recordInbox(

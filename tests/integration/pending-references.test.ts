@@ -1,3 +1,4 @@
+import { MetricsRegistry, submissionMetricsObserver } from '../../src/observability/metrics.module';
 import { openDatabase } from '../../src/config/orm';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
@@ -374,5 +375,44 @@ integration(
     }
     await audit(broken.id);
     await audit(healthy.id);
+  },
+);
+
+integration(
+  'reference attempts and latency use the shared submission observer without counting another financial acceptance',
+  async () => {
+    const w = await wallet(),
+      origin = command(w, 'BET');
+    const pending = await submit(command(w, 'REFUND', '20.00', origin.externalTransactionId));
+    const metrics = new MetricsRegistry();
+    const measured = new ReprocessReferences(
+      new WageringRepository(runtime, db.config),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+      () => {},
+      submissionMetricsObserver(metrics),
+    );
+    await due(pending.body.transactionId);
+    expect(
+      await measured.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
+    ).toBe(false);
+    expect(await metrics.scrape()).toContain(
+      'wager_transaction_attempts_total{operation="REFUND",channel="reference",status="PENDING_REFERENCE"} 1',
+    );
+    await submit(origin);
+    await due(pending.body.transactionId);
+    expect(
+      await measured.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
+    ).toBe(true);
+    const scrape = await metrics.scrape();
+    expect(scrape).toContain(
+      'wager_transaction_attempts_total{operation="REFUND",channel="reference",status="PROCESSED"} 1',
+    );
+    expect(scrape).toContain(
+      'jungle_retries_total{component="reference",reason="reference_pending"} 1',
+    );
+    expect(scrape).toContain(
+      'wager_transaction_duration_seconds_count{operation="REFUND",channel="reference",status="PROCESSED"} 1',
+    );
+    expect(await audit(w.id)).toMatchObject({ balance: '100.00', entries: 3 });
   },
 );

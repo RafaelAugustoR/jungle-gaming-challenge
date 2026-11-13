@@ -1,8 +1,17 @@
 import { createHash } from 'node:crypto';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
+import {
+  DeleteMessageCommand,
+  GetQueueAttributesCommand,
+  ReceiveMessageCommand,
+  SQSClient,
+} from '@aws-sdk/client-sqs';
 import { JsonLogger } from '../../observability/logger';
 import { parseIntegrationEvent } from './integration-envelope';
+
+export interface EventConsumerObserver {
+  dlqDepth?(depth: number): void;
+}
 
 export class EventConsumer {
   constructor(
@@ -11,7 +20,38 @@ export class EventConsumer {
     private readonly queueUrl: string,
     private readonly consumerName = 'demo-wallet-events',
     private readonly visibilityTimeoutSeconds = 30,
+    private readonly dlqUrl?: string | (() => Promise<string>),
+    private readonly observer: EventConsumerObserver = {},
   ) {}
+  private lastDlqSampleAt = 0;
+  private async refreshDlqDepth() {
+    if (!this.dlqUrl || !this.observer.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
+    this.lastDlqSampleAt = Date.now();
+    try {
+      const dlqUrl = typeof this.dlqUrl === 'function' ? await this.dlqUrl() : this.dlqUrl;
+      const { Attributes } = await this.sqs.send(
+        new GetQueueAttributesCommand({
+          QueueUrl: dlqUrl,
+          AttributeNames: [
+            'ApproximateNumberOfMessages',
+            'ApproximateNumberOfMessagesNotVisible',
+            'ApproximateNumberOfMessagesDelayed',
+          ],
+        }),
+        { abortSignal: AbortSignal.timeout(5000) },
+      );
+      const depth = (
+        [
+          'ApproximateNumberOfMessages',
+          'ApproximateNumberOfMessagesNotVisible',
+          'ApproximateNumberOfMessagesDelayed',
+        ] as const
+      ).reduce((total, name) => total + Number(Attributes?.[name] ?? 0), 0);
+      if (Number.isFinite(depth)) this.observer.dlqDepth(depth);
+    } catch {
+      /* Keep the last SQS estimate if the queue cannot answer. */
+    }
+  }
   async accept(body: string): Promise<'processed' | 'duplicate'> {
     const event = parseIntegrationEvent(body);
     const hash = createHash('sha256').update(body).digest('hex');
@@ -85,6 +125,7 @@ export class EventConsumer {
         });
       }
     }
+    await this.refreshDlqDepth();
     return result.Messages?.length ?? 0;
   }
 }

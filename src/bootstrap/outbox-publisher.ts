@@ -4,15 +4,21 @@ import { OutboxRepository } from '../messaging/outbox/outbox-repository';
 import { OutboxPublisher } from '../messaging/outbox/outbox-publisher';
 import { queueUrl } from '../messaging/queue';
 import { JsonLogger } from '../observability/logger';
+import { publisherMetricsObserver } from '../observability/metrics.module';
 async function main() {
   const options = loadOutboxConfig();
   await runWorker(
     'publisher',
     async ({ orm, sqs, metrics }) =>
-      new OutboxPublisher(new OutboxRepository(orm), sqs, {
-        ...options,
-        queueUrl: await queueUrl(sqs, options.queueName),
-      }, undefined, metrics),
+      new OutboxPublisher(
+        new OutboxRepository(orm),
+        sqs,
+        {
+          ...options,
+          queueUrl: await queueUrl(sqs, options.queueName),
+        },
+        publisherMetricsObserver(metrics),
+      ),
     { once: process.argv.includes('--once'), pollMs: options.pollMs },
   );
 }
