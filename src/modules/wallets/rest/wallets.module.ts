@@ -26,7 +26,8 @@ import {
 } from './wallet-contract';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
 import { Wallets } from '../application/wallets';
-import { MetricsModule, PrometheusWalletReconciliationObserver } from '../../../observability/metrics.module';
+import { MetricsModule } from '../../../observability/metrics.module';
+import { PrometheusWalletReconciliationObserver } from '../infrastructure/observability/prometheus-wallet-reconciliation-observer';
 
 @Controller('wallets')
 @UseGuards(Identity)
@@ -81,6 +82,7 @@ class WalletsController {
   controllers: [WalletsController],
   providers: [
     WalletRepository,
+    PrometheusWalletReconciliationObserver,
     {
       provide: Wallets,
       inject: [WalletRepository, PrometheusWalletReconciliationObserver],

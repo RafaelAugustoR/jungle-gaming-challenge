@@ -352,6 +352,18 @@ integration(
     expect(wallet).toMatchObject({ balance: { amount: '0.00', currency: 'BRL' }, version: 1 });
     const ledger = await fetch(`${base}/wallets/${wallet.id}/ledger`, { headers });
     expect(await ledger.json()).toEqual({ entries: [], nextCursor: null });
+    const reconciliation = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+      method: 'POST',
+      headers,
+    });
+    expect(reconciliation.status).toBe(200);
+    expect(await reconciliation.json()).toMatchObject({
+      storedBalance: { amount: '0.00', currency: 'BRL' },
+      calculatedBalance: { amount: '0.00', currency: 'BRL' },
+      difference: { amount: '0.00', currency: 'BRL' },
+      consistent: true,
+      checkedEntries: 0,
+    });
     const duplicate = await fetch(`${base}/wallets`, { method: 'POST', headers, body });
     expect(duplicate.status).toBe(409);
     expect(await duplicate.json()).toMatchObject({ code: 'WALLET_ALREADY_EXISTS' });

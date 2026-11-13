@@ -102,8 +102,9 @@ export class WalletRepository implements WalletStore {
           checked_entries: number;
         }>
       >(
-        `select round(w.balance,2)::text as stored_balance, ledger.calculated_balance::text,
-          round(w.balance-ledger.calculated_balance,2)::text as difference,
+        `select round(w.balance, 2)::text as stored_balance,
+          round(ledger.calculated_balance, 2)::text as calculated_balance,
+          round(w.balance - ledger.calculated_balance, 2)::text as difference,
           (w.balance=ledger.calculated_balance) as consistent, w.currency, ledger.checked_entries
         from wagering.wallets w
         cross join lateral (
