@@ -261,3 +261,25 @@ Preserve `messageId` e a chave em reentregas do mesmo conteúdo. Conteúdo corri
 estados terminais não são reabertos. Confirme o envio antes de apagar a cópia da DLQ.
 
 Evidências reproduzíveis: [Issue #7](docs/evidence/issue-7/README.md).
+
+### Recuperação integrada — Issue #12
+
+O README do desafio exige concorrência real (≥3 processos), morte após commit antes
+do ack, dois publishers, referências fora de ordem e consistência final (§13).
+Com PostgreSQL, LocalStack SQS e Keycloak locais disponíveis e `.env` configurado:
+
+```sh
+bun run test:recovery
+# Apenas o cenário integrado, sem repetir as provas anteriores:
+RECOVERY=1 bun test tests/recovery/integrated.test.ts
+```
+
+O comando reúne migrations/constraints, concorrência financeira, redelivery/DLQ e
+um roteiro integrado em 18 estágios: 25 HTTP paralelas sobrepostas a 25 SQS
+serializadas pelo grupo FIFO da wallet, interrupções coordenadas por IPC,
+falhas isoladas de dependências e reconciliação de **todas** as wallets criadas.
+Usa bancos descartáveis, filas exclusivas e portas efêmeras; não interrompe a
+infraestrutura compartilhada. Evidências JSON e logs ficam em `artifacts/recovery/`
+(ou `RECOVERY_ARTIFACT_DIR`); execução interrompida retorna erro e não reaproveita
+um JSON de sucesso anterior. O cenário integrado também roda em `test:integration`
+na CI. [Roteiro, cobertura e limites](docs/evidence/issue-12/README.md).

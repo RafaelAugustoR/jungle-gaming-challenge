@@ -1,3 +1,4 @@
+import { drainQueue } from '../support/queue';
 import { ReferenceRetryPolicy } from '../../src/modules/wagering/domain/reference-retry';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { disposableDatabase } from '../support/database';
@@ -98,16 +99,7 @@ integration(
         }),
       );
       expect(await consumer.runOnce()).toBe(1);
-      const afterAck = await sqs.send(
-        new GetQueueAttributesCommand({
-          QueueUrl: queue,
-          AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
-        }),
-      );
-      expect(afterAck.Attributes).toMatchObject({
-        ApproximateNumberOfMessages: '0',
-        ApproximateNumberOfMessagesNotVisible: '0',
-      });
+      await drainQueue(sqs, queue);
       const event = JSON.parse(body);
       await consumer.accept(
         JSON.stringify({

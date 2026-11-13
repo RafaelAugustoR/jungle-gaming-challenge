@@ -1,3 +1,4 @@
+import { lockWalletRows } from '../support/sql-barrier';
 import { openDatabase } from '../../src/config/orm';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
@@ -235,7 +236,7 @@ integration(
     const runtime = await openDatabase(db.config);
     try {
       await runtime.em.fork().transactional(async (em) => {
-        await em.execute('select id from wagering.wallets where id=? for update', [w.id]);
+        await lockWalletRows(em, w.id);
         await em.execute(
           "update wagering.transactions set status='PROCESSED',processed_at=clock_timestamp(),reference_transaction_id=? where id=?",
           [processed.body.transactionId, pending.body.transactionId],

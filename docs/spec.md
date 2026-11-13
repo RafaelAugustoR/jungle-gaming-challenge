@@ -214,6 +214,10 @@ Evidências da entrada SQS da Issue #7: [consumidor financeiro](evidence/issue-7
 cobrindo R09/R16/R17/R18, integração com referências da #6 e regressão da suíte da #8.
 O recorte usa as interfaces de teste já aprovadas; não altera contratos ou ADRs.
 
+Evidências de recuperação integrada da Issue #12: [harness e roteiro](evidence/issue-12/README.md),
+cobrindo R02/R12/R13/R14/R16/R17/R18/R19/R24 com PostgreSQL/SQS reais,
+barreiras multiprocesso, falhas isoladas e reconciliação de todas as wallets.
+
 ### Critério de conclusão
 
 Todos os requisitos R01–R25 e diferenciais D01–D05 demonstrados, sem falha eliminatória. Testes passando, typecheck/build válidos, ambiente limpo reproduzido, matriz preenchida com evidências reais e limitações honestas. Cobertura numérica não substitui cenários. Carga inclui aquecimento, taxa oferecida e processada, rejeições separadas de erros, reconciliação e balanceamento final. Nenhum ganho linear presumido.
