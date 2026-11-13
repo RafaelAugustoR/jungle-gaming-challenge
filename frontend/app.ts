@@ -101,11 +101,13 @@ async function ledger(append = false) {
 }
 async function reconcile() {
   if (!selected) return;
+  const walletId = selected.id;
   const button = element<HTMLButtonElement>('reconcile');
   button.disabled = true;
   notice('Conferindo saldo e lançamentos…');
   try {
-    const result = (await api(`/wallets/${selected.id}/reconciliation`, {})) as Reconciliation;
+    const result = (await api(`/wallets/${walletId}/reconciliation`, {})) as Reconciliation;
+    if (selected?.id !== walletId) return;
     element('reconciliation').hidden = false;
     element('reconciliation-status').textContent = result.consistent
       ? 'Saldo e ledger conferem.'
@@ -117,13 +119,15 @@ async function reconcile() {
     element('reconciliation-entries').textContent = String(result.checkedEntries);
     notice('Reconciliação concluída.');
   } catch (error) {
-    notice(error instanceof Error ? error.message : 'Falha de conexão. Tente novamente.', true);
+    if (selected?.id === walletId)
+      notice(error instanceof Error ? error.message : 'Falha de conexão. Tente novamente.', true);
   } finally {
-    button.disabled = false;
+    if (selected?.id === walletId) button.disabled = false;
   }
 }
 async function showWallet(wallet: Wallet) {
   selected = wallet;
+  element<HTMLButtonElement>('reconcile').disabled = false;
   element('wallet').hidden = false;
   element('empty').hidden = true;
   element('wallet-player').textContent = wallet.playerId;

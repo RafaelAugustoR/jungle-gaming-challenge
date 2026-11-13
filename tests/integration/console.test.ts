@@ -56,9 +56,15 @@ beforeAll(async () => {
   restoreConsoleClient = await allowEphemeralRedirect(base);
 });
 afterAll(async () => {
-  await restoreConsoleClient?.();
-  await app?.close();
-  await database?.close();
+  try {
+    await restoreConsoleClient?.();
+  } finally {
+    try {
+      await app?.close();
+    } finally {
+      await database?.close();
+    }
+  }
 });
 browserTest(
   'demo operator reconciles through the authenticated console; viewer only reads',
@@ -81,9 +87,36 @@ browserTest(
       await page.getByRole('button', { name: 'Criar wallet', exact: true }).click();
       await page.getByTestId('wallet-balance').filter({ hasText: '123.45' }).waitFor();
       await page.getByRole('cell', { name: 'OPENING', exact: true }).waitFor();
+      const firstWalletId = await page.getByTestId('wallet-id').textContent();
+      let releaseRequest!: () => void;
+      let requestStarted!: () => void;
+      const blockedResponse = new Promise<void>((resolve) => (releaseRequest = resolve));
+      const reconciliationStarted = new Promise<void>((resolve) => (requestStarted = resolve));
+      await page.route('**/wallets/*/reconciliation', async (route) => {
+        requestStarted();
+        await blockedResponse;
+        await route.continue();
+      });
+      const reconciliationResponse = page.waitForResponse(
+        (response) => response.url().includes('/reconciliation') && response.status() === 200,
+      );
+      await page.getByRole('button', { name: 'Reconciliar ledger' }).click();
+      await reconciliationStarted;
+      await page.getByLabel('Jogador').fill(`browser-${crypto.randomUUID()}`);
+      await page.getByLabel('Saldo inicial (BRL)').fill('50.00');
+      await page.getByRole('button', { name: 'Criar wallet', exact: true }).click();
+      await page.getByTestId('wallet-balance').filter({ hasText: '50.00' }).waitFor();
+      const id = await page.getByTestId('wallet-id').textContent();
+      expect(id).not.toBe(firstWalletId);
+      releaseRequest();
+      await reconciliationResponse;
+      await page.evaluate(
+        () => new Promise<void>((resolve) => requestAnimationFrame(() => resolve())),
+      );
+      expect(await page.locator('#reconciliation').isHidden()).toBe(true);
+      await page.unroute('**/wallets/*/reconciliation');
       await page.getByRole('button', { name: 'Reconciliar ledger' }).click();
       await page.getByText('Saldo e ledger conferem.', { exact: true }).waitFor();
-      const id = await page.getByTestId('wallet-id').textContent();
       expect(id).toMatch(/^[0-9a-f-]{36}$/);
       expect(
         await page.evaluate(() => Object.keys(localStorage).some((key) => /token/i.test(key))),
@@ -116,7 +149,7 @@ browserTest(
       );
       await viewer.getByLabel('ID da wallet').fill(id!);
       await viewer.getByRole('button', { name: 'Consultar', exact: true }).click();
-      await viewer.getByTestId('wallet-balance').filter({ hasText: '123.45' }).waitFor();
+      await viewer.getByTestId('wallet-balance').filter({ hasText: '50.00' }).waitFor();
       await viewer.getByRole('cell', { name: 'OPENING', exact: true }).waitFor();
       expect(await viewer.getByRole('button', { name: 'Reconciliar ledger' }).count()).toBe(0);
       await viewerContext.close();

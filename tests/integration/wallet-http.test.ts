@@ -256,6 +256,62 @@ integration('reconciliation reports a privileged fixture divergence, log and met
   expect(stillStored).toEqual([{ balance: '7.00' }]);
 });
 
+integration('reconciliation formats ledger aggregates beyond the wallet input bound', async () => {
+  const demo = await humanToken('demo-operator');
+  const operator = await humanToken('operator');
+  const created = await fetch(`${base}/wallets`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${demo}`, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      playerId: crypto.randomUUID(),
+      initialBalance: { amount: '12.34', currency: 'BRL' },
+    }),
+  });
+  const wallet = (await created.json()) as { id: string };
+  await database.owner.em.fork().transactional(async (em) => {
+    const [owner] = await em.execute<{ account_id: string; currency: string }[]>(
+      'select account_id,currency from wagering.wallets where id=?',
+      [wallet.id],
+    );
+    const [gaming] = await em.execute<{ id: string }[]>(
+      "select id from wagering.accounts where currency=? and kind='GAMING'",
+      [owner!.currency],
+    );
+    await em.execute('alter table wagering.transactions disable trigger transaction_consistency');
+    await em.execute('alter table wagering.transactions disable trigger external_submission_consistency');
+    await em.execute('alter table wagering.journal disable trigger journal_consistency');
+    for (const walletVersion of [2, 3]) {
+      const transactionId = crypto.randomUUID();
+      await em.execute(
+        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status)
+         values(?,?,'BRL','9999999999999999.99','WIN','PROCESSED')`,
+        [transactionId, wallet.id],
+      );
+      await em.execute(
+        `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version)
+         values(?,?,?,'BRL','9999999999999999.99',?,?,0,'9999999999999999.99',?)`,
+        [crypto.randomUUID(), transactionId, wallet.id, gaming!.id, owner!.account_id, walletVersion],
+      );
+    }
+    await em.execute('alter table wagering.journal enable trigger journal_consistency');
+    await em.execute('alter table wagering.transactions enable trigger external_submission_consistency');
+    await em.execute('alter table wagering.transactions enable trigger transaction_consistency');
+  });
+
+  const response = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${operator}` },
+  });
+  expect(response.status).toBe(200);
+  expect(await response.json()).toMatchObject({
+    storedBalance: { amount: '12.34', currency: 'BRL' },
+    calculatedBalance: { amount: '20000000000000012.32', currency: 'BRL' },
+    difference: { amount: '-19999999999999999.98', currency: 'BRL' },
+    consistent: false,
+    checkedEntries: 3,
+  });
+});
+
 integration(
   'zero opening has version one and no ledger; duplicate player/currency conflicts',
   async () => {

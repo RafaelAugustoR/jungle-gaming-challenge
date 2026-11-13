@@ -30,6 +30,7 @@ export interface WalletStore {
 export interface WalletReconciliationView {
   storedBalance: string;
   calculatedBalance: string;
+  difference: string;
   currency: string;
   checkedEntries: number;
 }

@@ -1,12 +1,18 @@
 import { Wallet } from '../domain/wallet';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
-import { Money } from '../../../shared/domain/money';
 import type {
   CreateWalletCommand,
   WalletContext,
   WalletStore,
   LedgerQuery,
 } from './wallet-store';
+
+function exactMoney(amount: string) {
+  const match = /^(-?)(\d+)(?:\.(\d+))?$/.exec(amount);
+  if (!match || (match[3]?.length ?? 0) > 2)
+    throw new Error('Reconciliation returned an invalid decimal amount');
+  return `${match[1]}${match[2]}.${(match[3] ?? '').padEnd(2, '0')}`;
+}
 
 export class Wallets {
   constructor(private readonly store: WalletStore) {}
@@ -43,17 +49,15 @@ export class Wallets {
   async reconcile(id: string) {
     const result = await this.store.reconcile(id);
     if (!result) throw new DomainError('WALLET_NOT_FOUND');
-    const stored = Money.rehydrate({ amount: result.storedBalance, currency: result.currency });
-    const calculated = Money.rehydrate({
-      amount: result.calculatedBalance,
-      currency: result.currency,
-    });
+    const stored = exactMoney(result.storedBalance);
+    const calculated = exactMoney(result.calculatedBalance);
+    const difference = exactMoney(result.difference);
     return {
       walletId: id,
-      storedBalance: stored.toProps(),
-      calculatedBalance: calculated.toProps(),
-      difference: stored.subtract(calculated).toProps(),
-      consistent: stored.toProps().amount === calculated.toProps().amount,
+      storedBalance: { amount: stored, currency: result.currency },
+      calculatedBalance: { amount: calculated, currency: result.currency },
+      difference: { amount: difference, currency: result.currency },
+      consistent: difference === '0.00' || difference === '-0.00',
       checkedEntries: result.checkedEntries,
     };
   }
