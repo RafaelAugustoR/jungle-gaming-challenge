@@ -1,3 +1,5 @@
+import { wageringRepositoryMetricsObserver } from '../infrastructure/observability/prometheus-repository-observer';
+import { submissionMetricsObserver } from '../infrastructure/observability/prometheus-submission-observer';
 import {
   Body,
   Controller,
@@ -22,12 +24,7 @@ import { SubmitWagerTransaction } from '../application/submit-wager-transaction'
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
 import { identifier, parseWagerCommand } from '../application/wager-contract';
-import {
-  MetricsModule,
-  MetricsRegistry,
-  submissionMetricsObserver,
-  wageringRepositoryMetricsObserver,
-} from '../../../observability/metrics.module';
+import { MetricsModule, MetricsRegistry } from '../../../observability/metrics.module';
 import { JsonLogger } from '../../../observability/logger';
 import { isTransactionKind } from '../domain/wager-command';
 import { transactionStatuses, type TransactionStatus } from '../domain/wager-transaction';

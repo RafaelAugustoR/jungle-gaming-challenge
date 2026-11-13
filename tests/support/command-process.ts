@@ -29,6 +29,9 @@ await runCommandWorker(
     observer: {
       committed: (id) => pause('committed', id),
       deadLetterSent: (id) => pause('deadLetterSent', id),
+      dlqDepth: (depth) => {
+        process.send?.({ stage: 'dlqDepth', depth, pid: process.pid });
+      },
     },
   },
 );

@@ -314,7 +314,12 @@ integration('later wallet events remain blocked behind an unpublished head', asy
     new WageringRepository(runtime, database.config),
     new Set(['provider-a']),
     new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
-  ).execute(command, command.externalTransactionId, { correlationId: crypto.randomUUID() });
+  ).execute(
+    command,
+    command.externalTransactionId,
+    { correlationId: crypto.randomUUID() },
+    { channel: 'http' },
+  );
   const repository = new OutboxRepository(runtime);
   const [head] = await repository.claim(10, 30000);
   expect(head!.sequence).toBe(1);
@@ -565,7 +570,7 @@ integration(
           MessageDeduplicationId: event!.eventId,
         }),
       );
-      const consumer = new EventConsumer(runtime, sqs, queue, 'demo-wallet-events', 0);
+      const consumer = new EventConsumer(runtime, sqs, queue, { visibilityTimeoutSeconds: 0 });
       await consumer.runOnce();
       expect(
         await runtime.em
@@ -680,16 +685,26 @@ integration(
       kind: 'BET' as const,
       money: Money.create('10.00', 'BRL'),
     };
-    await submit.execute(bet, bet.externalTransactionId, { correlationId: crypto.randomUUID() });
+    await submit.execute(
+      bet,
+      bet.externalTransactionId,
+      { correlationId: crypto.randomUUID() },
+      { channel: 'http' },
+    );
     const refund = {
       ...bet,
       externalTransactionId: crypto.randomUUID(),
       kind: 'REFUND' as const,
       referenceExternalTransactionId: bet.externalTransactionId,
     };
-    const receipt = await submit.execute(refund, refund.externalTransactionId, {
-      correlationId: crypto.randomUUID(),
-    });
+    const receipt = await submit.execute(
+      refund,
+      refund.externalTransactionId,
+      {
+        correlationId: crypto.randomUUID(),
+      },
+      { channel: 'http' },
+    );
     expect(receipt.body.status).toBe('PROCESSED');
     const { createSqsClient } = await import('../../src/config/sqs');
     const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');

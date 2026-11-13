@@ -35,7 +35,6 @@ async function main() {
       try {
         await runner.runBatch(config.referenceBatchSize, shutdown.signal);
       } catch (error) {
-        metrics.retries.inc({ component: 'reference', reason: 'batch_error' });
         logger.error(error, undefined, 'ReferenceWorker');
       }
       try {

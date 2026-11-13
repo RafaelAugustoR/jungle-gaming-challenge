@@ -15,11 +15,6 @@ import { Identity, IdentityModule, HumanRole } from '../modules/identity/identit
 import { APP_CONFIG } from '../config/infrastructure.module';
 import type { AppConfig } from '../config/config';
 import { isMetricsPeerAllowed, type ParsedMetricsCidr } from './metrics-network';
-import type { SubmissionObserver } from '../modules/wagering/application/submit-wager-transaction';
-import type { CommandConsumerObserver } from '../messaging/commands/command-consumer';
-import type { PublisherObserver } from '../messaging/outbox/outbox-publisher';
-import type { WageringRepositoryObserver } from '../modules/wagering/infrastructure/persistence/wagering-repository';
-import type { EventConsumerObserver } from '../messaging/events/event-consumer';
 
 @Injectable()
 export class MetricsRegistry {
@@ -150,50 +145,6 @@ export class MetricsRegistry {
   }
 }
 
-export function submissionMetricsObserver(metrics: MetricsRegistry): SubmissionObserver {
-  return {
-    completed: ({ operation, channel, status, durationSeconds, idempotentReplay }) => {
-      metrics.transactionAttempts.inc({ operation, channel, status });
-      metrics.transactionDuration.observe({ operation, channel, status }, durationSeconds);
-      if (idempotentReplay) metrics.transactionDuplicates.inc({ operation, channel });
-      if (channel === 'reference' && status === 'PENDING_REFERENCE')
-        metrics.retries.inc({ component: 'reference', reason: 'reference_pending' });
-    },
-    failed: ({ operation, channel, durationSeconds }) => {
-      metrics.transactionAttempts.inc({ operation, channel, status: 'error' });
-      metrics.transactionDuration.observe({ operation, channel, status: 'error' }, durationSeconds);
-    },
-  };
-}
-
-export function commandConsumerMetricsObserver(metrics: MetricsRegistry): CommandConsumerObserver {
-  return {
-    deadLetterSent: async () => metrics.workerDeadLetters.inc({ worker: 'command' }),
-    retryScheduled: () => metrics.retries.inc({ component: 'command', reason: 'message_retry' }),
-    dlqDepth: (depth) => metrics.dlqMessages.set({ worker: 'command' }, depth),
-  };
-}
-
-export function publisherMetricsObserver(metrics: MetricsRegistry): PublisherObserver {
-  return {
-    retryScheduled: (disposition) =>
-      metrics.retries.inc({ component: 'outbox', reason: disposition }),
-  };
-}
-
-export function wageringRepositoryMetricsObserver(
-  metrics: MetricsRegistry,
-): WageringRepositoryObserver {
-  return {
-    lockConflict: () => metrics.walletLockConflicts.inc({ source: 'financial' }),
-    retry: (reason) => metrics.retries.inc({ component: 'financial', reason }),
-  };
-}
-
-export function eventConsumerMetricsObserver(metrics: MetricsRegistry): EventConsumerObserver {
-  return { dlqDepth: (depth) => metrics.dlqMessages.set({ worker: 'event-consumer' }, depth) };
-}
-
 @Injectable()
 export class DurableMetricsCollector {
   private cacheUntil = 0;
@@ -290,16 +241,10 @@ export function startMetricsListener(
         return new Response('Not found', { status: 404 });
       if (!isMetricsPeerAllowed(server.requestIP(request)?.address, allowedCidr))
         return new Response('Forbidden', { status: 403 });
-      try {
-        await durable?.refresh();
-        return new Response(await metrics.scrape(), {
-          headers: { 'Content-Type': metrics.registry.contentType },
-        });
-      } catch {
-        return new Response(await metrics.scrape(), {
-          headers: { 'Content-Type': metrics.registry.contentType },
-        });
-      }
+      await durable?.refresh();
+      return new Response(await metrics.scrape(), {
+        headers: { 'Content-Type': metrics.registry.contentType },
+      });
     },
   });
 }

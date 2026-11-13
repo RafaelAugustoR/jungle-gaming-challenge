@@ -1,8 +1,19 @@
-import type { SubmissionObserver } from './submit-wager-transaction';
+import { observed, type ProcessingObserver } from './observed';
+import type { WagerKind } from '../domain/wager-command';
+import type { TransactionStatus } from '../domain/wager-transaction';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import { ReferenceRetryPolicy } from '../domain/reference-retry';
 import { settleWager } from './settle-wager';
 import type { PendingReferenceCandidate, WageringStore } from './wagering-store';
+
+export interface ReferenceObserver extends ProcessingObserver<
+  'reference',
+  WagerKind | 'unknown',
+  TransactionStatus | 'skipped'
+> {
+  rescheduled?(reason: 'reference_pending' | 'processing_unavailable'): void;
+  batchFailed?(): void;
+}
 
 export class ReprocessReferences {
   constructor(
@@ -12,11 +23,14 @@ export class ReprocessReferences {
       candidate: PendingReferenceCandidate,
       error: unknown,
     ) => void = () => {},
-    private readonly observer: SubmissionObserver = {},
+    private readonly observer: ReferenceObserver = {},
   ) {}
 
   async runBatch(limit: number, signal?: AbortSignal): Promise<number> {
-    const candidates = await this.store.dueReferences(limit);
+    const candidates = await this.store.dueReferences(limit).catch((error) => {
+      this.observer.batchFailed?.();
+      throw error;
+    });
     let completed = 0;
     for (const candidate of candidates) {
       if (signal?.aborted) break;
@@ -27,9 +41,9 @@ export class ReprocessReferences {
         // Financial work has rolled back. Deferral must not require the failed receipt,
         // wallet lock or reference lookup, and must never make a terminal decision.
         try {
-          await this.store.transaction(async (session) => {
+          const rescheduled = await this.store.transaction(async (session) => {
             const schedule = await session.referenceSchedule(candidate.transactionId);
-            if (!schedule) return;
+            if (!schedule) return false;
             const now = new Date(schedule.now);
             // Infrastructure backoff must remain in the future even after business TTL.
             const horizon = new Date(now.getTime() + this.policy.options.maxMs);
@@ -37,7 +51,9 @@ export class ReprocessReferences {
               candidate.transactionId,
               this.policy.next(now, schedule.attempts + 1, horizon).toISOString(),
             );
+            return true;
           });
+          if (rescheduled) this.observer.rescheduled?.('processing_unavailable');
         } catch (deferralError) {
           this.onError(candidate, deferralError);
         }
@@ -47,57 +63,54 @@ export class ReprocessReferences {
   }
 
   async execute(candidate: PendingReferenceCandidate): Promise<boolean> {
-    const startedAt = performance.now();
-    let operation = 'unknown';
-    let status = 'skipped';
-    try {
-      const completed = await this.store.transaction(async (session) => {
-        // Same wallet-first ordering as submissions. Candidate scans hold no locks.
-        const wallet = await session.lockWallet(candidate.walletId);
-        if (!wallet) throw new DomainError('WALLET_NOT_FOUND');
-        const pending = await session.pendingReference(candidate.transactionId);
-        if (!pending) return false;
-        const { transaction, context } = pending;
-        operation = transaction.kind;
-        const { outcome, occurredAt } = await settleWager(
-          session,
-          () => transaction,
-          wallet,
-          context,
-          pending.deadline,
-        );
-        status = outcome.status;
-        const now = new Date(occurredAt),
-          deadline = new Date(pending.deadline);
-        if (outcome.status === 'PENDING_REFERENCE') {
-          await session.rescheduleReference(
-            transaction.id,
-            this.policy.next(now, pending.attempts + 1, deadline).toISOString(),
+    const result = await observed(
+      this.observer,
+      { channel: 'reference', operation: 'unknown' },
+      () =>
+        this.store.transaction(async (session) => {
+          const wallet = await session.lockWallet(candidate.walletId);
+          if (!wallet) throw new DomainError('WALLET_NOT_FOUND');
+          const pending = await session.pendingReference(candidate.transactionId);
+          if (!pending)
+            return {
+              value: { completed: false, rescheduled: false },
+              operation: 'unknown' as const,
+              status: 'skipped' as const,
+            };
+          const { transaction, context } = pending;
+          const { outcome, occurredAt } = await settleWager(
+            session,
+            () => transaction,
+            wallet,
+            context,
+            pending.deadline,
           );
-          return false;
-        }
-        transaction.complete(outcome, occurredAt, context);
-        await session.savePendingResult(
-          { transaction, wallet: outcome.wallet, change: outcome.change },
-          occurredAt,
-        );
-        return true;
-      });
-      this.observer.completed?.({
-        operation,
-        channel: 'reference',
-        status,
-        durationSeconds: (performance.now() - startedAt) / 1000,
-        idempotentReplay: false,
-      });
-      return completed;
-    } catch (error) {
-      this.observer.failed?.({
-        operation,
-        channel: 'reference',
-        durationSeconds: (performance.now() - startedAt) / 1000,
-      });
-      throw error;
-    }
+          if (outcome.status === 'PENDING_REFERENCE') {
+            await session.rescheduleReference(
+              transaction.id,
+              this.policy
+                .next(new Date(occurredAt), pending.attempts + 1, new Date(pending.deadline))
+                .toISOString(),
+            );
+            return {
+              value: { completed: false, rescheduled: true },
+              operation: transaction.kind,
+              status: outcome.status,
+            };
+          }
+          transaction.complete(outcome, occurredAt, context);
+          await session.savePendingResult(
+            { transaction, wallet: outcome.wallet, change: outcome.change },
+            occurredAt,
+          );
+          return {
+            value: { completed: true, rescheduled: false },
+            operation: transaction.kind,
+            status: outcome.status,
+          };
+        }),
+    );
+    if (result.rescheduled) this.observer.rescheduled?.('reference_pending');
+    return result.completed;
   }
 }

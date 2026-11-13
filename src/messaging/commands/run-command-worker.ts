@@ -1,3 +1,7 @@
+import { combineObservers } from '../../shared/application/combine-observers';
+import { wageringRepositoryMetricsObserver } from '../../modules/wagering/infrastructure/observability/prometheus-repository-observer';
+import { commandConsumerMetricsObserver } from './observability/prometheus-command-observer';
+import { submissionMetricsObserver } from '../../modules/wagering/infrastructure/observability/prometheus-submission-observer';
 import type { AppConfig } from '../../config/config';
 import { WageringRepository } from '../../modules/wagering/infrastructure/persistence/wagering-repository';
 import { createSubmission } from '../../modules/wagering/infrastructure/create-submission';
@@ -9,11 +13,7 @@ import {
   type CommandConsumerOptions,
 } from './command-consumer';
 import type { loadCommandConfig } from './config';
-import {
-  commandConsumerMetricsObserver,
-  submissionMetricsObserver,
-  wageringRepositoryMetricsObserver,
-} from '../../observability/metrics.module';
+
 type Options = ReturnType<typeof loadCommandConfig> &
   Partial<Pick<CommandConsumerOptions, 'queueUrl' | 'dlqUrl'>>;
 export async function runCommandWorker(
@@ -34,19 +34,10 @@ export async function runCommandWorker(
         const source = options.queueUrl ?? (await queueUrl(sqs, options.queueName, resolveOptions));
         const dlq =
           options.dlqUrl ?? (await queueUrl(sqs, dlqName(options.queueName), resolveOptions));
-        const measured = commandConsumerMetricsObserver(metrics);
-        const observer: CommandConsumerObserver = {
-          committed: hooks.observer?.committed,
-          deadLetterSent: async (messageId) => {
-            await measured.deadLetterSent?.(messageId);
-            await hooks.observer?.deadLetterSent?.(messageId);
-          },
-          retryScheduled: (reason) => {
-            measured.retryScheduled?.(reason);
-            hooks.observer?.retryScheduled?.(reason);
-          },
-          dlqDepth: measured.dlqDepth,
-        };
+        const observer = combineObservers<CommandConsumerObserver>(
+          commandConsumerMetricsObserver(metrics),
+          hooks.observer,
+        );
         return new CommandConsumer(
           createSubmission(
             new WageringRepository(orm, config, wageringRepositoryMetricsObserver(metrics)),

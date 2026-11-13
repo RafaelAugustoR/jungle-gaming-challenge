@@ -2,6 +2,7 @@ export interface ProcessSignal {
   stage: string;
   pid: number;
   messageId?: string;
+  depth?: number;
   eventId?: string;
   token?: string;
   base?: string;

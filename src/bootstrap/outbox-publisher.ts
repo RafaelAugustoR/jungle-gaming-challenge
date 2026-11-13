@@ -1,10 +1,11 @@
+import { publisherMetricsObserver } from '../messaging/outbox/observability/prometheus-publisher-observer';
 import { runWorker } from '../messaging/worker-runtime';
 import { loadOutboxConfig } from '../messaging/outbox/config';
 import { OutboxRepository } from '../messaging/outbox/outbox-repository';
 import { OutboxPublisher } from '../messaging/outbox/outbox-publisher';
 import { queueUrl } from '../messaging/queue';
 import { JsonLogger } from '../observability/logger';
-import { publisherMetricsObserver } from '../observability/metrics.module';
+
 async function main() {
   const options = loadOutboxConfig();
   await runWorker(

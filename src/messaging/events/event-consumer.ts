@@ -1,11 +1,7 @@
+import { dlqDepth } from '../queue';
 import { createHash } from 'node:crypto';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import {
-  DeleteMessageCommand,
-  GetQueueAttributesCommand,
-  ReceiveMessageCommand,
-  SQSClient,
-} from '@aws-sdk/client-sqs';
+import { DeleteMessageCommand, ReceiveMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { JsonLogger } from '../../observability/logger';
 import { parseIntegrationEvent } from './integration-envelope';
 
@@ -13,44 +9,34 @@ export interface EventConsumerObserver {
   dlqDepth?(depth: number): void;
 }
 
+export interface EventConsumerOptions {
+  consumerName?: string;
+  visibilityTimeoutSeconds?: number;
+  dlqUrl?: string | (() => Promise<string>);
+  observer?: EventConsumerObserver;
+}
+
 export class EventConsumer {
   constructor(
     private readonly orm: MikroORM,
     private readonly sqs: SQSClient,
     private readonly queueUrl: string,
-    private readonly consumerName = 'demo-wallet-events',
-    private readonly visibilityTimeoutSeconds = 30,
-    private readonly dlqUrl?: string | (() => Promise<string>),
-    private readonly observer: EventConsumerObserver = {},
+    private readonly options: EventConsumerOptions = {},
   ) {}
+  private get consumerName() {
+    return this.options.consumerName ?? 'demo-wallet-events';
+  }
   private lastDlqSampleAt = 0;
   private async refreshDlqDepth() {
-    if (!this.dlqUrl || !this.observer.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
+    const { observer, dlqUrl } = this.options;
+    if (!dlqUrl || !observer?.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
     this.lastDlqSampleAt = Date.now();
-    try {
-      const dlqUrl = typeof this.dlqUrl === 'function' ? await this.dlqUrl() : this.dlqUrl;
-      const { Attributes } = await this.sqs.send(
-        new GetQueueAttributesCommand({
-          QueueUrl: dlqUrl,
-          AttributeNames: [
-            'ApproximateNumberOfMessages',
-            'ApproximateNumberOfMessagesNotVisible',
-            'ApproximateNumberOfMessagesDelayed',
-          ],
-        }),
-        { abortSignal: AbortSignal.timeout(5000) },
-      );
-      const depth = (
-        [
-          'ApproximateNumberOfMessages',
-          'ApproximateNumberOfMessagesNotVisible',
-          'ApproximateNumberOfMessagesDelayed',
-        ] as const
-      ).reduce((total, name) => total + Number(Attributes?.[name] ?? 0), 0);
-      if (Number.isFinite(depth)) this.observer.dlqDepth(depth);
-    } catch {
-      /* Keep the last SQS estimate if the queue cannot answer. */
-    }
+    const url = await Promise.resolve()
+      .then(() => (typeof dlqUrl === 'function' ? dlqUrl() : dlqUrl))
+      .catch(() => undefined);
+    if (!url) return;
+    const depth = await dlqDepth(this.sqs, url, AbortSignal.timeout(5000));
+    if (depth !== undefined) observer.dlqDepth(depth);
   }
   async accept(body: string): Promise<'processed' | 'duplicate'> {
     const event = parseIntegrationEvent(body);
@@ -98,7 +84,7 @@ export class EventConsumer {
         QueueUrl: this.queueUrl,
         MaxNumberOfMessages: 10,
         WaitTimeSeconds: 2,
-        VisibilityTimeout: this.visibilityTimeoutSeconds,
+        VisibilityTimeout: this.options.visibilityTimeoutSeconds ?? 30,
       }),
       { abortSignal: signal ?? AbortSignal.timeout(10000) },
     );

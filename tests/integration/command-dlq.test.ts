@@ -1,7 +1,5 @@
-import {
-  MetricsRegistry,
-  commandConsumerMetricsObserver,
-} from '../../src/observability/metrics.module';
+import { commandConsumerMetricsObserver } from '../../src/messaging/commands/observability/prometheus-command-observer';
+import { MetricsRegistry } from '../../src/observability/metrics.module';
 import { expect, test } from 'bun:test';
 import { commandSuite, retryUntil } from '../support/command-fixture';
 import { loadCommandConfig } from '../../src/messaging/commands/config';

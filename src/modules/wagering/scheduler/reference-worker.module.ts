@@ -1,3 +1,5 @@
+import { referenceMetricsObserver } from '../infrastructure/observability/prometheus-reference-observer';
+import { wageringRepositoryMetricsObserver } from '../infrastructure/observability/prometheus-repository-observer';
 import { DynamicModule, Module } from '@nestjs/common';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { APP_CONFIG, InfrastructureModule } from '../../../config/infrastructure.module';
@@ -7,11 +9,7 @@ import { ReferenceRetryModule } from '../infrastructure/reference-retry.provider
 import { JsonLogger } from '../../../observability/logger';
 import { ReprocessReferences } from '../application/reprocess-references';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
-import {
-  MetricsRegistry,
-  submissionMetricsObserver,
-  wageringRepositoryMetricsObserver,
-} from '../../../observability/metrics.module';
+import { MetricsRegistry } from '../../../observability/metrics.module';
 
 @Module({})
 export class ReferenceWorkerModule {
@@ -39,10 +37,9 @@ export class ReferenceWorkerModule {
               store,
               policy,
               (candidate, error) => {
-                registry.retries.inc({ component: 'reference', reason: 'processing_unavailable' });
                 new JsonLogger().error({ event: 'reference_retry_failed', ...candidate, error });
               },
-              submissionMetricsObserver(registry),
+              referenceMetricsObserver(registry),
             ),
         },
       ],

@@ -1,8 +1,8 @@
+import { dlqDepth } from '../queue';
 import { createHash } from 'node:crypto';
 import {
   ChangeMessageVisibilityCommand,
   DeleteMessageCommand,
-  GetQueueAttributesCommand,
   ReceiveMessageCommand,
   SendMessageCommand,
   type Message,
@@ -107,30 +107,10 @@ export class CommandConsumer {
   private async refreshDlqDepth() {
     if (!this.observer.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
     this.lastDlqSampleAt = Date.now();
-    try {
-      const { Attributes } = await this.sqs.send(
-        new GetQueueAttributesCommand({
-          QueueUrl: this.options.dlqUrl,
-          AttributeNames: [
-            'ApproximateNumberOfMessages',
-            'ApproximateNumberOfMessagesNotVisible',
-            'ApproximateNumberOfMessagesDelayed',
-          ],
-        }),
-        this.callOptions(),
-      );
-      const depth = (
-        [
-          'ApproximateNumberOfMessages',
-          'ApproximateNumberOfMessagesNotVisible',
-          'ApproximateNumberOfMessagesDelayed',
-        ] as const
-      ).reduce((total, name) => total + Number(Attributes?.[name] ?? 0), 0);
-      if (Number.isFinite(depth)) this.observer.dlqDepth(depth);
-    } catch {
-      // Keep the last approximate depth when SQS cannot answer; worker health is reported separately.
-    }
+    const depth = await dlqDepth(this.sqs, this.options.dlqUrl, this.callOptions().abortSignal);
+    if (depth !== undefined) this.observer.dlqDepth(depth);
   }
+
   private async withLease(
     message: ReceivedCommand,
     handle: (signal: AbortSignal) => Promise<Disposition>,
