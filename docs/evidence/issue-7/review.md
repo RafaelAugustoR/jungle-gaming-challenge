@@ -30,3 +30,20 @@ O teste red excedeu 10 s; o green passou em cerca de 0.5 s, com rollback da inbo
 A segunda revisão confirmou a correção e não identificou novos problemas.
 
 Total inicial: um achado; total pendente após correção: zero.
+
+## Comentários do revisor no PR #22
+
+Os bloqueios estruturais foram incorporados: inbox insert-only ao final da transação,
+erro próprio de messaging, decomposição do consumidor e classificação central por
+categoria de erro, sem status HTTP no domínio. A precedência de diagnósticos de
+validação/chave antes da inbox é explícita na spec; não muda aceitação financeira.
+
+Também foram incorporados os ajustes de montagem compartilhada do caso de uso,
+logs com os identificadores aplicáveis, reutilização de backoff, provisionamento,
+URL/nome da DLQ e parsing de inteiros. O consumidor da #8 preserva sua projeção e
+inbox próprias; compartilha somente os helpers de transporte/runtime.
+
+Os dois follow-ups foram feitos neste PR: withBackendCancellation com comentário
+sobre a corrida de registro do listener e divisão da suíte em cinco arquivos. A
+fixture usa o provisionador real com RedrivePolicy. Produção e harness executam o
+mesmo runCommandWorker e o mesmo tratamento de sinais do runtime compartilhado.

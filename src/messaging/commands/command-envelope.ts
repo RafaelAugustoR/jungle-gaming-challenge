@@ -1,3 +1,5 @@
+import { createHash } from 'node:crypto';
+import { wagerPayloadHash, type WagerCommand } from '../../modules/wagering/domain/wager-command';
 import { identifier, parseWagerCommand } from '../../modules/wagering/application/wager-contract';
 import { DomainError } from '../../shared/domain/errors/domain-error';
 export function parseCommandEnvelope(body: string) {
@@ -37,4 +39,10 @@ export function diagnosticMessageId(body: string): string | undefined {
   } catch {
     return undefined;
   }
+}
+
+export function commandInboxHash(command: WagerCommand, key: string): string {
+  return createHash('sha256')
+    .update(JSON.stringify([wagerPayloadHash(command), key]))
+    .digest('hex');
 }

@@ -13,19 +13,19 @@ docker compose up -d --wait postgres sqs keycloak
 docker compose run --rm provision
 bun run build
 bun test tests/unit
-INTEGRATION=1 bun test tests/integration/command-consumer.test.ts
+INTEGRATION=1 bun test tests/integration/command-*.test.ts
 bun run test:integration
 ```
 
 ## Evidências por requisito
 
-| Requisito | Cenário em `tests/integration/command-consumer.test.ts` | Resultado observado |
+| Requisito | Cenário nas suítes `tests/integration/command-*.test.ts` | Resultado observado |
 | --- | --- | --- |
 | R09 | Mesmo messageId com deduplication IDs de transporte distintos e occurredAt alterado | Duas entregas à aplicação; saldo 80.00, versão 2 e inbox única. |
 | R09 | HTTP → SQS, SQS → HTTP, novo messageId para mesma submissão e corrida HTTP/SQS em três processos | Recibo original preservado; uma única aceitação financeira por chave; seis wallets reconciliadas na corrida. |
 | R09 | Divergência de messageId, chave e identidade externa | Diagnósticos INBOX_CONFLICT, IDEMPOTENCY_CONFLICT e EXTERNAL_TRANSACTION_CONFLICT na DLQ; inbox original preservada. |
-| R16 | Trigger controlada falha na conclusão da inbox | Rollback da aceitação e do débito; redelivery da própria mensagem conclui 80.00, sem reinjetar mensagem. |
-| R16 | Fronteira SQL e migration down/up | Commit de inbox incompleta e alteração de associação concluída recusados; constraints reaplicadas. |
+| R16 | Trigger controlada falha no insert da inbox | Rollback da aceitação e do débito; redelivery da própria mensagem conclui 80.00, sem reinjetar mensagem. |
+| R16 | Fronteira SQL e migration down/up | Commit de inbox incompleta e alteração de associação concluída recusados por NOT NULL/permissões; constraints reaplicadas. |
 | R17 | SIGKILL coordenado por IPC após commit e antes de delete | Outro processo recebe a mesma mensagem após expiração; saldo 80.00, versão 2, inbox única e reconciliação consistente. |
 | R18 | DLQ inexistente e recuperação | Origem preservada até envio confirmado; provedor desconhecido não debita. |
 | R18 | SIGKILL entre DLQ send e source delete | Origem reentregue; deduplication ID determinístico deixa um diagnóstico na janela FIFO; origem removida após confirmação. |
@@ -54,11 +54,11 @@ DLQ não é uma transição financeira. Logs e testes de falha não prometem exa
 no transporte. Tempos de teste são encurtados por configuração; coordenação de crash
 usa IPC e estado de lock no PostgreSQL, sem sleeps longos para tentar acertar corridas.
 
-## Execução local em 2026-11-13
+## Execução local inicial em 2026-11-13 (antes da revisão do PR)
 
 - `bun run build`: passou (inclui typecheck).
 - `bun test tests/unit`: 35 passaram, zero falhas.
-- `INTEGRATION=1 bun test tests/integration/command-consumer.test.ts`: 19 passaram,
+- `INTEGRATION=1 bun test tests/integration/command-*.test.ts`: 19 passaram,
   zero falhas; 118 assertions, cerca de 25 s.
 - `bun run test:integration`: 99 passaram, zero falhas; um teste de navegador
   explicitamente separado; 707 assertions, cerca de 59 s. Inclui toda a suíte da #8.
@@ -81,3 +81,29 @@ novo `issue7_smoke_20261113`, iniciou o consumidor (`command_worker_started`) e 
 encerrou com SIGTERM. O volume local anterior tinha schema inconsistente antes da
 migration da #6; foi preservado. O override de smoke apenas apontou migrate e
 command-consumer para o banco isolado, sem alterar arquivos versionados.
+
+
+## Revisão do PR #22
+
+A inbox passou a um insert único e completo no fim da transação, sem grant de update
+ou funções/triggers de conclusão. Um teste red/green comprova que runtime não tem
+UPDATE na associação; as suítes existentes seguem validando rollback e conflito.
+O diagnóstico de validações/chaves tem precedência sobre o conflito de inbox, como
+detalhado na spec, sem novos efeitos financeiros. INBOX_CONFLICT pertence a messaging.
+
+O consumidor separa handle, classify, settle e withLease. API e consumidor usam
+a factory createSubmission; produção e harness usam runCommandWorker/runWorker,
+incluindo sinais, drenagem e fechamento. Os helpers FIFO/DLQ, URL/nome da DLQ,
+inteiro de configuração e backoff foram unificados sem juntar as responsabilidades
+do consumidor financeiro e do consumidor demonstrativo da #8.
+
+Testes reorganizados em idempotência/inbox, DLQ, processo/shutdown, referências e
+schema. Todas as filas de entrada da fixture usam o provisionador de produção com
+RedrivePolicy. Novas regressões cobrem privilégios insert-only, campos de log de
+commit/DLQ e falha real de DeleteMessage pós-commit: retry, nenhum segundo débito
+e nenhuma mensagem na DLQ. O teste de ack usa proxy HTTP sobre o LocalStack real.
+
+Execução local após os ajustes: 23 testes do consumidor em cinco arquivos passaram,
+126 assertions, zero falhas, cerca de 28 s; build/typecheck e os 35 unitários passaram.
+O teste novo de privilégios falhou antes da mudança da migration e passou após a
+retirada de UPDATE, mantendo NOT NULL/FK/PK como proteções da inbox.

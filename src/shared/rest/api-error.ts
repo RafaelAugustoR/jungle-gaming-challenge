@@ -6,27 +6,19 @@ import {
   HttpException,
 } from '@nestjs/common';
 import { JsonLogger } from '../../observability/logger';
-import { DomainError, type DomainErrorCode } from '../domain/errors/domain-error';
+import { DomainError, type DomainErrorCategory } from '../domain/errors/domain-error';
 
 export function apiError(status: number, code: string): HttpException {
   return new HttpException({ code, message: code }, status);
 }
-const domainStatus: Record<DomainErrorCode, number> = {
-  INBOX_CONFLICT: 409,
-  INVALID_PAYLOAD: 400,
-  INSUFFICIENT_FUNDS: 422,
-  INVALID_TRANSACTION_TRANSITION: 500,
-  PLAYER_MISMATCH: 400,
-  UNKNOWN_PROVIDER: 403,
-  IDEMPOTENCY_CONFLICT: 409,
-  EXTERNAL_TRANSACTION_CONFLICT: 409,
-  TRANSACTION_NOT_FOUND: 404,
-  AMOUNT_LIMIT_EXCEEDED: 400,
-  CURRENCY_MISMATCH: 400,
-  UNBALANCED_JOURNAL: 500,
-  WALLET_ALREADY_EXISTS: 409,
-  WALLET_NOT_FOUND: 404,
-  INFRASTRUCTURE_UNAVAILABLE: 503,
+const categoryStatus: Record<DomainErrorCategory, number> = {
+  invalid: 400,
+  rejected: 422,
+  forbidden: 403,
+  conflict: 409,
+  notFound: 404,
+  unavailable: 503,
+  internal: 500,
 };
 @Catch()
 export class ApiErrorFilter implements ExceptionFilter {
@@ -36,7 +28,7 @@ export class ApiErrorFilter implements ExceptionFilter {
     let status = 500;
     let body: object = { code: 'INTERNAL_ERROR', message: 'Unexpected error' };
     if (error instanceof DomainError) {
-      status = domainStatus[error.code];
+      status = categoryStatus[error.category];
       body = { code: error.code, message: error.code };
     } else if (error instanceof BadRequestException) {
       status = 400;

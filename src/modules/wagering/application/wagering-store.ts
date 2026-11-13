@@ -29,12 +29,14 @@ export interface PendingReferenceCandidate {
   walletId: string;
 }
 export interface SubmissionExecution {
-  inbox?: { consumerName: string; messageId: string };
+  inbox?: { consumerName: string; messageId: string; hash: string };
   signal?: AbortSignal;
 }
 export interface WageringSession {
-  claimInbox(consumerName: string, messageId: string, hash: string): Promise<void>;
-  completeInbox(consumerName: string, messageId: string, transactionId: string): Promise<void>;
+  recordInbox(
+    inbox: NonNullable<SubmissionExecution['inbox']>,
+    transactionId: string,
+  ): Promise<void>;
   referenceSchedule(id: string): Promise<{ attempts: number; now: string } | undefined>;
   scheduleReference(
     id: string,

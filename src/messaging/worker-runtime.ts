@@ -1,32 +1,42 @@
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import type { MikroORM } from '@mikro-orm/postgresql';
+import { setTimeout as delay } from 'node:timers/promises';
 import { WorkerBackoff } from './worker-backoff';
-import { loadConfig } from '../config/config';
+import { loadConfig, type AppConfig } from '../config/config';
 import { openDatabase } from '../config/orm';
 import { createSqsClient } from '../config/sqs';
 import { JsonLogger } from '../observability/logger';
-
+interface Runner {
+  runOnce(): Promise<number>;
+  stop?(): void;
+}
 export async function runWorker(
   name: string,
-  create: (deps: { orm: MikroORM; sqs: SQSClient }) => Promise<{ runOnce(): Promise<number> }>,
-  options: { once: boolean; pollMs: number },
+  create: (deps: {
+    orm: MikroORM;
+    sqs: SQSClient;
+    config: AppConfig;
+    signal: AbortSignal;
+  }) => Promise<Runner>,
+  options: { once: boolean; pollMs: number; config?: AppConfig; onReady?: () => void },
 ) {
-  const config = loadConfig();
-  const orm = await openDatabase(config),
-    sqs = createSqsClient(config);
-  const logger = new JsonLogger();
-  let stopping = false;
-  let wake: (() => void) | undefined;
+  const config = options.config ?? loadConfig(),
+    orm = await openDatabase(config),
+    sqs = createSqsClient(config),
+    logger = new JsonLogger(),
+    shutdown = new AbortController();
+  let runner: Runner | undefined;
   const stop = () => {
-    stopping = true;
-    wake?.();
+    shutdown.abort();
+    runner?.stop?.();
   };
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   try {
-    const runner = await create({ orm, sqs });
+    runner = await create({ orm, sqs, config, signal: shutdown.signal });
     logger.log({ event: 'worker_started', worker: name });
-    do {
+    options.onReady?.();
+    while (!shutdown.signal.aborted) {
       let delayMs = options.pollMs;
       try {
         await runner.runOnce();
@@ -34,17 +44,14 @@ export async function runWorker(
         logger.error({ event: 'worker_iteration_failed', worker: name, error });
         if (options.once) throw error;
         if (error instanceof WorkerBackoff) delayMs = error.delayMs;
+        else delayMs = Math.max(1000, delayMs);
       }
-      if (stopping || options.once) break;
-      await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, delayMs);
-        wake = () => {
-          clearTimeout(timer);
-          resolve();
-        };
-      });
-      wake = undefined;
-    } while (!stopping);
+      if (shutdown.signal.aborted || options.once) break;
+      if (delayMs > 0)
+        await delay(delayMs, undefined, { signal: shutdown.signal }).catch(() => undefined);
+    }
+  } catch (error) {
+    if (!shutdown.signal.aborted) throw error;
   } finally {
     process.off('SIGTERM', stop);
     process.off('SIGINT', stop);

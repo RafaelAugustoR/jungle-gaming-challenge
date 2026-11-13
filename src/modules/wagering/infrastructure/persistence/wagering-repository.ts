@@ -1,3 +1,5 @@
+import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
+import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
@@ -108,30 +110,14 @@ export class WageringRepository implements WageringStore {
       const deadline = Date.now() + this.config.financialDeadlineMs;
       for (let attempt = 1; ; attempt++) {
         try {
-          return await this.orm.em.fork().transactional(async (em) => {
-            signal?.throwIfAborted();
-            const pid = signal
-              ? (await em.execute<{ pid: number }[]>('select pg_backend_pid() as pid'))[0]!.pid
-              : undefined;
-            let cancellation: Promise<unknown> | undefined;
-            const cancel = () => {
-              cancellation = this.orm.em
-                .fork()
-                .execute('select pg_cancel_backend(?)', [pid])
-                .catch(() => undefined);
-            };
-            signal?.addEventListener('abort', cancel, { once: true });
-            try {
-              signal?.throwIfAborted();
+          return await this.orm.em.fork().transactional((em) =>
+            withBackendCancellation(em, signal, async () => {
               const session = new PostgresWageringSession(em, this.config, deadline, signal);
               const result = await work(session);
               await session.beforeCommit();
               return result;
-            } finally {
-              signal?.removeEventListener('abort', cancel);
-              await cancellation;
-            }
-          });
+            }),
+          );
         } catch (error) {
           const identityRace =
             pgCode(error) === '23505' &&
@@ -243,22 +229,17 @@ class PostgresWageringSession implements WageringSession {
     await this.budget();
     return this.em.execute<T>(sql, params);
   }
-  async claimInbox(consumerName: string, messageId: string, hash: string) {
-    await this.execute(
-      `insert into messaging.command_inbox(consumer_name,message_id,request_hash) values(?,?,?) on conflict do nothing`,
-      [consumerName, messageId, hash],
+  async recordInbox(inbox: Parameters<WageringSession['recordInbox']>[0], transactionId: string) {
+    const inserted = await this.execute(
+      `insert into messaging.command_inbox(consumer_name,message_id,request_hash,transaction_id) values(?,?,?,?) on conflict do nothing returning 1`,
+      [inbox.consumerName, inbox.messageId, inbox.hash, transactionId],
     );
+    if (inserted.length) return;
     const [row] = await this.execute<{ request_hash: string }[]>(
       'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
-      [consumerName, messageId],
+      [inbox.consumerName, inbox.messageId],
     );
-    if (row?.request_hash !== hash) throw new DomainError('INBOX_CONFLICT');
-  }
-  async completeInbox(consumerName: string, messageId: string, transactionId: string) {
-    await this.execute(
-      'update messaging.command_inbox set transaction_id=? where consumer_name=? and message_id=? and transaction_id is null',
-      [transactionId, consumerName, messageId],
-    );
+    if (row?.request_hash !== inbox.hash) throw new InboxConflict();
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<

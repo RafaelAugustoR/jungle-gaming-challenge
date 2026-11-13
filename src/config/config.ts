@@ -1,3 +1,4 @@
+import { integer as envInteger } from './integer';
 export interface AppConfig {
   port: number;
   keycloakIssuer: string;
@@ -20,12 +21,7 @@ export interface AppConfig {
   referenceBatchSize: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const integer = (key: string, fallback: string, max: number) => {
-    const value = env[key] ?? fallback;
-    if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max)
-      throw new Error(`Invalid ${key}`);
-    return Number(value);
-  };
+  const integer = (key: string, fallback: string, max: number) => envInteger(env,key,Number(fallback),max);
   const url = (key: string, protocols: string[]) => {
     const value = env[key];
     try {

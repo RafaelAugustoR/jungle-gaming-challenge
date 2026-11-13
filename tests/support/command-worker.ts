@@ -18,7 +18,7 @@ export function commandWorker(
         COMMAND_TEST_DLQ: dlq,
         ...extra,
       },
-      stdout: 'ignore',
+      stdout: 'pipe',
       stderr: 'inherit',
       ipc(message: { stage: string; messageId?: string; pid: number }) {
         seen.push(message);
@@ -26,8 +26,10 @@ export function commandWorker(
       },
     },
   );
+  const logs = new Response(child.stdout).text();
   return {
     child,
+    logs,
     async wait(stage: string, timeoutMs = 10000) {
       const deadline = Date.now() + timeoutMs;
       while (!seen.some((message) => message.stage === stage)) {

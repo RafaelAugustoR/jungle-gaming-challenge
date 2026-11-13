@@ -198,7 +198,7 @@ bun run worker:commands
 # Uma única tentativa de receive/processamento:
 bun run worker:commands --once
 # Testes PostgreSQL + LocalStack SQS + Keycloak, incluindo processos mortos:
-INTEGRATION=1 bun test tests/integration/command-consumer.test.ts
+INTEGRATION=1 bun test tests/integration/command-*.test.ts
 ```
 
 Envie `MessageGroupId=walletId` e um `MessageDeduplicationId` de transporte. O corpo é:
@@ -224,11 +224,14 @@ Envie `MessageGroupId=walletId` e um `MessageDeduplicationId` de transporte. O c
 
 Substitua jogador/wallet por uma wallet criada na API. `kind` aceita BET, WIN, LOSS,
 REFUND e ROLLBACK; `referenceExternalTransactionId` segue o mesmo contrato HTTP.
+O bootstrap e o harness de falhas usam `runCommandWorker`, sobre o runtime compartilhado
+de workers. A API HTTP e o consumidor recebem o caso de uso da mesma factory.
+
 O canal é interno confiável: não leva OAuth por mensagem, mas valida `providerId`
 contra `PROVIDER_CLIENTS`. Proteja a permissão de envio à fila.
 
 A inbox `messaging.command_inbox` usa `(consumer_name,message_id)` e hash canônico
-do comando + chave. `occurredAt` e IDs de transporte não alteram o hash. A inbox,
+do comando + chave. `occurredAt` e IDs de transporte não alteram o hash. A inbox é insert-only, registrada ao final com transactionId obrigatório. Inbox,
 recibo, resultado, saldo, partidas e outbox são confirmados na mesma transação SQL;
 a mensagem só recebe delete depois do commit. Outra mensagem da mesma operação
 aceita cria apenas sua inbox, sem repetir eventos ou movimentos. Rejeição financeira
