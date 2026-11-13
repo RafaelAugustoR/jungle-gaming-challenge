@@ -6,13 +6,14 @@ import { ReferenceRetryModule } from '../infrastructure/reference-retry.provider
 import { JsonLogger } from '../../../observability/logger';
 import { ReprocessReferences } from '../application/reprocess-references';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
+import { MetricsModule } from '../../../observability/metrics.module';
 
 @Module({})
 export class ReferenceWorkerModule {
   static register(config: AppConfig): DynamicModule {
     return {
       module: ReferenceWorkerModule,
-      imports: [InfrastructureModule.register(config), ReferenceRetryModule],
+      imports: [InfrastructureModule.register(config), ReferenceRetryModule, MetricsModule],
       providers: [
         WageringRepository,
         {

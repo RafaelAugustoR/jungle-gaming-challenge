@@ -8,11 +8,11 @@ async function main() {
   const options = loadOutboxConfig();
   await runWorker(
     'publisher',
-    async ({ orm, sqs }) =>
+    async ({ orm, sqs, metrics }) =>
       new OutboxPublisher(new OutboxRepository(orm), sqs, {
         ...options,
         queueUrl: await queueUrl(sqs, options.queueName),
-      }),
+      }, undefined, metrics),
     { once: process.argv.includes('--once'), pollMs: options.pollMs },
   );
 }

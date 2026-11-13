@@ -24,13 +24,13 @@ export async function runCommandWorker(
   try {
     await runWorker(
       'command',
-      async ({ orm, sqs, signal }) => {
+      async ({ orm, sqs, signal, metrics }) => {
         const resolveOptions = { signal, timeoutMs: options.callTimeoutMs };
         const source = options.queueUrl ?? (await queueUrl(sqs, options.queueName, resolveOptions));
         const dlq =
           options.dlqUrl ?? (await queueUrl(sqs, dlqName(options.queueName), resolveOptions));
         return new CommandConsumer(
-          createSubmission(new WageringRepository(orm, config), config),
+          createSubmission(new WageringRepository(orm, config, metrics), config),
           sqs,
           {
             ...options,
@@ -39,6 +39,7 @@ export async function runCommandWorker(
             financialDeadlineMs: config.financialDeadlineMs,
           },
           hooks.observer,
+          metrics,
         );
       },
       { config, once: hooks.once ?? false, pollMs: hooks.pollMs ?? 0, onReady: hooks.onReady },

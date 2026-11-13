@@ -3,6 +3,7 @@ import { publicationFailure, retryDelay, MessageTooLarge } from './publication-p
 import { WorkerBackoff } from '../worker-backoff';
 import { OutboxRepository, type ReservedEvent } from './outbox-repository';
 import { JsonLogger } from '../../observability/logger';
+import type { MetricsRegistry } from '../../observability/metrics.module';
 
 export interface PublisherOptions {
   queueUrl: string;
@@ -18,11 +19,13 @@ export interface PublisherObserver {
 }
 export class OutboxPublisher {
   private outageAttempts = 0;
+  private readonly logger = new JsonLogger();
   constructor(
     private readonly repository: OutboxRepository,
     private readonly sqs: SQSClient,
     private readonly options: PublisherOptions,
     private readonly observer: PublisherObserver = {},
+    private readonly metrics?: MetricsRegistry,
   ) {
     if (options.sendTimeoutMs >= options.leaseMs || options.sendTimeoutMs < 1)
       throw new Error('Send timeout must be less than lease');
@@ -47,7 +50,7 @@ export class OutboxPublisher {
     await this.observer.reserved?.(event);
     const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
     try {
-      await this.sqs.send(
+      const sent = await this.sqs.send(
         new SendMessageCommand({
           QueueUrl: this.options.queueUrl,
           MessageBody: body,
@@ -59,11 +62,26 @@ export class OutboxPublisher {
       await this.observer.sent?.(event);
       const confirmed = await this.repository.confirm(event.eventId, event.token);
       if (!confirmed)
-        new JsonLogger().warn({
+        this.logger.warn({
           event: 'outbox_confirmation_stale',
           eventId: event.eventId,
+          messageId: sent.MessageId ?? event.eventId,
           aggregateId: event.aggregateId,
+          walletId: event.aggregateId,
+          transactionId: event.transactionId,
+          ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+          ...(event.providerId ? { providerId: event.providerId } : {}),
         });
+      else this.logger.log({
+        event: 'outbox_published',
+        eventId: event.eventId,
+        messageId: sent.MessageId ?? event.eventId,
+        aggregateId: event.aggregateId,
+        walletId: event.aggregateId,
+        transactionId: event.transactionId,
+        ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+        ...(event.providerId ? { providerId: event.providerId } : {}),
+      });
     } catch (error) {
       let failure = error;
       if (error instanceof Error && error.name === 'InvalidParameterValue') {
@@ -92,11 +110,17 @@ export class OutboxPublisher {
         event.attempts,
         this.options,
       );
+      this.metrics?.outboxRetryAttempts.inc({ disposition: blocked ? 'blocked' : 'retryable' });
       await this.repository.fail(event.eventId, event.token, code, delayMs, blocked);
-      new JsonLogger().warn({
+      this.logger.warn({
         event: blocked ? 'outbox_blocked' : 'outbox_retry',
         eventId: event.eventId,
+        messageId: event.eventId,
         aggregateId: event.aggregateId,
+        walletId: event.aggregateId,
+        transactionId: event.transactionId,
+        ...(event.correlationId ? { correlationId: event.correlationId } : {}),
+        ...(event.providerId ? { providerId: event.providerId } : {}),
         code,
         attempt: event.attempts,
       });

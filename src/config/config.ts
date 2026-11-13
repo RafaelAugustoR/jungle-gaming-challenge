@@ -1,6 +1,9 @@
 import { integer as envInteger } from './integer';
 export interface AppConfig {
   port: number;
+  metricsPort: number;
+  metricsIncludeDurable: boolean;
+  metricsAllowedCidr: string;
   keycloakIssuer: string;
   providerClients: Readonly<Record<string, string>>;
   keycloakJwksUrl: string;
@@ -21,7 +24,7 @@ export interface AppConfig {
   referenceBatchSize: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const integer = (key: string, fallback: string, max: number) => envInteger(env,key,Number(fallback),max);
+  const integer = (key: string, fallback: string, max: number, min = 1) => envInteger(env,key,Number(fallback),max,min);
   const url = (key: string, protocols: string[]) => {
     const value = env[key];
     try {
@@ -33,6 +36,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   if (Boolean(env.AWS_ACCESS_KEY_ID) !== Boolean(env.AWS_SECRET_ACCESS_KEY))
     throw new Error('AWS credentials must be supplied together');
+  const metricsAllowedCidr = env.METRICS_ALLOWED_CIDR ?? '';
+  if (metricsAllowedCidr) {
+    const [address, prefix, ...rest] = metricsAllowedCidr.split('/');
+    if (
+      rest.length ||
+      !address ||
+      !prefix ||
+      !/^(?:[0-9]|[12][0-9]|3[0-2])$/.test(prefix) ||
+      address.split('.').length !== 4 ||
+      address.split('.').some((part) => !/^\d{1,3}$/.test(part) || Number(part) > 255)
+    )
+      throw new Error('Invalid METRICS_ALLOWED_CIDR');
+  }
   const urlWithDefault = (key: string, fallback: string) => {
     const value = env[key] ?? fallback;
     try {
@@ -72,6 +88,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       `${env.KEYCLOAK_ISSUER || 'http://localhost:18080/realms/jungle'}/protocol/openid-connect/certs`,
     ),
     port: integer('PORT', '3000', 65535),
+    metricsPort: integer('METRICS_PORT', '0', 65535, 0),
+    metricsIncludeDurable: env.METRICS_INCLUDE_DURABLE === 'true',
+    metricsAllowedCidr,
     databaseUrl: url('DATABASE_URL', ['postgres:', 'postgresql:']),
     sqsEndpoint: url('SQS_ENDPOINT', ['http:', 'https:']),
     awsRegion: env.AWS_REGION || 'us-east-1',

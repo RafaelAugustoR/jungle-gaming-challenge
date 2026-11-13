@@ -13,6 +13,8 @@ import { JsonLogger } from '../../observability/logger';
 import { retryDelay } from '../outbox/publication-policy';
 import { commandInboxHash, diagnosticMessageId, parseCommandEnvelope } from './command-envelope';
 import { classify, type CommandLogContext, type Disposition } from './disposition';
+import type { MetricsRegistry } from '../../observability/metrics.module';
+import { pgCode } from '../../shared/infrastructure/postgres-error';
 export interface CommandConsumerOptions {
   queueUrl: string;
   dlqUrl: string;
@@ -40,6 +42,7 @@ export class CommandConsumer {
     private readonly sqs: SQSClient,
     private readonly options: CommandConsumerOptions,
     private readonly observer: CommandConsumerObserver = {},
+    private readonly metrics?: MetricsRegistry,
   ) {}
   stop() {
     this.stopping = true;
@@ -134,6 +137,7 @@ export class CommandConsumer {
     }
   }
   private async handle(message: ReceivedCommand, signal: AbortSignal): Promise<Disposition> {
+    const startedAt = performance.now();
     const messageId = diagnosticMessageId(message.Body ?? '') ?? message.MessageId;
     const context: CommandLogContext = {
       messageId,
@@ -142,6 +146,7 @@ export class CommandConsumer {
     };
     try {
       const envelope = parseCommandEnvelope(message.Body ?? '');
+      const operation = envelope.command.kind;
       Object.assign(context, {
         providerId: envelope.command.providerId,
         walletId: envelope.command.walletId,
@@ -162,8 +167,22 @@ export class CommandConsumer {
         },
       );
       context.transactionId = receipt.body.transactionId;
+      this.metrics?.transactionAttempts.inc({ operation, channel: 'sqs', status: receipt.body.status });
+      this.metrics?.transactionDuration.observe(
+        { operation, channel: 'sqs', status: receipt.body.status },
+        (performance.now() - startedAt) / 1000,
+      );
+      if (receipt.body.idempotentReplay)
+        this.metrics?.transactionDuplicates.inc({ operation, channel: 'sqs' });
       return { kind: 'ack', context };
     } catch (error) {
+      const code = pgCode(error);
+      if (code === '55P03' || code === '40P01')
+        this.metrics?.walletLockConflicts.inc({ source: 'sqs' });
+      this.metrics?.transactionDuration.observe(
+        { operation: 'unknown', channel: 'sqs', status: 'error' },
+        (performance.now() - startedAt) / 1000,
+      );
       return { ...classify(error), context };
     }
   }
@@ -222,6 +241,7 @@ export class CommandConsumer {
       }),
       this.callOptions(),
     );
+    this.metrics?.workerDeadLetters.inc({ worker: 'command' });
     await this.observer.deadLetterSent?.(disposition.context.messageId);
   }
   private async retry(message: ReceivedCommand) {
@@ -231,5 +251,6 @@ export class CommandConsumer {
       : Math.max(1, Math.ceil(retryDelay(attempts, this.options) / 1000));
     // Financial work/cancellation has finished before returning visibility.
     await this.visibility(message, seconds).catch(() => undefined);
+    if (!this.stopping) this.metrics?.workerRetries.inc({ worker: 'command' });
   }
 }

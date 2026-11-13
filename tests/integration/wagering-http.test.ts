@@ -1,8 +1,9 @@
-import { afterAll, beforeAll, expect, test } from 'bun:test';
+import { afterAll, beforeAll, expect, spyOn, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
 import { disposableDatabase } from '../support/database';
 import { humanToken, providerToken } from '../support/keycloak';
+import { MetricsRegistry } from '../../src/observability/metrics.module';
 
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 let database: Awaited<ReturnType<typeof disposableDatabase>>;
@@ -67,6 +68,35 @@ async function submit(body: object, key: string = crypto.randomUUID(), token = p
   });
   return { status: response.status, body: (await response.json()) as Record<string, any> };
 }
+
+integration(
+  'accepted wager logs correlate request and transaction identifiers without financial payload fields',
+  async () => {
+    const output = spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      const w = await wallet(),
+        bet = command(w),
+        result = await submit(bet);
+      expect(result.status).toBe(200);
+      const lines = output.mock.calls.map(([line]) => JSON.parse(String(line)) as Record<string, unknown>);
+      const event = lines.find((line) => line.event === 'wager_submission_completed');
+      expect(event).toMatchObject({
+        event: 'wager_submission_completed',
+        correlationId: expect.any(String),
+        providerId: 'provider-a',
+        walletId: w.id,
+        transactionId: result.body.transactionId,
+        operation: 'BET',
+        status: 'PROCESSED',
+      });
+      const serialized = JSON.stringify(event);
+      expect(serialized).not.toContain('money');
+      expect(serialized).not.toContain('20.00');
+    } finally {
+      output.mockRestore();
+    }
+  },
+);
 
 integration(
   'provider submits BET and reads its current transaction by internal and external identity',
@@ -272,6 +302,53 @@ integration(
 );
 
 integration(
+  'a table lock bounds durable metrics queries and releasing it lets the next scrape recover',
+  async () => {
+    const metricsApp = await createApplication(database.config);
+    const lock = database.owner.em.fork();
+    await lock.begin();
+    await lock.execute('lock table wagering.transactions in access exclusive mode');
+    try {
+      await expect(metricsApp.get(MetricsRegistry).scrape()).rejects.toThrow();
+    } finally {
+      await lock.commit();
+    }
+    try {
+      expect(await metricsApp.get(MetricsRegistry).scrape()).toContain('outbox_pending_events');
+    } finally {
+      await metricsApp.close();
+    }
+  },
+);
+
+integration(
+  'an internal deadlock retry is counted before persistence errors are translated',
+  async () => {
+    const w = await wallet(),
+      bet = command(w),
+      key = crypto.randomUUID();
+    await database.owner.em.execute(`create sequence wagering.test_retry_once start 1;
+      grant usage,update on sequence wagering.test_retry_once to jungle_runtime;
+      create function wagering.test_retry_once() returns trigger language plpgsql as $$
+      begin
+        if nextval('wagering.test_retry_once')=1 then
+          raise exception 'injected deadlock for observability test' using errcode='40P01';
+        end if;
+        return new;
+      end $$;
+      create trigger test_retry_once before insert on wagering.transactions for each row execute function wagering.test_retry_once()`);
+    try {
+      expect((await submit(bet, key)).status).toBe(200);
+      expect(await app.get(MetricsRegistry).scrape()).toContain('wagering_transaction_retries_total{reason="deadlock"} 1');
+    } finally {
+      await database.owner.em.execute(
+        'drop trigger test_retry_once on wagering.transactions; drop function wagering.test_retry_once(); drop sequence wagering.test_retry_once',
+      );
+    }
+  },
+);
+
+integration(
   'lock and statement timeouts return sanitized 503, roll back and allow the original key to succeed',
   async () => {
     const w = await wallet(),
@@ -280,14 +357,18 @@ integration(
     const lock = database.owner.em.fork();
     await lock.begin();
     await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    let scrape = '';
     try {
       expect(await submit(bet, key)).toMatchObject({
         status: 503,
         body: { code: 'INFRASTRUCTURE_UNAVAILABLE' },
       });
+      scrape = await app.get(MetricsRegistry).scrape();
     } finally {
       await lock.commit();
     }
+    expect(scrape).toMatch(/wallet_lock_conflicts_total\{source="financial"\} [1-9]\d*/);
+    expect(scrape).toMatch(/wager_transactions\{operation="OPENING",status="PROCESSED"\} [1-9]\d*/);
     expect((await submit(bet, key)).status).toBe(200);
     const next = command(w),
       nextKey = crypto.randomUUID();

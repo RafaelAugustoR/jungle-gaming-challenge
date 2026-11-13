@@ -20,6 +20,11 @@ import { SubmitWagerTransaction } from '../application/submit-wager-transaction'
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
 import { identifier, parseWagerCommand } from '../application/wager-contract';
+import { MetricsModule, MetricsRegistry } from '../../../observability/metrics.module';
+import type { SubmissionReceipt } from '../domain/submission-receipt';
+import { pgCode } from '../../../shared/infrastructure/postgres-error';
+import { DomainError } from '../../../shared/domain/errors/domain-error';
+import { JsonLogger } from '../../../observability/logger';
 
 interface RequestContext {
   principal: Principal;
@@ -29,9 +34,11 @@ interface RequestContext {
 @Controller()
 @UseGuards(Identity)
 class WageringController {
+  private readonly logger = new JsonLogger();
   constructor(
     @Inject(SubmitWagerTransaction) private readonly submitTransaction: SubmitWagerTransaction,
     @Inject(WagerQueries) private readonly queries: WagerQueries,
+    @Inject(MetricsRegistry) private readonly metrics: MetricsRegistry,
   ) {}
   @Post('wagering/transactions')
   @Access({ provider: true })
@@ -47,8 +54,44 @@ class WageringController {
       request.principal.providerId !== command.providerId
     )
       throw apiError(403, 'PROVIDER_IDENTITY_MISMATCH');
-    const receipt = await this.submitTransaction.execute(command, key, {
+    const startedAt = performance.now();
+    let receipt: SubmissionReceipt;
+    try {
+      receipt = await this.submitTransaction.execute(command, key, {
+        correlationId: request.correlationId,
+      });
+    } catch (error) {
+      const code = pgCode(error);
+      if (code === '55P03' || code === '40P01')
+        this.metrics.walletLockConflicts.inc({ source: 'http' });
+      this.logger.write('warn', {
+        event: 'wager_submission_failed',
+        correlationId: request.correlationId,
+        providerId: command.providerId,
+        walletId: command.walletId,
+        operation: command.kind,
+        errorCode: error instanceof DomainError ? error.code : 'SUBMISSION_ERROR',
+      });
+      this.metrics.transactionDuration.observe(
+        { operation: command.kind, channel: 'http', status: 'error' },
+        (performance.now() - startedAt) / 1000,
+      );
+      throw error;
+    }
+    const labels = { operation: command.kind, channel: 'http', status: receipt.body.status };
+    this.metrics.transactionAttempts.inc(labels);
+    this.metrics.transactionDuration.observe(labels, (performance.now() - startedAt) / 1000);
+    if (receipt.body.idempotentReplay) this.metrics.transactionDuplicates.inc({ operation: command.kind, channel: 'http' });
+    this.logger.write(receipt.body.status === 'REJECTED' ? 'warn' : 'info', {
+      event: 'wager_submission_completed',
       correlationId: request.correlationId,
+      providerId: command.providerId,
+      walletId: command.walletId,
+      transactionId: receipt.body.transactionId,
+      operation: command.kind,
+      status: receipt.body.status,
+      idempotentReplay: receipt.body.idempotentReplay,
+      ...(receipt.body.status === 'REJECTED' ? { errorCode: receipt.body.failureCode } : {}),
     });
     response.status(receipt.httpStatus);
     return receipt.body;
@@ -71,7 +114,7 @@ class WageringController {
   }
 }
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, MetricsModule],
   controllers: [WageringController],
   providers: [
     WageringRepository,

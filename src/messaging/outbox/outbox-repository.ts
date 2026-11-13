@@ -2,6 +2,9 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 export interface ReservedEvent {
   eventId: string;
   aggregateId: string;
+  transactionId: string;
+  correlationId?: string;
+  providerId?: string;
   sequence: number;
   payload: Record<string, unknown>;
   token: string;
@@ -10,6 +13,7 @@ export interface ReservedEvent {
 interface OutboxRow {
   event_id: string;
   aggregate_id: string;
+  transaction_id: string;
   sequence: number;
   payload: Record<string, unknown>;
   lease_token: string;
@@ -42,14 +46,23 @@ export class OutboxRepository {
         from heads where o.event_id=heads.event_id returning o.*`,
         [limit, crypto.randomUUID(), leaseMs],
       );
-      return rows.map((row) => ({
-        eventId: row.event_id,
-        aggregateId: row.aggregate_id,
-        sequence: row.sequence,
-        payload: row.payload,
-        token: row.lease_token,
-        attempts: row.attempts,
-      }));
+      return rows.map((row) => {
+        const data = row.payload.data;
+        const providerId = data && typeof data === 'object' && 'providerId' in data
+          ? (data as { providerId?: unknown }).providerId
+          : undefined;
+        return {
+          eventId: row.event_id,
+          aggregateId: row.aggregate_id,
+          transactionId: row.transaction_id,
+          ...(typeof row.payload.correlationId === 'string' ? { correlationId: row.payload.correlationId } : {}),
+          ...(typeof providerId === 'string' ? { providerId } : {}),
+          sequence: row.sequence,
+          payload: row.payload,
+          token: row.lease_token,
+          attempts: row.attempts,
+        };
+      });
     });
   }
   async confirm(id: string, token: string): Promise<boolean> {
