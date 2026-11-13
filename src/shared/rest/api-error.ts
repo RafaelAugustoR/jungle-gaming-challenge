@@ -12,6 +12,7 @@ export function apiError(status: number, code: string): HttpException {
   return new HttpException({ code, message: code }, status);
 }
 const domainStatus: Record<DomainErrorCode, number> = {
+  INBOX_CONFLICT: 409,
   INVALID_PAYLOAD: 400,
   INSUFFICIENT_FUNDS: 422,
   INVALID_TRANSACTION_TRANSITION: 500,

@@ -100,16 +100,37 @@ export class WageringRepository implements WageringStore {
     @Inject(MikroORM) private readonly orm: MikroORM,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
-  async transaction<T>(work: (session: WageringSession) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    work: (session: WageringSession) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return databaseOperation(async () => {
       const deadline = Date.now() + this.config.financialDeadlineMs;
       for (let attempt = 1; ; attempt++) {
         try {
           return await this.orm.em.fork().transactional(async (em) => {
-            const session = new PostgresWageringSession(em, this.config, deadline);
-            const result = await work(session);
-            await session.beforeCommit();
-            return result;
+            signal?.throwIfAborted();
+            const pid = signal
+              ? (await em.execute<{ pid: number }[]>('select pg_backend_pid() as pid'))[0]!.pid
+              : undefined;
+            let cancellation: Promise<unknown> | undefined;
+            const cancel = () => {
+              cancellation = this.orm.em
+                .fork()
+                .execute('select pg_cancel_backend(?)', [pid])
+                .catch(() => undefined);
+            };
+            signal?.addEventListener('abort', cancel, { once: true });
+            try {
+              signal?.throwIfAborted();
+              const session = new PostgresWageringSession(em, this.config, deadline, signal);
+              const result = await work(session);
+              await session.beforeCommit();
+              return result;
+            } finally {
+              signal?.removeEventListener('abort', cancel);
+              await cancellation;
+            }
           });
         } catch (error) {
           const identityRace =
@@ -119,6 +140,7 @@ export class WageringRepository implements WageringStore {
             );
           // transactional() has rolled back before another attempt reads the winner.
           if (
+            !signal?.aborted &&
             attempt < 3 &&
             Date.now() < deadline &&
             (identityRace || isRetryableTransactionError(error))
@@ -193,8 +215,10 @@ class PostgresWageringSession implements WageringSession {
     private readonly em: EntityManager,
     private readonly config: AppConfig,
     private readonly deadline: number,
+    private readonly signal?: AbortSignal,
   ) {}
   private async budget() {
+    this.signal?.throwIfAborted();
     const remaining = this.deadline - Date.now();
     if (remaining <= 0) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
     const limits = {
@@ -218,6 +242,23 @@ class PostgresWageringSession implements WageringSession {
   ): Promise<T> {
     await this.budget();
     return this.em.execute<T>(sql, params);
+  }
+  async claimInbox(consumerName: string, messageId: string, hash: string) {
+    await this.execute(
+      `insert into messaging.command_inbox(consumer_name,message_id,request_hash) values(?,?,?) on conflict do nothing`,
+      [consumerName, messageId, hash],
+    );
+    const [row] = await this.execute<{ request_hash: string }[]>(
+      'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
+      [consumerName, messageId],
+    );
+    if (row?.request_hash !== hash) throw new DomainError('INBOX_CONFLICT');
+  }
+  async completeInbox(consumerName: string, messageId: string, transactionId: string) {
+    await this.execute(
+      'update messaging.command_inbox set transaction_id=? where consumer_name=? and message_id=? and transaction_id is null',
+      [transactionId, consumerName, messageId],
+    );
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<

@@ -20,7 +20,7 @@ import { ReferenceRetryPolicy } from '../domain/reference-retry';
 import { SubmitWagerTransaction } from '../application/submit-wager-transaction';
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
-import { identifier, parseWagerCommand } from './wager-contract';
+import { identifier, parseWagerCommand } from '../application/wager-contract';
 
 interface RequestContext {
   principal: Principal;

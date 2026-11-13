@@ -100,6 +100,37 @@ services:
     depends_on:
       postgres: { condition: service_healthy }
       provision: { condition: service_completed_successfully }
+  provision-commands:
+    build:
+      context: .
+      target: runtime
+    command: ['bun', 'run', 'provision:commands']
+    environment:
+      <<: *backend-env
+      COMMAND_QUEUE_NAME: ${COMMAND_QUEUE_NAME:-wager-transactions.fifo}
+      COMMAND_MAX_RECEIVE_COUNT: ${COMMAND_MAX_RECEIVE_COUNT:-5}
+      COMMAND_VISIBILITY_SECONDS: ${COMMAND_VISIBILITY_SECONDS:-30}
+    depends_on:
+      sqs: { condition: service_healthy }
+  command-consumer:
+    build:
+      context: .
+      target: runtime
+    command: ['bun', 'run', 'worker:commands']
+    restart: unless-stopped
+    environment:
+      <<: *backend-env
+      COMMAND_QUEUE_NAME: ${COMMAND_QUEUE_NAME:-wager-transactions.fifo}
+      COMMAND_VISIBILITY_SECONDS: ${COMMAND_VISIBILITY_SECONDS:-30}
+      COMMAND_CALL_TIMEOUT_MS: ${COMMAND_CALL_TIMEOUT_MS:-5000}
+      COMMAND_WAIT_SECONDS: ${COMMAND_WAIT_SECONDS:-2}
+      COMMAND_RETRY_BASE_MS: ${COMMAND_RETRY_BASE_MS:-1000}
+      COMMAND_RETRY_MAX_MS: ${COMMAND_RETRY_MAX_MS:-30000}
+      COMMAND_DRAIN_MS: ${COMMAND_DRAIN_MS:-20000}
+    stop_grace_period: 30s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      provision-commands: { condition: service_completed_successfully }
   provision-events:
     profiles: ["events"]
     build:

@@ -28,7 +28,13 @@ export interface PendingReferenceCandidate {
   transactionId: string;
   walletId: string;
 }
+export interface SubmissionExecution {
+  inbox?: { consumerName: string; messageId: string };
+  signal?: AbortSignal;
+}
 export interface WageringSession {
+  claimInbox(consumerName: string, messageId: string, hash: string): Promise<void>;
+  completeInbox(consumerName: string, messageId: string, transactionId: string): Promise<void>;
   referenceSchedule(id: string): Promise<{ attempts: number; now: string } | undefined>;
   scheduleReference(
     id: string,
@@ -54,7 +60,7 @@ export interface WageringSession {
 }
 export interface WageringStore {
   dueReferences(limit: number): Promise<PendingReferenceCandidate[]>;
-  transaction<T>(work: (session: WageringSession) => Promise<T>): Promise<T>;
+  transaction<T>(work: (session: WageringSession) => Promise<T>, signal?: AbortSignal): Promise<T>;
   find(id: string): Promise<TransactionView | undefined>;
   findExternal(providerId: string, externalId: string): Promise<TransactionView | undefined>;
 }
