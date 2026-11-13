@@ -1,7 +1,13 @@
 import { Money } from '../../shared/domain/money';
 import type { IntegrationEvent } from '../../shared/domain/events/integration-event';
-import type { WalletBalanceChanged } from '../../modules/wallets/domain/events/wallet-balance-changed';
-import type { WagerResultEvent } from '../../modules/wagering/domain/events/wager-events';
+import { WalletBalanceChanged } from '../../modules/wallets/domain/events/wallet-balance-changed';
+import {
+  WagerTransactionProcessed,
+  WagerTransactionRejected,
+  WagerTransactionPendingReference,
+  type WagerResultEvent,
+} from '../../modules/wagering/domain/events/wager-events';
+import { isWagerKind } from '../../modules/wagering/domain/wager-command';
 import { isUuid } from '../../shared/domain/is-uuid';
 type Envelope<E extends IntegrationEvent<unknown>> =
   E extends IntegrationEvent<unknown>
@@ -31,10 +37,10 @@ export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
     typeof event.eventType !== 'string' ||
     !event.eventType ||
     ![
-      'WalletBalanceChanged',
-      'WagerTransactionProcessed',
-      'WagerTransactionRejected',
-      'WagerTransactionPendingReference',
+      WalletBalanceChanged.eventType,
+      WagerTransactionProcessed.eventType,
+      WagerTransactionRejected.eventType,
+      WagerTransactionPendingReference.eventType,
     ].includes(event.eventType) ||
     !Number.isSafeInteger(event.version) ||
     event.version < 1 ||
@@ -79,7 +85,7 @@ export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
         data.roundId,
         data.gameId,
       ].every((value) => typeof value === 'string') ||
-      !['BET', 'WIN', 'LOSS', 'CANCEL', 'ROLLBACK'].includes(data.kind)
+      !isWagerKind(data.kind)
     )
       throw new InvalidIntegrationEvent();
     try {

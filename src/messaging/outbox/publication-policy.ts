@@ -22,7 +22,7 @@ export function publicationFailure(
   const name = error instanceof Error ? error.name : '';
   return {
     code: /^[A-Za-z0-9_]{1,100}$/.test(name) ? name : 'PublishError',
-    blocked: name === 'InvalidMessageContents',
+    blocked: ['InvalidMessageContents', 'MessageTooLarge'].includes(name),
     pauseWorker: [
       'AccessDeniedException',
       'InvalidClientTokenId',
@@ -33,4 +33,11 @@ export function publicationFailure(
     ].includes(name),
     delayMs: retryDelay(attempts, options, random),
   };
+}
+
+export class MessageTooLarge extends Error {
+  constructor() {
+    super('MESSAGE_TOO_LARGE');
+    this.name = 'MessageTooLarge';
+  }
 }

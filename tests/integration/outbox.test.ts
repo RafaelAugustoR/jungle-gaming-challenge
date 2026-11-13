@@ -1,3 +1,4 @@
+import { ReferenceRetryPolicy } from '../../src/modules/wagering/domain/reference-retry';
 import { afterEach, beforeEach, expect, test } from 'bun:test';
 import { disposableDatabase } from '../support/database';
 import { openDatabase } from '../../src/config/orm';
@@ -320,6 +321,7 @@ integration('later wallet events remain blocked behind an unpublished head', asy
   await new SubmitWagerTransaction(
     new WageringRepository(runtime, database.config),
     new Set(['provider-a']),
+    new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
   ).execute(command, command.externalTransactionId, { correlationId: crypto.randomUUID() });
   const repository = new OutboxRepository(runtime);
   const [head] = await repository.claim(10, 30000);
@@ -528,7 +530,7 @@ integration(
 );
 
 integration(
-  'poison events reach DLQ after five receives while another wallet is acknowledged',
+  'only poison reaches DLQ while a valid event in the same FIFO group is acknowledged',
   async () => {
     const wallet = await opening();
     const { createSqsClient } = await import('../../src/config/sqs');
@@ -559,7 +561,7 @@ integration(
         new SendMessageCommand({
           QueueUrl: queue,
           MessageBody: 'invalid-json',
-          MessageGroupId: 'poison-wallet',
+          MessageGroupId: wallet.id,
           MessageDeduplicationId: crypto.randomUUID(),
         }),
       );
@@ -584,6 +586,9 @@ integration(
       const dead = await sqs.send(new ReceiveMessageCommand({ QueueUrl: dlq, WaitTimeSeconds: 2 }));
       expect(dead.Messages).toHaveLength(1);
       expect(dead.Messages![0]!.Body).toBe('invalid-json');
+      expect(
+        await runtime.em.fork().execute('select * from demo_consumer.event_inbox'),
+      ).toHaveLength(1);
     } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
       await sqs.send(new DeleteQueueCommand({ QueueUrl: dlq }));
@@ -653,6 +658,152 @@ integration(
       expect(recovered.blocked_at).toBeNull();
     } finally {
       Object.defineProperty(sqs, 'send', { configurable: true, value: send });
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+      sqs.destroy();
+    }
+  },
+  15000,
+);
+
+integration(
+  'a real REFUND financial result passes through SQS and the persistent consumer',
+  async () => {
+    const wallet = await opening();
+    const { SubmitWagerTransaction } =
+      await import('../../src/modules/wagering/application/submit-wager-transaction');
+    const { WageringRepository } =
+      await import('../../src/modules/wagering/infrastructure/persistence/wagering-repository');
+    const submit = new SubmitWagerTransaction(
+      new WageringRepository(runtime, database.config),
+      new Set(['provider-a']),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+    );
+    const bet = {
+      providerId: 'provider-a',
+      externalTransactionId: crypto.randomUUID(),
+      walletId: wallet.id,
+      playerId: wallet.playerId,
+      roundId: 'r',
+      gameId: 'g',
+      kind: 'BET' as const,
+      money: Money.create('10.00', 'BRL'),
+    };
+    await submit.execute(bet, bet.externalTransactionId, { correlationId: crypto.randomUUID() });
+    const refund = {
+      ...bet,
+      externalTransactionId: crypto.randomUUID(),
+      kind: 'REFUND' as const,
+      referenceExternalTransactionId: bet.externalTransactionId,
+    };
+    const receipt = await submit.execute(refund, refund.externalTransactionId, {
+      correlationId: crypto.randomUUID(),
+    });
+    expect(receipt.body.status).toBe('PROCESSED');
+    const { createSqsClient } = await import('../../src/config/sqs');
+    const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
+    const { OutboxPublisher } = await import('../../src/messaging/outbox/outbox-publisher');
+    const { EventConsumer } = await import('../../src/messaging/events/event-consumer');
+    const sqs = createSqsClient(database.config);
+    const queue = (
+      await sqs.send(
+        new CreateQueueCommand({
+          QueueName: `refund-${crypto.randomUUID()}.fifo`,
+          Attributes: { FifoQueue: 'true' },
+        }),
+      )
+    ).QueueUrl!;
+    try {
+      const publisher = new OutboxPublisher(new OutboxRepository(runtime), sqs, {
+        queueUrl: queue,
+        leaseMs: 30000,
+        sendTimeoutMs: 5000,
+        batchSize: 10,
+        retryBaseMs: 1000,
+        retryMaxMs: 60000,
+      });
+      const consumer = new EventConsumer(runtime, sqs, queue);
+      for (let i = 0; i < 5; i++) {
+        expect(await publisher.runOnce()).toBe(1);
+        expect(await consumer.runOnce()).toBe(1);
+      }
+      const [state] = await runtime.em
+        .fork()
+        .execute(
+          'select sequence,balance,wallet_version from demo_consumer.event_projection where aggregate_id=?',
+          [wallet.id],
+        );
+      expect(state).toMatchObject({
+        sequence: 5,
+        balance: { amount: '100.00', currency: 'BRL' },
+        wallet_version: 3,
+      });
+      const [refundEvent] = await runtime.em
+        .fork()
+        .execute(
+          "select event_id from wagering.outbox where event_type='WagerTransactionProcessed' and payload->'data'->>'kind'='REFUND'",
+        );
+      expect(
+        await runtime.em
+          .fork()
+          .execute('select * from demo_consumer.event_inbox where event_id=?', [
+            refundEvent.event_id,
+          ]),
+      ).toHaveLength(1);
+    } finally {
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+      sqs.destroy();
+    }
+  },
+  20000,
+);
+
+integration(
+  'oversized events are retained without pausing other wallets after queue-limit diagnosis',
+  async () => {
+    const large = await new Wallets(new WalletRepository(runtime), { divergence() {} }).create(
+      { playerId: crypto.randomUUID(), initialBalance: Money.create('100.00', 'BRL') },
+      { actorId: crypto.randomUUID(), correlationId: 'x'.repeat(2048) },
+    );
+    const small = await opening();
+    const { createSqsClient } = await import('../../src/config/sqs');
+    const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
+    const { OutboxPublisher } = await import('../../src/messaging/outbox/outbox-publisher');
+    const sqs = createSqsClient(database.config);
+    const queue = (
+      await sqs.send(
+        new CreateQueueCommand({
+          QueueName: `size-${crypto.randomUUID()}.fifo`,
+          Attributes: { FifoQueue: 'true', MaximumMessageSize: '1024' },
+        }),
+      )
+    ).QueueUrl!;
+    try {
+      const publisher = new OutboxPublisher(new OutboxRepository(runtime), sqs, {
+        queueUrl: queue,
+        leaseMs: 30000,
+        sendTimeoutMs: 5000,
+        batchSize: 10,
+        retryBaseMs: 1000,
+        retryMaxMs: 60000,
+      });
+      expect(await publisher.runOnce()).toBe(2);
+      const [bad] = await runtime.em
+        .fork()
+        .execute(
+          'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=?',
+          [large.id],
+        );
+      expect(bad.published_at).toBeNull();
+      expect(bad.blocked_at).not.toBeNull();
+      expect(bad.last_error_code).toBe('MessageTooLarge');
+      const [good] = await runtime.em
+        .fork()
+        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
+          small.id,
+        ]);
+      expect(good.published_at).not.toBeNull();
+      expect(good.blocked_at).toBeNull();
+    } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
       sqs.destroy();
     }

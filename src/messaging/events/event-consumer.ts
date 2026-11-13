@@ -59,14 +59,10 @@ export class EventConsumer {
         MaxNumberOfMessages: 10,
         WaitTimeSeconds: 2,
         VisibilityTimeout: this.visibilityTimeoutSeconds,
-        MessageSystemAttributeNames: ['MessageGroupId'],
       }),
       { abortSignal: signal ?? AbortSignal.timeout(10000) },
     );
-    const failedGroups = new Set<string>();
     for (const message of result.Messages ?? []) {
-      const group = message.Attributes?.MessageGroupId;
-      if (group && failedGroups.has(group)) continue;
       try {
         if (!message.Body || !message.ReceiptHandle) throw new Error('INVALID_EVENT_MESSAGE');
         await this.accept(message.Body);
@@ -78,7 +74,6 @@ export class EventConsumer {
           { abortSignal: AbortSignal.timeout(5000) },
         );
       } catch (error) {
-        if (group) failedGroups.add(group);
         const code =
           error instanceof Error && /^[A-Za-z0-9_]{1,100}$/.test(error.message)
             ? error.message
@@ -86,7 +81,6 @@ export class EventConsumer {
         new JsonLogger().warn({
           event: 'event_consumer_message_failed',
           messageId: message.MessageId,
-          group,
           code,
         });
       }

@@ -26,7 +26,8 @@ function resultData(
   return { ...command, money: command.money.toProps(), transactionId, balance };
 }
 export class WagerTransactionProcessed extends IntegrationEvent<WagerResultData> {
-  readonly eventType = 'WagerTransactionProcessed';
+  static readonly eventType = 'WagerTransactionProcessed';
+  readonly eventType = WagerTransactionProcessed.eventType;
   readonly version = 1;
   private constructor(data: WagerResultData, at: string, context: EventContext) {
     super(data.walletId, at, context, Object.freeze(data));
@@ -42,7 +43,8 @@ export class WagerTransactionProcessed extends IntegrationEvent<WagerResultData>
   }
 }
 export class WagerTransactionRejected extends IntegrationEvent<WagerResultData> {
-  readonly eventType = 'WagerTransactionRejected';
+  static readonly eventType = 'WagerTransactionRejected';
+  readonly eventType = WagerTransactionRejected.eventType;
   readonly version = 1;
   private constructor(data: WagerResultData, at: string, context: EventContext) {
     super(data.walletId, at, context, Object.freeze(data));
@@ -64,7 +66,8 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerResultData> 
 }
 
 export class WagerTransactionPendingReference extends IntegrationEvent<WagerResultData> {
-  readonly eventType = 'WagerTransactionPendingReference';
+  static readonly eventType = 'WagerTransactionPendingReference';
+  readonly eventType = WagerTransactionPendingReference.eventType;
   readonly version = 1;
   private constructor(data: WagerResultData, at: string, context: EventContext) {
     super(data.walletId, at, context, Object.freeze(data));

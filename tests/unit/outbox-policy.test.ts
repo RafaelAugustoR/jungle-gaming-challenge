@@ -66,3 +66,49 @@ test('consumer parses the concrete event contract including optional causation',
     'INVALID_INTEGRATION_EVENT',
   );
 });
+
+test('ambiguous invalid parameters retry while proven size failures block only the event', () => {
+  expect(publicationFailure(failure('InvalidParameterValue'), 1, options, 0)).toMatchObject({
+    blocked: false,
+    pauseWorker: true,
+  });
+  expect(publicationFailure(failure('MessageTooLarge'), 1, options, 0)).toMatchObject({
+    blocked: true,
+    pauseWorker: false,
+  });
+});
+test('polling uses the same decimal integer grammar as publisher timing', () => {
+  for (const value of ['1e3', '1.0', ' 1000', '0'])
+    expect(() => loadEventConfig({ OUTBOX_POLL_MS: value })).toThrow();
+  expect(loadEventConfig({ OUTBOX_POLL_MS: '1000' }).pollMs).toBe(1000);
+});
+
+test('consumer accepts every canonical wager kind without a duplicate local list', async () => {
+  const { wagerKinds } = await import('../../src/modules/wagering/domain/wager-command');
+  const { WagerTransactionProcessed } =
+    await import('../../src/modules/wagering/domain/events/wager-events');
+  const { Money } = await import('../../src/shared/domain/money');
+  const { parseIntegrationEvent } = await import('../../src/messaging/events/integration-envelope');
+  for (const kind of wagerKinds) {
+    const event = WagerTransactionProcessed.from(
+      {
+        providerId: 'p',
+        externalTransactionId: 'e',
+        walletId: crypto.randomUUID(),
+        playerId: 'player',
+        roundId: 'r',
+        gameId: 'g',
+        kind,
+        money: Money.create('1.00', 'BRL'),
+      },
+      crypto.randomUUID(),
+      { amount: '9.00', currency: 'BRL' },
+      new Date().toISOString(),
+      { correlationId: 'c' },
+    ).toJSON();
+    const parsed = parseIntegrationEvent(JSON.stringify({ ...event, sequence: 1 }));
+    expect(parsed.eventType).toBe(WagerTransactionProcessed.eventType);
+    if (parsed.eventType === WagerTransactionProcessed.eventType)
+      expect(parsed.data.kind).toBe(kind);
+  }
+});

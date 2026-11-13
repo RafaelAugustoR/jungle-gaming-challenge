@@ -1,5 +1,5 @@
-import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { publicationFailure, retryDelay } from './publication-policy';
+import { SendMessageCommand, GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
+import { publicationFailure, retryDelay, MessageTooLarge } from './publication-policy';
 import { WorkerBackoff } from '../worker-backoff';
 import { OutboxRepository, type ReservedEvent } from './outbox-repository';
 import { JsonLogger } from '../../observability/logger';
@@ -45,8 +45,8 @@ export class OutboxPublisher {
   }
   private async publish(event: ReservedEvent): Promise<boolean> {
     await this.observer.reserved?.(event);
+    const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
     try {
-      const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
       await this.sqs.send(
         new SendMessageCommand({
           QueueUrl: this.options.queueUrl,
@@ -65,8 +65,30 @@ export class OutboxPublisher {
           aggregateId: event.aggregateId,
         });
     } catch (error) {
+      let failure = error;
+      if (error instanceof Error && error.name === 'InvalidParameterValue') {
+        try {
+          const { Attributes } = await this.sqs.send(
+            new GetQueueAttributesCommand({
+              QueueUrl: this.options.queueUrl,
+              AttributeNames: ['MaximumMessageSize'],
+            }),
+            { abortSignal: AbortSignal.timeout(this.options.sendTimeoutMs) },
+          );
+          const maximum = Number(Attributes?.MaximumMessageSize);
+          if (
+            Number.isInteger(maximum) &&
+            maximum >= 1024 &&
+            maximum <= 1048576 &&
+            Buffer.byteLength(body, 'utf8') > maximum
+          )
+            failure = new MessageTooLarge();
+        } catch {
+          /* Ambiguous diagnosis remains retryable; never block on configuration failure. */
+        }
+      }
       const { code, blocked, delayMs, pauseWorker } = publicationFailure(
-        error,
+        failure,
         event.attempts,
         this.options,
       );
