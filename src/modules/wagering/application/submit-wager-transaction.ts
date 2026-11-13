@@ -39,12 +39,15 @@ export class SubmitWagerTransaction {
       if (wallet.playerId !== command.playerId) throw new DomainError('PLAYER_MISMATCH');
       if (wallet.currency !== command.money.currency) throw new DomainError('CURRENCY_MISMATCH');
       const resources = await session.resources(wallet.currency);
+      const reference = command.referenceExternalTransactionId
+        ? await session.findReference(command.providerId, command.referenceExternalTransactionId)
+        : undefined;
       const transaction = WagerTransaction.create({
         payload,
         idempotencyKey: key,
         createdAt: resources.occurredAt,
       });
-      const outcome = step.apply(transaction, wallet, resources, context);
+      const outcome = step.apply(transaction, wallet, resources, context, reference);
       transaction.complete(outcome, resources.occurredAt, context);
       await session.save({ transaction, wallet: outcome.wallet, change: outcome.change });
       return transaction.getReceipt();

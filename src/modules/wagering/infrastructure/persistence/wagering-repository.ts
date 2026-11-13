@@ -11,7 +11,11 @@ import {
 import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
 import { WagerTransaction } from '../../domain/wager-transaction';
 import type { WagerKind } from '../../domain/wager-command';
-import type { SubmissionReceipt, WagerFailureCode } from '../../domain/submission-receipt';
+import {
+  restoreSubmissionReceipt,
+  type SubmissionReceipt,
+  type WagerFailureCode,
+} from '../../domain/submission-receipt';
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
@@ -37,15 +41,10 @@ interface TransactionRow {
   currency: string;
   created_at: Date;
   processed_at: Date | null;
+  reference_external_transaction_id: string | null;
+  reference_transaction_id: string | null;
   http_status: number | null;
   body: SubmissionReceipt['body'] | null;
-}
-function receiptFrom(row: TransactionRow): SubmissionReceipt {
-  if (row.http_status === 200 && row.body?.status === 'PROCESSED')
-    return { httpStatus: 200, body: row.body };
-  if (row.http_status === 422 && row.body?.status === 'REJECTED')
-    return { httpStatus: 422, body: row.body };
-  throw new Error('Inconsistent persisted submission receipt');
 }
 async function submission(
   em: EntityManager,
@@ -68,15 +67,19 @@ async function submission(
         roundId: row.round_id!,
         gameId: row.game_id!,
         kind: row.kind as WagerKind,
+        ...(row.reference_external_transaction_id
+          ? { referenceExternalTransactionId: row.reference_external_transaction_id }
+          : {}),
         money: Money.rehydrate({ amount: row.amount, currency: row.currency }),
       },
+      referenceTransactionId: row.reference_transaction_id ?? undefined,
       idempotencyKey: row.idempotency_key!,
       payloadHash: row.request_hash!,
       createdAt: new Date(row.created_at).toISOString(),
       processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : undefined,
       status: row.status,
       ...(row.failure_code ? { failureCode: row.failure_code } : {}),
-      receipt: receiptFrom(row),
+      receipt: restoreSubmissionReceipt(row.http_status, row.body),
     })
   );
 }
@@ -149,6 +152,12 @@ export class WageringRepository implements WageringStore {
           roundId: row.round_id,
           gameId: row.game_id,
           kind: row.kind,
+          ...(row.reference_external_transaction_id
+            ? { referenceExternalTransactionId: row.reference_external_transaction_id }
+            : {}),
+          ...(row.reference_transaction_id
+            ? { referenceTransactionId: row.reference_transaction_id }
+            : {}),
           status: row.status,
           ...(row.failure_code ? { failureCode: row.failure_code } : {}),
           money: Money.rehydrate({ amount: row.amount, currency: row.currency }).toProps(),
@@ -222,6 +231,27 @@ class PostgresWageringSession implements WageringSession {
     await this.budget();
     return submission(this.em, providerId, key);
   }
+  async findReference(providerId: string, externalId: string) {
+    const [row] = await this.execute<(TransactionRow & { reversed_by: WagerKind[] })[]>(
+      `select t.*,t.amount::text as amount, array(select r.kind from wagering.transactions r where r.reference_transaction_id=t.id and r.status='PROCESSED') as reversed_by from wagering.transactions t where t.provider_id=? and t.external_transaction_id=?`,
+      [providerId, externalId],
+    );
+    return (
+      row && {
+        id: row.id,
+        providerId: row.provider_id!,
+        externalTransactionId: row.external_transaction_id!,
+        playerId: row.player_id!,
+        walletId: row.wallet_id,
+        currency: row.currency,
+        roundId: row.round_id!,
+        kind: row.kind as WagerKind,
+        reversedBy: new Set(row.reversed_by),
+        status: row.status,
+        money: Money.rehydrate({ amount: row.amount, currency: row.currency }),
+      }
+    );
+  }
   async externalExists(providerId: string, id: string) {
     await this.budget();
     return external(this.em, providerId, id);
@@ -241,7 +271,7 @@ class PostgresWageringSession implements WageringSession {
       receipt = transaction.getReceipt(),
       occurredAt = state.createdAt;
     await this.execute(
-      `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at,failure_code,processed_at) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,idempotency_key,request_hash,player_id,round_id,game_id,created_at,failure_code,processed_at,reference_external_transaction_id,reference_transaction_id) values(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       [
         transaction.id,
         transaction.walletId,
@@ -259,6 +289,8 @@ class PostgresWageringSession implements WageringSession {
         occurredAt,
         state.failureCode ?? null,
         state.processedAt ?? null,
+        command.referenceExternalTransactionId ?? null,
+        state.referenceTransactionId ?? null,
       ],
     );
     if (input.change) {

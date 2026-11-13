@@ -20,6 +20,7 @@ export function parseWagerCommand(body: unknown): WagerCommand {
     'gameId',
     'kind',
     'money',
+    'referenceExternalTransactionId',
   ];
   if (Object.keys(input).some((key) => !keys.includes(key)) || !isWagerKind(input.kind))
     throw new DomainError('INVALID_PAYLOAD');
@@ -41,5 +42,8 @@ export function parseWagerCommand(body: unknown): WagerCommand {
     gameId: identifier(input.gameId),
     kind: input.kind,
     money: Money.create(money.amount, money.currency),
+    ...(input.referenceExternalTransactionId === undefined
+      ? {}
+      : { referenceExternalTransactionId: identifier(input.referenceExternalTransactionId) }),
   };
 }

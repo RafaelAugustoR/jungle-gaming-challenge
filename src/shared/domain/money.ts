@@ -42,6 +42,10 @@ export class Money {
   private compatible(other: Money) {
     if (this.currency !== other.currency) throw new DomainError('CURRENCY_MISMATCH');
   }
+  canAdd(other: Money): boolean {
+    this.compatible(other);
+    return this.value.add(other.value).abs().lte(MAX);
+  }
   add(other: Money): Money {
     this.compatible(other);
     return Money.exact(this.value.add(other.value), this.currency);
