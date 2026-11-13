@@ -3,7 +3,7 @@ import { Money } from '../../src/shared/domain/money';
 import { Wallet } from '../../src/modules/wallets/domain/wallet';
 import { WagerPayload } from '../../src/modules/wagering/domain/wager-payload';
 import { WagerTransaction } from '../../src/modules/wagering/domain/wager-transaction';
-import { wagerStepFor } from '../../src/modules/wagering/domain/wager-step';
+import { type WagerReference, wagerStepFor } from '../../src/modules/wagering/domain/wager-step';
 const wallet = Wallet.rehydrate({
   id: 'wallet',
   playerId: 'player',
@@ -47,7 +47,7 @@ for (const [kind, balance, version] of [
 }
 
 test('references validate every shared context field and reversal-specific rules', () => {
-  const reference = {
+  const reference: WagerReference = {
     id: 'reference',
     providerId: 'provider-a',
     externalTransactionId: 'original',
@@ -55,7 +55,8 @@ test('references validate every shared context field and reversal-specific rules
     walletId: 'wallet',
     currency: 'BRL',
     roundId: 'round',
-    kind: 'BET',
+    kind: 'BET' as const,
+    reversedBy: new Set<import('../../src/modules/wagering/domain/wager-command').WagerKind>(),
     status: 'PROCESSED' as const,
     money: Money.create('20.00', 'BRL'),
   };
@@ -74,11 +75,10 @@ test('references validate every shared context field and reversal-specific rules
       wallet,
       { counterpartAccountId: 'gaming', occurredAt: at },
       { correlationId: 'request' },
-      ref,
-      already,
+      ref && { ...ref, reversedBy: new Set(already ? [kind] : []) },
     );
   };
-  for (const field of ['providerId', 'playerId', 'walletId', 'currency', 'roundId'] as const)
+  for (const field of ['playerId', 'walletId', 'currency', 'roundId'] as const)
     expect(evaluate('REFUND', { ...reference, [field]: 'different' })).toMatchObject({
       status: 'REJECTED',
       failureCode: 'REFERENCE_CONTEXT_MISMATCH',
@@ -86,7 +86,7 @@ test('references validate every shared context field and reversal-specific rules
   expect(evaluate('REFUND', { ...reference, money: Money.create('21.00', 'BRL') })).toMatchObject({
     failureCode: 'REFERENCE_AMOUNT_MISMATCH',
   });
-  expect(evaluate('REFUND', { ...reference, kind: 'WIN' })).toMatchObject({
+  expect(evaluate('REFUND', { ...reference, kind: 'WIN' as const })).toMatchObject({
     failureCode: 'REFERENCE_KIND_MISMATCH',
   });
   expect(evaluate('REFUND', reference, true)).toMatchObject({ failureCode: 'ALREADY_REVERSED' });

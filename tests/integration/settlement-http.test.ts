@@ -1,3 +1,4 @@
+import { openDatabase } from '../../src/config/orm';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
@@ -216,5 +217,60 @@ integration(
       body: { ...accepted.body, idempotentReplay: true },
     });
     expect(await audit(w.id)).toMatchObject({ entries: 1, version: 1 });
+  },
+);
+
+integration(
+  'runtime can bind an absent reference only while completing a pending operation',
+  async () => {
+    const w = await wallet();
+    const referenceExternal = crypto.randomUUID();
+    const refund = command(w, 'REFUND', '0.00', referenceExternal);
+    const key = crypto.randomUUID();
+    const pending = await submit(refund, key);
+    expect(pending.status).toBe(202);
+    const bet = { ...command(w, 'BET', '0.00'), externalTransactionId: referenceExternal };
+    const processed = await submit(bet);
+    expect(processed.status).toBe(200);
+    const runtime = await openDatabase(db.config);
+    try {
+      await runtime.em.fork().transactional(async (em) => {
+        await em.execute('select id from wagering.wallets where id=? for update', [w.id]);
+        await em.execute(
+          "update wagering.transactions set status='PROCESSED',processed_at=clock_timestamp(),reference_transaction_id=? where id=?",
+          [processed.body.transactionId, pending.body.transactionId],
+        );
+        await em.execute(
+          `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload)
+        select gen_random_uuid(),?, ?, coalesce(max(sequence),0)+1,'WagerTransactionProcessed','{}'::jsonb from wagering.outbox where aggregate_id=?`,
+          [w.id, pending.body.transactionId, w.id],
+        );
+      });
+      const current = (await (
+        await fetch(`${base}/wagering/transactions/${pending.body.transactionId}`, {
+          headers: headers(provider),
+        })
+      ).json()) as any;
+      expect(current).toMatchObject({
+        status: 'PROCESSED',
+        referenceTransactionId: processed.body.transactionId,
+      });
+      expect(await submit(refund, key)).toEqual({
+        status: 202,
+        body: { ...pending.body, idempotentReplay: true },
+      });
+      expect((await submit(command(w, 'REFUND', '0.00', referenceExternal))).body.failureCode).toBe(
+        'ALREADY_REVERSED',
+      );
+      await expect(
+        runtime.em.execute(
+          'update wagering.transactions set reference_transaction_id=null where id=?',
+          [pending.body.transactionId],
+        ),
+      ).rejects.toMatchObject({ code: '23514' });
+      expect(await audit(w.id)).toMatchObject({ entries: 1, version: 1 });
+    } finally {
+      await runtime.close(true);
+    }
   },
 );

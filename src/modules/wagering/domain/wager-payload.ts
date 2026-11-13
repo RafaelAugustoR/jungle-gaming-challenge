@@ -23,6 +23,12 @@ export class WagerPayload {
       command.money.isNegative()
     )
       throw new DomainError('INVALID_PAYLOAD');
+    const reference = command.referenceExternalTransactionId;
+    if (
+      reference !== undefined &&
+      (typeof reference !== 'string' || !reference.trim() || reference.length > 128)
+    )
+      throw new DomainError('INVALID_PAYLOAD');
     wagerStepFor(command.kind).validate(command);
     return new WagerPayload(Object.freeze({ command, hash: wagerPayloadHash(command) }));
   }

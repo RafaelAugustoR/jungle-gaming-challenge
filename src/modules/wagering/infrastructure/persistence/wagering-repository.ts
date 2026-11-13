@@ -11,7 +11,11 @@ import {
 import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
 import { WagerTransaction } from '../../domain/wager-transaction';
 import type { WagerKind } from '../../domain/wager-command';
-import type { SubmissionReceipt, WagerFailureCode } from '../../domain/submission-receipt';
+import {
+  restoreSubmissionReceipt,
+  type SubmissionReceipt,
+  type WagerFailureCode,
+} from '../../domain/submission-receipt';
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
@@ -41,15 +45,6 @@ interface TransactionRow {
   reference_transaction_id: string | null;
   http_status: number | null;
   body: SubmissionReceipt['body'] | null;
-}
-function receiptFrom(row: TransactionRow): SubmissionReceipt {
-  if (row.http_status === 200 && row.body?.status === 'PROCESSED')
-    return { httpStatus: 200, body: row.body };
-  if (row.http_status === 202 && row.body?.status === 'PENDING_REFERENCE')
-    return { httpStatus: 202, body: row.body };
-  if (row.http_status === 422 && row.body?.status === 'REJECTED')
-    return { httpStatus: 422, body: row.body };
-  throw new Error('Inconsistent persisted submission receipt');
 }
 async function submission(
   em: EntityManager,
@@ -84,7 +79,7 @@ async function submission(
       processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : undefined,
       status: row.status,
       ...(row.failure_code ? { failureCode: row.failure_code } : {}),
-      receipt: receiptFrom(row),
+      receipt: restoreSubmissionReceipt(row.http_status, row.body),
     })
   );
 }
@@ -237,8 +232,8 @@ class PostgresWageringSession implements WageringSession {
     return submission(this.em, providerId, key);
   }
   async findReference(providerId: string, externalId: string) {
-    const [row] = await this.execute<TransactionRow[]>(
-      `select *,amount::text as amount from wagering.transactions where provider_id=? and external_transaction_id=?`,
+    const [row] = await this.execute<(TransactionRow & { reversed_by: WagerKind[] })[]>(
+      `select t.*,t.amount::text as amount, array(select r.kind from wagering.transactions r where r.reference_transaction_id=t.id and r.status='PROCESSED') as reversed_by from wagering.transactions t where t.provider_id=? and t.external_transaction_id=?`,
       [providerId, externalId],
     );
     return (
@@ -250,20 +245,11 @@ class PostgresWageringSession implements WageringSession {
         walletId: row.wallet_id,
         currency: row.currency,
         roundId: row.round_id!,
-        kind: row.kind,
+        kind: row.kind as WagerKind,
+        reversedBy: new Set(row.reversed_by),
         status: row.status,
         money: Money.rehydrate({ amount: row.amount, currency: row.currency }),
       }
-    );
-  }
-  async reversalExists(referenceId: string, kind: string) {
-    return (
-      (
-        await this.execute(
-          `select id from wagering.transactions where reference_transaction_id=? and kind=? and status='PROCESSED'`,
-          [referenceId, kind],
-        )
-      ).length > 0
     );
   }
   async externalExists(providerId: string, id: string) {

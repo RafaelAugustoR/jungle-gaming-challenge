@@ -22,7 +22,6 @@ export interface WageringSession {
   lockWallet(id: string): Promise<Wallet | undefined>;
   findSubmission(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   findReference(providerId: string, externalId: string): Promise<WagerReference | undefined>;
-  reversalExists(referenceId: string, kind: string): Promise<boolean>;
   externalExists(providerId: string, externalId: string): Promise<boolean>;
   resources(currency: string): Promise<{ counterpartAccountId: string; occurredAt: string }>;
   save(input: {

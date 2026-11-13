@@ -42,24 +42,12 @@ export class SubmitWagerTransaction {
       const reference = command.referenceExternalTransactionId
         ? await session.findReference(command.providerId, command.referenceExternalTransactionId)
         : undefined;
-      const alreadyReversed =
-        reference && ['REFUND', 'ROLLBACK'].includes(command.kind)
-          ? await session.reversalExists(reference.id, command.kind)
-          : false;
       const transaction = WagerTransaction.create({
         payload,
         idempotencyKey: key,
         createdAt: resources.occurredAt,
-        referenceTransactionId: reference?.id,
       });
-      const outcome = step.apply(
-        transaction,
-        wallet,
-        resources,
-        context,
-        reference,
-        alreadyReversed,
-      );
+      const outcome = step.apply(transaction, wallet, resources, context, reference);
       transaction.complete(outcome, resources.occurredAt, context);
       await session.save({ transaction, wallet: outcome.wallet, change: outcome.change });
       return transaction.getReceipt();

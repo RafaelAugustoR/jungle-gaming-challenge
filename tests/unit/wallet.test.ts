@@ -136,3 +136,24 @@ test('zero credits preserve wallet identity but still reject a different currenc
   expect(wallet.balance.toProps()).toEqual({ amount: '100.00', currency: 'BRL' });
   expect(wallet.version).toBe(1);
 });
+
+test('credit overflow is a wallet rejection and leaves its financial state unchanged', () => {
+  const wallet = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '9999999999999999.99',
+    version: 1,
+  });
+  const result = wallet.credit({
+    transactionId: 'overflow',
+    money: Money.create('0.01', 'BRL'),
+    counterpartAccountId: 'gaming',
+    occurredAt: '2026-11-12T12:00:00.000Z',
+    context: { correlationId: 'overflow' },
+  });
+  expect(result).toEqual({ status: 'REJECTED', wallet, failureCode: 'AMOUNT_LIMIT_EXCEEDED' });
+  expect(result.change).toBeUndefined();
+  expect(wallet.version).toBe(1);
+});

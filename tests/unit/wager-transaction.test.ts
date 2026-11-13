@@ -161,3 +161,48 @@ test('a prepared wager preserves its validated business content and canonical ha
     WagerPayload.create({ ...command, referenceExternalTransactionId: 'another-bet' }),
   ).toThrow('INVALID_PAYLOAD');
 });
+
+test('a pending receipt survives terminal processing and resolved reference is result state', () => {
+  const source = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '100.00',
+    version: 1,
+  });
+  const transaction = WagerTransaction.create({
+    payload: WagerPayload.create({
+      ...command,
+      kind: 'REFUND',
+      referenceExternalTransactionId: 'late-bet',
+    }),
+    idempotencyKey: 'pending-refund',
+    createdAt: at,
+  });
+  expect(transaction.toProps().referenceTransactionId).toBeUndefined();
+  transaction.complete({ status: 'PENDING_REFERENCE', wallet: source }, at, {
+    correlationId: 'first',
+  });
+  const original = transaction.getReceipt();
+  const restored = WagerTransaction.rehydrate(transaction.toProps());
+  restored.complete(
+    { status: 'PROCESSED', wallet: source, referenceTransactionId: 'resolved-bet-id' },
+    '2026-11-12T12:01:00.000Z',
+    { correlationId: 'retry' },
+  );
+  expect(restored.toProps()).toMatchObject({
+    status: 'PROCESSED',
+    referenceTransactionId: 'resolved-bet-id',
+  });
+  expect(restored.resultEvent.toJSON().eventType).toBe('WagerTransactionProcessed');
+  expect(restored.getReceipt()).toEqual(original);
+  expect(restored.getReceipt(true).body.idempotentReplay).toBe(true);
+  expect(() =>
+    restored.complete(
+      { status: 'PROCESSED', wallet: source, referenceTransactionId: 'another-id' },
+      at,
+      { correlationId: 'invalid' },
+    ),
+  ).toThrow('INVALID_TRANSACTION_TRANSITION');
+});

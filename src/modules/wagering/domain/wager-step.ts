@@ -1,9 +1,9 @@
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
 import type { Money } from '../../../shared/domain/money';
-import type { Wallet, WalletChange } from '../../wallets/domain/wallet';
+import type { Wallet } from '../../wallets/domain/wallet';
 import type { WagerCommand, WagerKind } from './wager-command';
-import type { WagerTransaction, TransactionStatus } from './wager-transaction';
+import type { WagerTransaction, TransactionStatus, WagerOutcome } from './wager-transaction';
 import type { WagerFailureCode } from './submission-receipt';
 export interface WagerReference {
   id: string;
@@ -13,104 +13,144 @@ export interface WagerReference {
   walletId: string;
   currency: string;
   roundId: string;
-  kind: string;
+  kind: WagerKind;
   status: TransactionStatus;
   money: Money;
+  reversedBy: ReadonlySet<WagerKind>;
 }
-export type WagerStepResult =
-  | { status: 'PROCESSED'; wallet: Wallet; change?: WalletChange }
-  | { status: 'PENDING_REFERENCE'; wallet: Wallet; change?: never }
-  | { status: 'REJECTED'; wallet: Wallet; failureCode: WagerFailureCode; change?: never };
+type ResolvedReference = WagerReference & { status: 'PROCESSED' };
+interface Resources {
+  counterpartAccountId: string;
+  occurredAt: string;
+}
+type Movement = (
+  transaction: WagerTransaction,
+  wallet: Wallet,
+  resources: Resources,
+  context: EventContext,
+) => WagerOutcome;
+type ReferencedMovement = (
+  transaction: WagerTransaction,
+  wallet: Wallet,
+  resources: Resources,
+  context: EventContext,
+  reference: ResolvedReference,
+) => WagerOutcome;
 interface WagerStep {
   validate(command: WagerCommand): void;
   apply(
     transaction: WagerTransaction,
     wallet: Wallet,
-    resources: { counterpartAccountId: string; occurredAt: string },
+    resources: Resources,
     context: EventContext,
     reference?: WagerReference,
-    alreadyReversed?: boolean,
-  ): WagerStepResult;
+  ): WagerOutcome;
 }
-type Movement = WagerStep['apply'];
 interface ReferencePolicy {
-  allowedKinds: readonly string[];
+  allowedKinds: readonly WagerKind[];
   reversal?: boolean;
 }
-function rejected(wallet: Wallet, failureCode: WagerFailureCode): WagerStepResult {
-  return { status: 'REJECTED', wallet, failureCode };
+function rejected(
+  wallet: Wallet,
+  failureCode: WagerFailureCode,
+  referenceTransactionId?: string,
+): WagerOutcome {
+  return { status: 'REJECTED', wallet, failureCode, referenceTransactionId };
 }
-function validateReferenceSyntax(command: WagerCommand): void {
-  const reference = command.referenceExternalTransactionId;
-  if (
-    reference !== undefined &&
-    (typeof reference !== 'string' ||
-      !reference.trim() ||
-      reference.length > 128 ||
-      reference === command.externalTransactionId)
-  )
+function validateReference(command: WagerCommand): void {
+  // Structural validation belongs to WagerPayload so HTTP and queue callers share it.
+  if (command.referenceExternalTransactionId === command.externalTransactionId)
     throw new DomainError('INVALID_PAYLOAD');
 }
-function checkReference(
+function resolveReference(
   policy: ReferencePolicy,
   transaction: WagerTransaction,
   wallet: Wallet,
-  reference: WagerReference | undefined,
-  alreadyReversed: boolean,
-): WagerStepResult | undefined {
-  const { command } = transaction;
-  if (!command.referenceExternalTransactionId)
-    return policy.reversal ? rejected(wallet, 'REFERENCE_REQUIRED') : undefined;
+  reference?: WagerReference,
+): ResolvedReference | WagerOutcome {
   if (!reference) return { status: 'PENDING_REFERENCE', wallet };
+  const reject = (code: WagerFailureCode) => rejected(wallet, code, reference.id);
+  const { command } = transaction;
+  // Store resolves by (providerId, externalTransactionId); identity is scoped there.
   if (
-    reference.providerId !== command.providerId ||
     reference.playerId !== command.playerId ||
     reference.walletId !== command.walletId ||
     reference.currency !== command.money.currency ||
     reference.roundId !== command.roundId
   )
-    return rejected(wallet, 'REFERENCE_CONTEXT_MISMATCH');
-  if (!policy.allowedKinds.includes(reference.kind))
-    return rejected(wallet, 'REFERENCE_KIND_MISMATCH');
+    return reject('REFERENCE_CONTEXT_MISMATCH');
+  if (!policy.allowedKinds.includes(reference.kind)) return reject('REFERENCE_KIND_MISMATCH');
   if (policy.reversal && !reference.money.subtract(transaction.money).isZero())
-    return rejected(wallet, 'REFERENCE_AMOUNT_MISMATCH');
+    return reject('REFERENCE_AMOUNT_MISMATCH');
   if (reference.status === 'REJECTED' || reference.status === 'FAILED')
-    return rejected(wallet, 'REFERENCE_NOT_PROCESSED');
+    return reject('REFERENCE_NOT_PROCESSED');
   if (reference.status !== 'PROCESSED') return { status: 'PENDING_REFERENCE', wallet };
-  if (policy.reversal && alreadyReversed) return rejected(wallet, 'ALREADY_REVERSED');
+  if (policy.reversal && reference.reversedBy.has(transaction.kind))
+    return reject('ALREADY_REVERSED');
+  return { ...reference, status: 'PROCESSED' };
 }
-function withReference(policy: ReferencePolicy, movement: Movement): WagerStep {
+function attachReference(outcome: WagerOutcome, reference: ResolvedReference): WagerOutcome {
+  return outcome.status === 'PENDING_REFERENCE'
+    ? outcome
+    : { ...outcome, referenceTransactionId: reference.id };
+}
+function optionalReferenceStep(movement: Movement): WagerStep {
   return {
-    validate: validateReferenceSyntax,
-    apply(transaction, wallet, resources, context, reference, alreadyReversed = false) {
-      return (
-        checkReference(policy, transaction, wallet, reference, alreadyReversed) ??
-        movement(transaction, wallet, resources, context, reference, alreadyReversed)
+    validate: validateReference,
+    apply(transaction, wallet, resources, context, reference) {
+      if (!transaction.command.referenceExternalTransactionId)
+        return movement(transaction, wallet, resources, context);
+      const resolution = resolveReference(
+        { allowedKinds: ['BET'] },
+        transaction,
+        wallet,
+        reference,
+      );
+      if ('wallet' in resolution) return resolution;
+      return attachReference(movement(transaction, wallet, resources, context), resolution);
+    },
+  };
+}
+function reversalStep(allowedKinds: readonly WagerKind[], movement: ReferencedMovement): WagerStep {
+  return {
+    validate: validateReference,
+    apply(transaction, wallet, resources, context, reference) {
+      if (!transaction.command.referenceExternalTransactionId)
+        return rejected(wallet, 'REFERENCE_REQUIRED');
+      const resolution = resolveReference(
+        { allowedKinds, reversal: true },
+        transaction,
+        wallet,
+        reference,
+      );
+      if ('wallet' in resolution) return resolution;
+      return attachReference(
+        movement(transaction, wallet, resources, context, resolution),
+        resolution,
       );
     },
   };
 }
-function moveWallet(direction: 'debit' | 'credit', reversal = false): Movement {
+function moveWallet(
+  direction: 'debit' | 'credit',
+  insufficientFundsCode:
+    | 'INSUFFICIENT_FUNDS'
+    | 'REVERSAL_INSUFFICIENT_FUNDS' = 'INSUFFICIENT_FUNDS',
+): Movement {
   return (transaction, wallet, resources, context) => {
-    try {
-      const result = wallet[direction]({
-        transactionId: transaction.id,
-        money: transaction.money,
-        ...resources,
-        context,
-      });
-      return result.status === 'REJECTED' && reversal
-        ? rejected(wallet, 'REVERSAL_INSUFFICIENT_FUNDS')
-        : result;
-    } catch (error) {
-      if (error instanceof DomainError && error.code === 'AMOUNT_LIMIT_EXCEEDED')
-        return rejected(wallet, 'AMOUNT_LIMIT_EXCEEDED');
-      throw error;
-    }
+    const result = wallet[direction]({
+      transactionId: transaction.id,
+      money: transaction.money,
+      ...resources,
+      context,
+    });
+    return result.status === 'REJECTED' && result.failureCode === 'INSUFFICIENT_FUNDS'
+      ? rejected(wallet, insufficientFundsCode)
+      : result;
   };
 }
-const rollbackDebit = moveWallet('debit', true);
-const rollbackCredit = moveWallet('credit', true);
+const rollbackDebit = moveWallet('debit', 'REVERSAL_INSUFFICIENT_FUNDS');
+const rollbackCredit = moveWallet('credit');
 const steps: Record<WagerKind, WagerStep> = {
   BET: {
     validate(command) {
@@ -119,17 +159,13 @@ const steps: Record<WagerKind, WagerStep> = {
     },
     apply: moveWallet('debit'),
   },
-  WIN: withReference({ allowedKinds: ['BET'] }, moveWallet('credit')),
-  LOSS: withReference({ allowedKinds: ['BET'] }, (_transaction, wallet) => ({
-    status: 'PROCESSED',
-    wallet,
-  })),
-  REFUND: withReference({ allowedKinds: ['BET'], reversal: true }, moveWallet('credit', true)),
-  ROLLBACK: withReference(
-    { allowedKinds: ['BET', 'WIN', 'REFUND'], reversal: true },
+  WIN: optionalReferenceStep(moveWallet('credit')),
+  LOSS: optionalReferenceStep((_transaction, wallet) => ({ status: 'PROCESSED', wallet })),
+  REFUND: reversalStep(['BET'], moveWallet('credit')),
+  ROLLBACK: reversalStep(
+    ['BET', 'WIN', 'REFUND'],
     (transaction, wallet, resources, context, reference) => {
-      // The reference policy ensures this exists and is reversible before movement.
-      const movement = reference!.kind === 'BET' ? rollbackCredit : rollbackDebit;
+      const movement = reference.kind === 'BET' ? rollbackCredit : rollbackDebit;
       return movement(transaction, wallet, resources, context);
     },
   ),

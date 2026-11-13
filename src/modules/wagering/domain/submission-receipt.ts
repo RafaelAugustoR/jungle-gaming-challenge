@@ -42,3 +42,22 @@ export type SubmissionReceipt =
         correlationId: string;
       };
     };
+
+export const submissionHttpStatus = Object.freeze({
+  PROCESSED: 200,
+  PENDING_REFERENCE: 202,
+  REJECTED: 422,
+} as const);
+export function restoreSubmissionReceipt(
+  httpStatus: number | null,
+  body: SubmissionReceipt['body'] | null,
+): SubmissionReceipt {
+  if (
+    !body ||
+    !Object.hasOwn(submissionHttpStatus, body.status) ||
+    submissionHttpStatus[body.status] !== httpStatus
+  )
+    throw new Error('Inconsistent persisted submission receipt');
+  // The status/code relation was checked above; other fields came from the immutable persisted receipt.
+  return { httpStatus, body } as SubmissionReceipt;
+}

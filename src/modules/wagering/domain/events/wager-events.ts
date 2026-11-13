@@ -79,3 +79,8 @@ export class WagerTransactionPendingReference extends IntegrationEvent<WagerResu
     return new WagerTransactionPendingReference(resultData(command, id, balance), at, context);
   }
 }
+
+export type WagerResultEvent =
+  | WagerTransactionProcessed
+  | WagerTransactionRejected
+  | WagerTransactionPendingReference;
