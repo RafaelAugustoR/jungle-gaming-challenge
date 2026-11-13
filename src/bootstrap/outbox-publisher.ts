@@ -2,7 +2,7 @@ import { runWorker } from '../messaging/worker-runtime';
 import { loadOutboxConfig } from '../messaging/outbox/config';
 import { OutboxRepository } from '../messaging/outbox/outbox-repository';
 import { OutboxPublisher } from '../messaging/outbox/outbox-publisher';
-import { eventQueueUrl } from '../messaging/events/queue-url';
+import { queueUrl } from '../messaging/queue';
 import { JsonLogger } from '../observability/logger';
 async function main() {
   const options = loadOutboxConfig();
@@ -11,7 +11,7 @@ async function main() {
     async ({ orm, sqs }) =>
       new OutboxPublisher(new OutboxRepository(orm), sqs, {
         ...options,
-        queueUrl: await eventQueueUrl(sqs, options.queueName),
+        queueUrl: await queueUrl(sqs, options.queueName),
       }),
     { once: process.argv.includes('--once'), pollMs: options.pollMs },
   );

@@ -19,8 +19,9 @@
     "worker:events": "bun src/bootstrap/event-consumer.ts",
     "provision:events": "bun scripts/provision-events.ts",
     "outbox:retry": "bun scripts/retry-outbox.ts",
-
-    "worker:references": "bun src/bootstrap/reference-worker.ts"
+    "worker:references": "bun src/bootstrap/reference-worker.ts",
+    "worker:commands": "bun src/bootstrap/command-consumer.ts",
+    "provision:commands": "bun scripts/provision-commands.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",

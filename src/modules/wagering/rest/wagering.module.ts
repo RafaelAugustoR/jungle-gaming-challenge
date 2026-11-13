@@ -15,12 +15,11 @@ import type { AppConfig } from '../../../config/config';
 import { Identity, IdentityModule, Access, type Principal } from '../../identity/identity.module';
 import { apiError } from '../../../shared/rest/api-error';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
-import { ReferenceRetryModule } from '../infrastructure/reference-retry.provider';
-import { ReferenceRetryPolicy } from '../domain/reference-retry';
+import { createSubmission } from '../infrastructure/create-submission';
 import { SubmitWagerTransaction } from '../application/submit-wager-transaction';
 import { WagerQueries } from '../application/wager-queries';
 import { WageringRepository } from '../infrastructure/persistence/wagering-repository';
-import { identifier, parseWagerCommand } from './wager-contract';
+import { identifier, parseWagerCommand } from '../application/wager-contract';
 
 interface RequestContext {
   principal: Principal;
@@ -72,7 +71,7 @@ class WageringController {
   }
 }
 @Module({
-  imports: [IdentityModule, ReferenceRetryModule],
+  imports: [IdentityModule],
   controllers: [WageringController],
   providers: [
     WageringRepository,
@@ -83,17 +82,9 @@ class WageringController {
     },
     {
       provide: SubmitWagerTransaction,
-      inject: [WageringRepository, APP_CONFIG, ReferenceRetryPolicy],
-      useFactory: (
-        repository: WageringRepository,
-        config: AppConfig,
-        policy: ReferenceRetryPolicy,
-      ) =>
-        new SubmitWagerTransaction(
-          repository,
-          new Set(Object.values(config.providerClients)),
-          policy,
-        ),
+      inject: [WageringRepository, APP_CONFIG],
+      useFactory: (repository: WageringRepository, config: AppConfig) =>
+        createSubmission(repository, config),
     },
   ],
 })

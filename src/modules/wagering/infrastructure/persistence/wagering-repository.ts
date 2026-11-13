@@ -1,3 +1,5 @@
+import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
+import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
@@ -100,17 +102,22 @@ export class WageringRepository implements WageringStore {
     @Inject(MikroORM) private readonly orm: MikroORM,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
   ) {}
-  async transaction<T>(work: (session: WageringSession) => Promise<T>): Promise<T> {
+  async transaction<T>(
+    work: (session: WageringSession) => Promise<T>,
+    signal?: AbortSignal,
+  ): Promise<T> {
     return databaseOperation(async () => {
       const deadline = Date.now() + this.config.financialDeadlineMs;
       for (let attempt = 1; ; attempt++) {
         try {
-          return await this.orm.em.fork().transactional(async (em) => {
-            const session = new PostgresWageringSession(em, this.config, deadline);
-            const result = await work(session);
-            await session.beforeCommit();
-            return result;
-          });
+          return await this.orm.em.fork().transactional((em) =>
+            withBackendCancellation(em, signal, async () => {
+              const session = new PostgresWageringSession(em, this.config, deadline, signal);
+              const result = await work(session);
+              await session.beforeCommit();
+              return result;
+            }),
+          );
         } catch (error) {
           const identityRace =
             pgCode(error) === '23505' &&
@@ -119,6 +126,7 @@ export class WageringRepository implements WageringStore {
             );
           // transactional() has rolled back before another attempt reads the winner.
           if (
+            !signal?.aborted &&
             attempt < 3 &&
             Date.now() < deadline &&
             (identityRace || isRetryableTransactionError(error))
@@ -193,8 +201,10 @@ class PostgresWageringSession implements WageringSession {
     private readonly em: EntityManager,
     private readonly config: AppConfig,
     private readonly deadline: number,
+    private readonly signal?: AbortSignal,
   ) {}
   private async budget() {
+    this.signal?.throwIfAborted();
     const remaining = this.deadline - Date.now();
     if (remaining <= 0) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
     const limits = {
@@ -218,6 +228,18 @@ class PostgresWageringSession implements WageringSession {
   ): Promise<T> {
     await this.budget();
     return this.em.execute<T>(sql, params);
+  }
+  async recordInbox(inbox: Parameters<WageringSession['recordInbox']>[0], transactionId: string) {
+    const inserted = await this.execute(
+      `insert into messaging.command_inbox(consumer_name,message_id,request_hash,transaction_id) values(?,?,?,?) on conflict do nothing returning 1`,
+      [inbox.consumerName, inbox.messageId, inbox.hash, transactionId],
+    );
+    if (inserted.length) return;
+    const [row] = await this.execute<{ request_hash: string }[]>(
+      'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
+      [inbox.consumerName, inbox.messageId],
+    );
+    if (row?.request_hash !== inbox.hash) throw new InboxConflict();
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<

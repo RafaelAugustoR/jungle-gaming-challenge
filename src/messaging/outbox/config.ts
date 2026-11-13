@@ -1,15 +1,4 @@
-function integer(
-  env: Record<string, string | undefined>,
-  key: string,
-  fallback: number,
-  max: number,
-) {
-  const value = env[key] ?? String(fallback);
-  if (!/^\d+$/.test(value) || Number(value) < 1 || Number(value) > max)
-    throw new Error(`Invalid ${key}`);
-  return Number(value);
-}
-
+import { integer } from '../../config/integer';
 export interface OutboxConfig {
   queueName: string;
   leaseMs: number;

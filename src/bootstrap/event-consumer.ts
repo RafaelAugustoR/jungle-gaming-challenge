@@ -1,14 +1,14 @@
 import { runWorker } from '../messaging/worker-runtime';
 import { loadEventConfig } from '../messaging/outbox/config';
 import { EventConsumer } from '../messaging/events/event-consumer';
-import { eventQueueUrl } from '../messaging/events/queue-url';
+import { queueUrl } from '../messaging/queue';
 import { JsonLogger } from '../observability/logger';
 async function main() {
   const options = loadEventConfig();
   await runWorker(
     'consumer',
     async ({ orm, sqs }) =>
-      new EventConsumer(orm, sqs, await eventQueueUrl(sqs, options.queueName)),
+      new EventConsumer(orm, sqs, await queueUrl(sqs, options.queueName)),
     { once: process.argv.includes('--once'), pollMs: options.pollMs },
   );
 }

@@ -182,3 +182,82 @@ No vencimento, referência ausente gera `REFERENCE_NOT_FOUND`; existente mas ain
 A migration 0005 adiciona a agenda persistente e recupera pendências preexistentes. Seu down recusa remover uma agenda ainda ativa ou resultados de pendências concluídas. Evidências reproduzíveis: `INTEGRATION=1 bun test tests/integration/pending-references.test.ts` e [relatório da Issue #6](docs/issue-6-evidence.md).
 
 Falhas individuais no worker são registradas e adiadas em transação separada, permitindo que outros candidatos avancem no mesmo lote. Se o TTL já venceu, a tentativa de infraestrutura usa backoff futuro sem alterar o deadline original; a decisão de expiração espera acesso ao estado persistido. Não há limite arbitrário de retries que converta indisponibilidade em falha financeira. O saldo retornado pela consulta pertence a `transactions.result_balance`, separado do recibo original e da agenda. Workers ainda podem disputar o mesmo top-N; claim por lease fica como otimização futura, documentada no relatório.
+
+### Entrada de comandos SQS — Issue #7
+
+O Compose inicia `command-consumer` e provisiona `wager-transactions.fifo` e
+`wager-transactions-dlq.fifo`. O consumidor de **eventos** da #8 continua no perfil
+`events`, com `wager-events.fifo` e inbox/projeção próprias. Cada processo usa a mesma
+imagem; os comandos financeiros reutilizam `SubmitWagerTransaction` da API HTTP.
+
+Para executar o consumidor fora do Docker após subir a infraestrutura e aplicar migrations:
+
+```sh
+bun run provision:commands
+bun run worker:commands
+# Uma única tentativa de receive/processamento:
+bun run worker:commands --once
+# Testes PostgreSQL + LocalStack SQS + Keycloak, incluindo processos mortos:
+INTEGRATION=1 bun test tests/integration/command-*.test.ts
+```
+
+Envie `MessageGroupId=walletId` e um `MessageDeduplicationId` de transporte. O corpo é:
+
+```json
+{
+  "messageId": "provider-a:bet-123:delivery-1",
+  "type": "WagerTransactionRequested",
+  "occurredAt": "2026-11-13T12:00:00.000Z",
+  "data": {
+    "providerId": "provider-a",
+    "externalTransactionId": "bet-123",
+    "idempotencyKey": "provider-a:bet-123",
+    "playerId": "player-demo",
+    "walletId": "00000000-0000-4000-8000-000000000001",
+    "roundId": "round-1",
+    "gameId": "game-1",
+    "kind": "BET",
+    "money": { "amount": "20.00", "currency": "BRL" }
+  }
+}
+```
+
+Substitua jogador/wallet por uma wallet criada na API. `kind` aceita BET, WIN, LOSS,
+REFUND e ROLLBACK; `referenceExternalTransactionId` segue o mesmo contrato HTTP.
+O bootstrap e o harness de falhas usam `runCommandWorker`, sobre o runtime compartilhado
+de workers. A API HTTP e o consumidor recebem o caso de uso da mesma factory.
+
+O canal é interno confiável: não leva OAuth por mensagem, mas valida `providerId`
+contra `PROVIDER_CLIENTS`. Proteja a permissão de envio à fila.
+
+A inbox `messaging.command_inbox` usa `(consumer_name,message_id)` e hash canônico
+do comando + chave. `occurredAt` e IDs de transporte não alteram o hash. A inbox é insert-only, registrada ao final com transactionId obrigatório. Inbox,
+recibo, resultado, saldo, partidas e outbox são confirmados na mesma transação SQL;
+a mensagem só recebe delete depois do commit. Outra mensagem da mesma operação
+aceita cria apenas sua inbox, sem repetir eventos ou movimentos. Rejeição financeira
+e PENDING_REFERENCE persistidas recebem ack; o worker da #6 acompanha a referência.
+
+Configuração em `.env.example`: visibilidade 30 s com renovação a cada terço do prazo;
+chamadas SQS limitadas a 5 s; receive espera 2 s; backoff transitório base 1 s, teto
+30 s e jitter; redrive nativo com `maxReceiveCount=5`. `FINANCIAL_*` mantém lock
+3 s, statement 5 s e processamento total 15 s. SIGTERM interrompe receive, drena
+até `COMMAND_DRAIN_MS=20000`, solicita cancelamento da query PostgreSQL se necessário
+e aguarda rollback/commit antes de devolver visibilidade. O Compose concede 30 s
+para encerramento. Se o broker estiver indisponível, a visibilidade expira naturalmente.
+
+Inválidas e conflitos de contrato são enviados à DLQ antes de apagar a origem.
+O diagnóstico inclui `originalMessageId`, `transportMessageId`, `reason` e
+`originalBody`; logs não incluem o corpo. O deduplication ID é determinístico por
+fila de origem + ID do SQS. Morte entre envio e delete preserva a origem; fora da
+janela FIFO podem existir cópias do diagnóstico, identificáveis pelo mesmo ID.
+Tentativas transitórias esgotadas chegam pelo redrive nativo com o corpo original;
+não criam artificialmente transação FAILED ou rejeição financeira.
+
+Para investigar a DLQ, agrupe diagnósticos por origem/`transportMessageId`, corrija a
+causa e reenvie o corpo de negócio original (`originalBody` nos diagnósticos; corpo
+integral no redrive nativo) com grupo da wallet e novo deduplication ID de transporte.
+Preserve `messageId` e a chave em reentregas do mesmo conteúdo. Conteúdo corrigido
+é uma nova mensagem; chaves já aceitas continuam protegidas contra divergência e
+estados terminais não são reabertos. Confirme o envio antes de apagar a cópia da DLQ.
+
+Evidências reproduzíveis: [Issue #7](docs/evidence/issue-7/README.md).
