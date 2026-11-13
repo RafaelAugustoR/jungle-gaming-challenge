@@ -175,10 +175,17 @@ integration('transaction cursor stays on the original result set across inserts 
   const collected = [...pageOne.transactions.map((item) => item.transactionId)];
   let cursor: string | null = pageOne.nextCursor;
   while (cursor) {
-    const page = (await (await fetch(
+    const pageResponse = await fetch(
       `${base}/wagering/transactions?walletId=${w.id}&limit=1&cursor=${encodeURIComponent(cursor)}`,
       { headers: headers(viewer) },
-    )).json()) as { transactions: Array<{ transactionId: string }>; nextCursor: string | null };
+    );
+    const pageBody = await pageResponse.json();
+    if (pageResponse.status !== 200) throw new Error(JSON.stringify({ pageBody, cursor }));
+    expect(pageResponse.status).toBe(200);
+    const page = pageBody as {
+      transactions: Array<{ transactionId: string }>;
+      nextCursor: string | null;
+    };
     collected.push(...page.transactions.map((item) => item.transactionId));
     cursor = page.nextCursor;
   }
@@ -189,14 +196,9 @@ integration('transaction cursor stays on the original result set across inserts 
     headers: headers(viewer),
   });
   expect(await openingDetail.json()).toMatchObject({ kind: 'OPENING', originalReceipt: null });
-  const invalidCursor = `t1.${Buffer.from(JSON.stringify({
-    filters: { walletId: w.id, status: null, kind: null, providerId: null },
-    position: {
-      upperCreatedAt: '2026-02-30T12:00:00.000000Z',
-      upperId: opening!.transactionId,
-      afterCreatedAt: '2026-02-30T12:00:00.000000Z',
-      afterId: opening!.transactionId,
-    },
+  const invalidCursor = `t2.${Buffer.from(JSON.stringify({
+    scope: { walletId: w.id, status: null, kind: null, providerId: null, limit: 1 },
+    position: { createdAt: '2026-02-30T12:00:00.000000Z', id: opening!.transactionId },
   })).toString('base64url')}`;
   const badCursor = await fetch(
     `${base}/wagering/transactions?walletId=${w.id}&limit=1&cursor=${invalidCursor}`,

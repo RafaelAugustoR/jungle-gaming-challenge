@@ -4,7 +4,7 @@ export interface AppConfig {
   keycloakIssuer: string;
   keycloakTokenUrl: string;
   providerClients: Readonly<Record<string, string>>;
-  demoProviderClientSecrets: Readonly<Record<string, string>>;
+  demoProvider?: { clientId: string; providerId: string; secret: string };
   keycloakJwksUrl: string;
   databaseUrl: string;
   sqsEndpoint: string;
@@ -86,9 +86,19 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   for (const provider of Object.keys(demoProviderClientSecrets))
     if (!Object.values(providerClients).includes(provider))
       throw new Error('Invalid DEMO_PROVIDER_CLIENT_SECRETS');
+  const demoProviderEntry = Object.entries(providerClients).find(
+    ([, providerId]) => demoProviderClientSecrets[providerId],
+  );
+  const demoProvider = demoProviderEntry
+    ? {
+        clientId: demoProviderEntry[0],
+        providerId: demoProviderEntry[1],
+        secret: demoProviderClientSecrets[demoProviderEntry[1]]!,
+      }
+    : undefined;
   return {
     providerClients,
-    demoProviderClientSecrets,
+    ...(demoProvider ? { demoProvider: Object.freeze(demoProvider) } : {}),
     keycloakIssuer: urlWithDefault('KEYCLOAK_ISSUER', 'http://localhost:18080/realms/jungle'),
     keycloakTokenUrl: urlWithDefault(
       'KEYCLOAK_TOKEN_URL',

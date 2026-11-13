@@ -393,6 +393,23 @@ footer {
 .transactions-panel {
   margin-top: var(--gap);
 }
+.demo-results-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+.demo-results-list li {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border-top: 1px solid var(--border);
+  padding: 12px 0;
+}
+.demo-results-list p {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
 .transactions-panel {
   order: 1;
 }

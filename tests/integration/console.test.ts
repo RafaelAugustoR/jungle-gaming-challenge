@@ -17,7 +17,11 @@ beforeAll(async () => {
   database = await disposableDatabase();
   app = await createApplication({
     ...database.config,
-    demoProviderClientSecrets: { 'provider-a': 'provider-a-demo-only' },
+    demoProvider: {
+      clientId: 'provider-a',
+      providerId: 'provider-a',
+      secret: 'provider-a-demo-only',
+    },
   });
   await app.listen(0, '127.0.0.1');
   base = await app.getUrl();
@@ -99,6 +103,12 @@ browserTest(
       await page.getByRole('button', { name: 'Executar cenário' }).click();
       await page.locator('#receipt-fields').getByText('PENDING_REFERENCE').waitFor();
       await page.locator('#current-fields').getByText('PROCESSED').waitFor();
+      await page.waitForFunction(
+        () => document.querySelectorAll('#demo-results-list li').length === 2,
+      );
+      const outOfOrderRows = await page.locator('#demo-results-list li').allTextContents();
+      expect(outOfOrderRows.some((text) => text.includes('recibo PENDING_REFERENCE'))).toBe(true);
+      expect(outOfOrderRows.every((text) => text.includes('estado atual PROCESSED'))).toBe(true);
       await page
         .getByRole('button', { name: /Detalhes da transação/ })
         .first()
@@ -149,6 +159,24 @@ browserTest(
         .getByRole('button', { name: `Detalhes da transação ${originalExternalId}` })
         .click();
       await page.locator('#receipt-fields').getByText('PENDING_REFERENCE').waitFor();
+      await page.getByLabel('Comportamento').selectOption('duplicate');
+      await page.getByLabel('Valor (BRL)').last().fill('4.00');
+      await page.getByRole('button', { name: 'Executar cenário' }).click();
+      await page.locator('#demo-results-list').getByText(/replay true/).waitFor();
+      await page.getByText('Todas as operações têm estado terminal confirmado por GET.').waitFor();
+      const duplicateRows = await page.locator('#demo-results-list li').allTextContents();
+      expect(duplicateRows).toHaveLength(2);
+      expect(duplicateRows.some((text) => text.includes('replay false'))).toBe(true);
+      expect(duplicateRows.some((text) => text.includes('replay true'))).toBe(true);
+      await page.getByLabel('Comportamento').selectOption('race');
+      expect(await page.getByLabel('Valor (BRL)').last().isDisabled()).toBe(true);
+      await page.getByRole('button', { name: 'Executar cenário' }).click();
+      await page.locator('#demo-results-list').getByText(/estado atual REJECTED/).waitFor();
+      await page.getByText('Todas as operações têm estado terminal confirmado por GET.').waitFor();
+      const raceRows = await page.locator('#demo-results-list li').allTextContents();
+      expect(raceRows).toHaveLength(2);
+      expect(raceRows.some((text) => text.includes('estado atual PROCESSED'))).toBe(true);
+      expect(raceRows.some((text) => text.includes('estado atual REJECTED'))).toBe(true);
       if (process.env.SCREENSHOTS === '1') {
         const evidenceDir = resolve('docs/evidence/issue-10');
         await mkdir(evidenceDir, { recursive: true });

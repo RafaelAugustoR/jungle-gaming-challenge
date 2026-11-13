@@ -1,25 +1,28 @@
-import { Body, Controller, Inject, Module, Post, Req, UseGuards } from '@nestjs/common';
-import { MikroORM } from '@mikro-orm/postgresql';
+import { Body, Controller, HttpException, Inject, Module, Post, Req, UseGuards } from '@nestjs/common';
 import { APP_CONFIG } from '../../config/infrastructure.module';
 import type { AppConfig } from '../../config/config';
-import { Access, Identity, IdentityModule, type Principal } from '../identity/identity.module';
+import { HumanRole, Identity, IdentityModule, type Principal } from '../identity/identity.module';
+import { Money } from '../../shared/domain/money';
 import { apiError } from '../../shared/rest/api-error';
-import { WalletRepository } from '../wallets/infrastructure/persistence/wallet-repository';
 import { parseUuid } from '../../shared/rest/parse-uuid';
-import { identifier } from '../wagering/application/wager-contract';
+import { WalletsModule } from '../wallets/rest/wallets.module';
+import { Wallets } from '../wallets/application/wallets';
+import type { WagerKind } from '../wagering/domain/wager-command';
+import type { DemoCommand, DemoScenario, DemoSubmission } from './demo-contract';
+import { DemoProviderClient } from './infrastructure/demo-provider-client';
+import { ScenarioAudit } from './infrastructure/scenario-audit';
 
-type Scenario = 'duplicate' | 'race' | 'out-of-order';
+interface ScenarioInput {
+  scenario: DemoScenario;
+  walletId: string;
+  amount: string;
+}
 interface RequestContext {
   principal: Principal;
   socket: { localPort: number };
 }
-interface TransactionResult {
-  transactionId: string;
-  status: string;
-  [key: string]: unknown;
-}
 
-function input(value: unknown): { scenario: Scenario; walletId: string; amount: string } {
+function input(value: unknown): ScenarioInput {
   if (!value || typeof value !== 'object' || Array.isArray(value))
     throw apiError(400, 'INVALID_PAYLOAD');
   const body = value as Record<string, unknown>;
@@ -28,13 +31,32 @@ function input(value: unknown): { scenario: Scenario; walletId: string; amount: 
   if (!['duplicate', 'race', 'out-of-order'].includes(String(body.scenario)))
     throw apiError(400, 'INVALID_PAYLOAD');
   const amount = body.amount ?? '20.00';
-  if (typeof amount !== 'string' || !/^(0|[1-9][0-9]{0,15})\.[0-9]{2}$/.test(amount))
-    throw apiError(400, 'INVALID_PAYLOAD');
+  if (typeof amount !== 'string') throw apiError(400, 'INVALID_PAYLOAD');
+  if (typeof body.walletId !== 'string') throw apiError(400, 'INVALID_PAYLOAD');
   return {
-    scenario: body.scenario as Scenario,
-    walletId: parseUuid(identifier(body.walletId)),
+    scenario: body.scenario as DemoScenario,
+    walletId: parseUuid(body.walletId),
     amount,
   };
+}
+
+function disputeAmount(balance: string) {
+  const balanceMinor = BigInt(balance.replace('.', ''));
+  if (balanceMinor === 0n) throw apiError(422, 'RACE_REQUIRES_POSITIVE_BALANCE');
+  const fourFifths = (balanceMinor * 4n) / 5n;
+  const greaterThanHalf = balanceMinor / 2n + 1n;
+  const amountMinor = fourFifths > greaterThanHalf ? fourFifths : greaterThanHalf;
+  const whole = amountMinor / 100n;
+  const fraction = (amountMinor % 100n).toString().padStart(2, '0');
+  return `${whole}.${fraction}`;
+}
+
+function failureCode(error: unknown) {
+  if (!(error instanceof HttpException)) return 'INFRASTRUCTURE_UNAVAILABLE';
+  const body = error.getResponse();
+  return body && typeof body === 'object' && 'code' in body && typeof body.code === 'string'
+    ? body.code
+    : 'INFRASTRUCTURE_UNAVAILABLE';
 }
 
 @Controller('demo')
@@ -42,200 +64,129 @@ function input(value: unknown): { scenario: Scenario; walletId: string; amount: 
 class DemoController {
   constructor(
     @Inject(APP_CONFIG) private readonly config: AppConfig,
-    @Inject(MikroORM) private readonly orm: MikroORM,
-    @Inject(WalletRepository) private readonly wallets: WalletRepository,
+    @Inject(Wallets) private readonly wallets: Wallets,
+    @Inject(DemoProviderClient) private readonly provider: DemoProviderClient,
+    @Inject(ScenarioAudit) private readonly audit: ScenarioAudit,
   ) {}
 
   @Post('scenarios')
-  @Access({ humanRoles: ['demo-operator'] })
+  @HumanRole('demo-operator')
   async run(@Body() body: unknown, @Req() request: RequestContext) {
-    if (request.principal.kind !== 'human') throw apiError(403, 'FORBIDDEN');
     const selected = input(body);
-    const wallet = await this.wallets.find(selected.walletId);
-    if (!wallet) throw apiError(404, 'WALLET_NOT_FOUND');
-    const clientId = Object.keys(this.config.providerClients).find(
-      (client) => this.config.demoProviderClientSecrets[this.config.providerClients[client]],
-    );
-    if (!clientId) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
-    const providerId = this.config.providerClients[clientId]!;
-    const secret = this.config.demoProviderClientSecrets[providerId]!;
+    const wallet = await this.wallets.get(selected.walletId);
+    const amount = Money.create(selected.amount, wallet.balance.currency);
+    const provider = this.config.demoProvider;
+    if (!provider) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
+    const operationAmount =
+      selected.scenario === 'race'
+        ? Money.create(disputeAmount(wallet.balance.toProps().amount), wallet.balance.currency).toProps()
+        : amount.toProps();
     const auditId = crypto.randomUUID();
     const externalTransactionIds =
       selected.scenario === 'duplicate'
         ? [`demo-${auditId}-bet`]
         : selected.scenario === 'race'
           ? [`demo-${auditId}-race-a`, `demo-${auditId}-race-b`]
-        : [`demo-${auditId}-refund`, `demo-${auditId}-source`];
-    const requestBase = `http://127.0.0.1:${request.socket.localPort}`;
+          : [`demo-${auditId}-refund`, `demo-${auditId}-source`];
     const started = new Date().toISOString();
-    let results: unknown[] = [];
-    await this.orm.em
-      .fork()
-      .execute(
-        `insert into demo.scenario_audit(id,actor_id,provider_id,scenario,wallet_id,external_transaction_ids,outcome) values(?,?,?,?,?,?::text[],?::jsonb)`,
-        [
-          auditId,
-          request.principal.subject,
-          providerId,
-          selected.scenario,
-          wallet.id,
-          `{${externalTransactionIds.join(',')}}`,
-          JSON.stringify({ started, state: 'RUNNING' }),
-        ],
-      );
+    let submissions: DemoSubmission[] = [];
+    await this.audit.start({
+      id: auditId,
+      actorId: request.principal.subject,
+      providerId: provider.providerId,
+      scenario: selected.scenario,
+      walletId: wallet.id,
+      externalTransactionIds,
+      started,
+    });
     try {
-      const token = await this.providerToken(clientId, secret);
-      const submit = async (command: Record<string, unknown>, key: string) => {
-        const response = await fetch(`${requestBase}/wagering/transactions`, {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${token}`,
-            'Content-Type': 'application/json',
-            'Idempotency-Key': key,
-          },
-          body: JSON.stringify(command),
-          signal: AbortSignal.timeout(5000),
-        });
-        const value = (await response.json()) as TransactionResult;
-        if (!value.transactionId || (response.status >= 500 && !response.ok))
-          throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
-        return { httpStatus: response.status, receipt: value };
-      };
+      const token = await this.provider.accessToken();
       const command = (
-        kind: string,
+        kind: WagerKind,
         externalTransactionId: string,
         referenceExternalTransactionId?: string,
-      ) => ({
-        providerId,
+      ): DemoCommand => ({
+        providerId: provider.providerId,
         externalTransactionId,
         playerId: wallet.playerId,
         walletId: wallet.id,
         roundId: `demo-${auditId}`,
         gameId: 'jungle-demo',
         kind,
-        money: { amount: selected.amount, currency: wallet.balance.currency },
+        money: operationAmount,
         ...(referenceExternalTransactionId ? { referenceExternalTransactionId } : {}),
       });
-      const submitConcurrent = async (operations: Array<Promise<unknown>>) => {
-        const settled = await Promise.allSettled(operations);
-        results = settled.map((result) =>
-          result.status === 'fulfilled' ? result.value : { error: 'DEMO_PROVIDER_UNAVAILABLE' },
-        );
-        if (settled.some((result) => result.status === 'rejected'))
-          throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
-      };
+      const submit = (operation: DemoCommand, key: string) =>
+        this.provider.submit(request.socket.localPort, token, operation, key);
+
       if (selected.scenario === 'duplicate') {
-        const externalId = `demo-${auditId}-bet`,
-          key = `demo-${auditId}-key`;
-        await submitConcurrent([
+        const externalId = `demo-${auditId}-bet`;
+        const key = `demo-${auditId}-key`;
+        const outcome = await this.submitConcurrent([
           submit(command('BET', externalId), key),
           submit(command('BET', externalId), key),
         ]);
+        submissions = outcome.submissions;
+        if (outcome.failed) throw outcome.error;
       } else if (selected.scenario === 'race') {
-        await submitConcurrent([
+        const outcome = await this.submitConcurrent([
           submit(command('BET', `demo-${auditId}-race-a`), `demo-${auditId}-key-a`),
           submit(command('BET', `demo-${auditId}-race-b`), `demo-${auditId}-key-b`),
         ]);
+        submissions = outcome.submissions;
+        if (outcome.failed) throw outcome.error;
       } else {
         const source = `demo-${auditId}-source`;
-        const pending = await submit(
-          command('REFUND', `demo-${auditId}-refund`, source),
-          `demo-${auditId}-refund-key`,
+        submissions.push(
+          await submit(
+            command('REFUND', `demo-${auditId}-refund`, source),
+            `demo-${auditId}-refund-key`,
+          ),
         );
-        results = [pending];
-        const bet = await submit(command('BET', source), `demo-${auditId}-source-key`);
-        results = [pending, bet];
+        submissions.push(await submit(command('BET', source), `demo-${auditId}-source-key`));
       }
-      const transactions = await Promise.all(
-        results.map(async (result) => {
-          const submitted = result as { httpStatus: number; receipt: TransactionResult };
-          let current: unknown;
-          const deadline = Date.now() + (selected.scenario === 'out-of-order' ? 12000 : 1500);
-          do {
-            const response = await fetch(
-              `${requestBase}/wagering/transactions/${encodeURIComponent(submitted.receipt.transactionId)}`,
-              {
-                headers: { Authorization: `Bearer ${token}` },
-                signal: AbortSignal.timeout(3000),
-              },
-            );
-            if (!response.ok) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
-            current = await response.json();
-            const state = (current as { status?: string }).status;
-            if (state !== 'PENDING' && state !== 'PENDING_REFERENCE') break;
-            if (Date.now() >= deadline) break;
-            await new Promise((resolve) => setTimeout(resolve, 150));
-          } while (true);
-          return { httpStatus: submitted.httpStatus, originalReceipt: submitted.receipt, current };
-        }),
-      );
-      results = transactions;
-      const ids = transactions
-        .map((result) => result.originalReceipt.transactionId)
-        .filter(Boolean);
-      await this.orm.em
-        .fork()
-        .execute(
-          `update demo.scenario_audit set transaction_ids=?::uuid[],outcome=?::jsonb where id=?`,
-          [
-            `{${ids.join(',')}}`,
-            JSON.stringify({
-              started,
-              finished: new Date().toISOString(),
-              state: 'COMPLETED',
-              results,
-            }),
-            auditId,
-          ],
-        );
-      return { auditId, scenario: selected.scenario, providerId, transactions: results };
+      await this.audit.finish(auditId, started, 'SUBMITTED', submissions);
+      return {
+        auditId,
+        scenario: selected.scenario,
+        providerId: provider.providerId,
+        amount: operationAmount,
+        transactions: submissions,
+      };
     } catch (error) {
-      const ids = results.flatMap((result) => {
-        if (!result || typeof result !== 'object') return [];
-        const item = result as { receipt?: TransactionResult; originalReceipt?: TransactionResult };
-        const id = item.receipt?.transactionId ?? item.originalReceipt?.transactionId;
-        return id ? [id] : [];
-      });
-      await this.orm.em
-        .fork()
-        .execute(
-          `update demo.scenario_audit set transaction_ids=?::uuid[],outcome=?::jsonb where id=?`,
-          [
-            `{${ids.join(',')}}`,
-            JSON.stringify({
-              started,
-              finished: new Date().toISOString(),
-              state: 'FAILED',
-              results,
-              error: error instanceof Error ? error.message : 'UNKNOWN',
-            }),
-            auditId,
-          ],
+      try {
+        await this.audit.finish(
+          auditId,
+          started,
+          'FAILED',
+          submissions,
+          failureCode(error),
         );
+      } catch {
+        // Keep the original failure; the audit intent still links the external transaction IDs.
+      }
+      if (error instanceof HttpException) throw error;
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     }
   }
 
-  private async providerToken(clientId: string, secret: string) {
-    const response = await fetch(this.config.keycloakTokenUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: new URLSearchParams({
-        grant_type: 'client_credentials',
-        client_id: clientId,
-        client_secret: secret,
-      }),
-      signal: AbortSignal.timeout(5000),
-    });
-    const body = (await response.json()) as { access_token?: string };
-    if (!response.ok || !body.access_token) throw new Error('DEMO_PROVIDER_UNAVAILABLE');
-    return body.access_token;
+  private async submitConcurrent(operations: Array<Promise<DemoSubmission>>) {
+    const settled = await Promise.allSettled(operations);
+    const submissions = settled.flatMap((result) =>
+      result.status === 'fulfilled' ? [result.value] : [],
+    );
+    const failed = settled.find((result) => result.status === 'rejected');
+    return {
+      submissions,
+      failed: failed?.status === 'rejected',
+      ...(failed?.status === 'rejected' ? { error: failed.reason } : {}),
+    };
   }
 }
 
 @Module({
-  imports: [IdentityModule],
+  imports: [IdentityModule, WalletsModule],
   controllers: [DemoController],
-  providers: [WalletRepository],
+  providers: [DemoProviderClient, ScenarioAudit],
 })
 export class DemoModule {}

@@ -21,6 +21,13 @@ export type TransactionStatus =
   | 'PROCESSED'
   | 'REJECTED'
   | 'FAILED';
+export const transactionStatuses: readonly TransactionStatus[] = Object.freeze([
+  'PENDING',
+  'PENDING_REFERENCE',
+  'PROCESSED',
+  'REJECTED',
+  'FAILED',
+]);
 export interface TransactionState {
   status: TransactionStatus;
   failureCode?: WagerFailureCode;

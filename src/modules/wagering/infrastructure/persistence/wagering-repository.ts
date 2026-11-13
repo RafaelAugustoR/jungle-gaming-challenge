@@ -12,7 +12,7 @@ import {
 } from '../../../../shared/infrastructure/postgres-error';
 import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
 import { WagerTransaction } from '../../domain/wager-transaction';
-import type { WagerKind } from '../../domain/wager-command';
+import type { TransactionKind, WagerKind } from '../../domain/wager-command';
 import {
   restoreSubmissionReceipt,
   type SubmissionReceipt,
@@ -37,7 +37,7 @@ interface TransactionRow {
   player_id: string;
   round_id: string | null;
   game_id: string | null;
-  kind: string;
+  kind: TransactionKind;
   status: TransactionView['status'];
   failure_code: WagerFailureCode | null;
   amount: string;
@@ -51,6 +51,7 @@ interface TransactionRow {
   http_status: number | null;
   body: SubmissionReceipt['body'] | null;
 }
+const transactionViewSelect = `select t.*,t.amount::text as amount,t.result_balance::text as result_balance,w.player_id,r.http_status,r.body,to_char(t.created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_created_at from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id`;
 function transactionView(row: TransactionRow): TransactionView {
   return {
     transactionId: row.id,
@@ -81,9 +82,9 @@ function transactionView(row: TransactionRow): TransactionView {
     createdAt: new Date(row.created_at).toISOString(),
     processedAt: row.processed_at ? new Date(row.processed_at).toISOString() : null,
     originalReceipt:
-      row.http_status === null || row.body === null
+      row.http_status === null && row.body === null
         ? null
-        : { httpStatus: row.http_status, body: { ...row.body } },
+        : restoreSubmissionReceipt(row.http_status, row.body),
   };
 }
 async function submission(
@@ -207,15 +208,13 @@ export class WageringRepository implements WageringStore {
         }
       }
       if (filter.cursor) {
-        clauses.push('(t.created_at,t.id)<=(?::timestamptz,?::uuid)');
-        params.push(filter.cursor.upperCreatedAt, filter.cursor.upperId);
         clauses.push('(t.created_at,t.id)<(?::timestamptz,?::uuid)');
-        params.push(filter.cursor.afterCreatedAt, filter.cursor.afterId);
+        params.push(filter.cursor.createdAt, filter.cursor.id);
       }
       const where = clauses.length ? `where ${clauses.join(' and ')}` : '';
       const em = this.orm.em.fork();
       const rows = await em.execute<TransactionRow[]>(
-        `select t.*,t.amount::text as amount,t.result_balance::text as result_balance,w.player_id,r.http_status,r.body,to_char(t.created_at at time zone 'UTC','YYYY-MM-DD"T"HH24:MI:SS.US"Z"') as cursor_created_at from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id ${where} order by t.created_at desc,t.id desc limit ?`,
+        `${transactionViewSelect} ${where} order by t.created_at desc,t.id desc limit ?`,
         [...params, filter.limit + 1],
       );
       const hasMore = rows.length > filter.limit;
@@ -226,10 +225,8 @@ export class WageringRepository implements WageringStore {
         transactions: pageRows.map(transactionView),
         next: hasMore && first && last
           ? {
-              upperCreatedAt: filter.cursor?.upperCreatedAt ?? first.cursor_created_at,
-              upperId: filter.cursor?.upperId ?? first.id,
-              afterCreatedAt: last.cursor_created_at,
-              afterId: last.id,
+              createdAt: last.cursor_created_at,
+              id: last.id,
             }
           : null,
       };
@@ -241,7 +238,7 @@ export class WageringRepository implements WageringStore {
         .fork()
         .execute<
           TransactionRow[]
-        >(`select t.*, t.amount::text as amount, w.player_id, t.result_balance::text as result_balance,r.http_status,r.body from wagering.transactions t join wagering.wallets w on w.id=t.wallet_id left join wagering.submission_receipts r on r.transaction_id=t.id where ${where}`, params);
+        >(`${transactionViewSelect} where ${where}`, params);
       return row && transactionView(row);
     });
   }

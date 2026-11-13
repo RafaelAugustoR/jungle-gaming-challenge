@@ -18,14 +18,7 @@ export class WagerQueries {
   ): Promise<TransactionView> {
     return this.owned(await this.store.findExternal(providerId, externalId), principal);
   }
-  async list(filter: TransactionFilter, principal: Principal) {
-    const result = await this.store.list(filter);
-    const transactions = result.transactions.filter(
-      (view) => principal.kind !== 'provider' || view.providerId === principal.providerId,
-    );
-    return {
-      transactions,
-      next: result.next,
-    };
+  list(filter: TransactionFilter) {
+    return this.store.list(filter);
   }
 }

@@ -183,11 +183,17 @@
               pattern="(0|[1-9][0-9]*)\.[0-9]{2}"
               value="20.00"
             />
+            <small id="scenario-amount-help">A disputa calcula um valor acima da metade do saldo.</small>
             <button type="submit" class="primary">Executar cenário</button>
           </form>
           <p id="read-only" hidden>Acesso de consulta. A criação exige o perfil demo-operator.</p>
         </aside>
         <div class="details">
+          <section id="demo-results" class="panel" aria-labelledby="demo-results-heading" hidden>
+            <h2 id="demo-results-heading">Resultado do cenário</h2>
+            <p id="demo-results-state" role="status" aria-live="polite"></p>
+            <ul id="demo-results-list" class="demo-results-list"></ul>
+          </section>
           <section class="panel balance-panel" aria-labelledby="wallet-heading">
             <h2 id="wallet-heading">Wallet selecionada</h2>
             <div id="empty">

@@ -1,6 +1,8 @@
 import type { WagerReference } from '../domain/wager-step';
+import type { TransactionKind, WagerKind } from '../domain/wager-command';
 import type { Wallet, WalletChange } from '../../wallets/domain/wallet';
-import type { TransactionState, WagerTransaction } from '../domain/wager-transaction';
+import type { TransactionState, TransactionStatus, WagerTransaction } from '../domain/wager-transaction';
+import type { SubmissionReceipt } from '../domain/submission-receipt';
 import type { MoneyProps } from '../../../shared/domain/money';
 export interface TransactionView extends TransactionState {
   transactionId: string;
@@ -10,28 +12,26 @@ export interface TransactionView extends TransactionState {
   walletId: string;
   roundId: string | null;
   gameId: string | null;
-  kind: string;
+  kind: TransactionKind;
   money: MoneyProps;
   balance?: MoneyProps;
   referenceExternalTransactionId?: string;
   referenceTransactionId?: string;
   createdAt: string;
   processedAt: string | null;
-  originalReceipt: { httpStatus: number; body: Record<string, unknown> } | null;
+  originalReceipt: SubmissionReceipt | null;
 }
 export interface TransactionFilter {
   walletId?: string;
-  status?: string;
-  kind?: string;
+  status?: TransactionStatus;
+  kind?: TransactionKind;
   providerId?: string;
   limit: number;
   cursor?: TransactionCursorPosition;
 }
 export interface TransactionCursorPosition {
-  upperCreatedAt: string;
-  upperId: string;
-  afterCreatedAt: string;
-  afterId: string;
+  createdAt: string;
+  id: string;
 }
 export interface PendingReference {
   transaction: WagerTransaction;

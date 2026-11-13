@@ -17,7 +17,11 @@ beforeAll(async () => {
   database = await disposableDatabase();
   app = await createApplication({
     ...database.config,
-    demoProviderClientSecrets: { 'provider-a': 'provider-a-demo-only' },
+    demoProvider: {
+      clientId: 'provider-a',
+      providerId: 'provider-a',
+      secret: 'provider-a-demo-only',
+    },
   });
   await app.listen(0, '127.0.0.1');
   base = await app.getUrl();
@@ -33,6 +37,19 @@ const headers = (token: string) => ({
   Authorization: `Bearer ${token}`,
   'Content-Type': 'application/json',
 });
+async function currentTransaction(id: string) {
+  const deadline = Date.now() + 5000;
+  while (true) {
+    const response = await fetch(`${base}/wagering/transactions/${id}`, {
+      headers: headers(demo),
+    });
+    expect(response.status).toBe(200);
+    const current = (await response.json()) as { status: string };
+    if (!['PENDING', 'PENDING_REFERENCE'].includes(current.status) || Date.now() >= deadline)
+      return current;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
+}
 
 integration(
   'demo operator runs the real out-of-order reference path and audit records actor and provider',
@@ -58,15 +75,19 @@ integration(
       providerId: string;
       transactions: Array<{
         httpStatus: number;
-        originalReceipt: { status: string };
-        current: { status: string };
+        originalReceipt: { httpStatus: number; body: { transactionId: string; status: string } };
       }>;
     };
     expect(result.providerId).toBe('provider-a');
+    const current = await Promise.all(
+      result.transactions.map(async ({ originalReceipt }) => {
+        return currentTransaction(originalReceipt.body.transactionId);
+      }),
+    );
     expect(
-      result.transactions.map(({ originalReceipt, current }) => ({
-        receipt: originalReceipt.status,
-        current: current.status,
+      result.transactions.map(({ originalReceipt }, index) => ({
+        receipt: originalReceipt.body.status,
+        current: current[index]?.status,
       })),
     ).toEqual([
       { receipt: 'PENDING_REFERENCE', current: 'PROCESSED' },
@@ -78,18 +99,18 @@ integration(
         provider_id: string;
         scenario: string;
         external_transaction_ids: string[];
+        outcome: { state: string; results: unknown[] };
       }>
     >(
-      'select actor_id,provider_id,scenario,external_transaction_ids from demo.scenario_audit where id=?',
+      'select actor_id,provider_id,scenario,external_transaction_ids,outcome from demo.scenario_audit where id=?',
       [result.auditId],
     );
     expect(audit).toMatchObject({ provider_id: 'provider-a', scenario: 'out-of-order' });
     expect(audit?.actor_id).toBe(decodeJwt(demo).sub ?? '');
     expect(audit?.external_transaction_ids).toHaveLength(2);
-    for (const scenario of [
-      { scenario: 'duplicate', amount: '4.00' },
-      { scenario: 'race', amount: '60.00' },
-    ]) {
+    expect(audit?.outcome.state).toBe('SUBMITTED');
+    expect(audit?.outcome.results).toHaveLength(2);
+    for (const scenario of [{ scenario: 'race' }, { scenario: 'duplicate', amount: '4.00' }]) {
       const followUp = await fetch(`${base}/demo/scenarios`, {
         method: 'POST',
         headers: headers(demo),
@@ -97,23 +118,29 @@ integration(
       });
       expect(followUp.status).toBe(201);
       const value = (await followUp.json()) as {
+        amount: { amount: string; currency: string };
         transactions: Array<{
           httpStatus: number;
-          originalReceipt: { idempotentReplay?: boolean; status: string };
-          current: { status: string };
+          originalReceipt: { body: { transactionId: string; idempotentReplay: boolean } };
         }>;
       };
       if (scenario.scenario === 'duplicate') {
-      expect(
-        value.transactions
-          .map(({ originalReceipt }) => originalReceipt.idempotentReplay)
-          .sort(),
-      ).toEqual([false, true]);
-        expect(value.transactions.map(({ current }) => current.status)).toEqual([
+        expect(
+          value.transactions
+            .map(({ originalReceipt }) => originalReceipt.body.idempotentReplay)
+            .sort(),
+        ).toEqual([false, true]);
+        const current = await Promise.all(
+          value.transactions.map(({ originalReceipt }) =>
+            currentTransaction(originalReceipt.body.transactionId),
+          ),
+        );
+        expect(current.map(({ status }) => status)).toEqual([
           'PROCESSED',
           'PROCESSED',
         ]);
       } else {
+        expect(value.amount).toEqual({ amount: '80.00', currency: 'BRL' });
         expect(value.transactions.map(({ httpStatus }) => httpStatus).sort()).toEqual([200, 422]);
       }
     }

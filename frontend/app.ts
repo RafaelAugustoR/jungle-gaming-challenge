@@ -1,4 +1,6 @@
 import Keycloak from 'keycloak-js';
+import type { TransactionView } from '../src/modules/wagering/application/wagering-store';
+import type { DemoScenarioResult, DemoSubmission } from '../src/modules/demo/demo-contract';
 
 type Wallet = {
   id: string;
@@ -21,24 +23,6 @@ type Reconciliation = {
   consistent: boolean;
   checkedEntries: number;
 };
-type TransactionView = {
-  transactionId: string;
-  providerId: string | null;
-  externalTransactionId: string | null;
-  playerId: string;
-  walletId: string;
-  roundId: string | null;
-  gameId: string | null;
-  kind: string;
-  status: string;
-  failureCode?: string;
-  money: { amount: string; currency: string };
-  balance?: { amount: string; currency: string };
-  createdAt: string;
-  processedAt: string | null;
-  referenceExternalTransactionId?: string;
-  originalReceipt: { httpStatus: number; body: Record<string, unknown> } | null;
-};
 const element = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
 const notice = (text: string, error = false) => {
@@ -51,6 +35,7 @@ let nextCursor: string | null = null;
 let transactionPageCursor: string | null = null;
 let transactionRequest = 0;
 let detailRequest = 0;
+let scenarioRequest = 0;
 const messages: Record<string, string> = {
   WALLET_ALREADY_EXISTS: 'Já existe uma wallet para esse jogador e moeda.',
   WALLET_NOT_FOUND: 'Wallet não encontrada. Confira o ID.',
@@ -80,6 +65,8 @@ async function api(path: string, body?: unknown) {
 }
 function clearWallet() {
   detailRequest++;
+  scenarioRequest++;
+  element('demo-results').hidden = true;
   element('transaction-detail').hidden = true;
   selected = undefined;
   nextCursor = null;
@@ -177,6 +164,42 @@ function showTransactionRow(view: TransactionView) {
   row.append(actionCell);
   element('transactions-rows').append(row);
 }
+async function currentTransaction(
+  transactionId: string,
+  isCurrent: () => boolean,
+): Promise<TransactionView | undefined> {
+  const deadline = Date.now() + 12000;
+  do {
+    if (!isCurrent()) return undefined;
+    const view = (await api(
+      `/wagering/transactions/${encodeURIComponent(transactionId)}`,
+    )) as TransactionView;
+    if (!['PENDING', 'PENDING_REFERENCE'].includes(view.status) || Date.now() >= deadline)
+      return view;
+    await new Promise((resolve) => setTimeout(resolve, 200));
+  } while (isCurrent());
+  return undefined;
+}
+function showDemoResult(submission: DemoSubmission, index: number) {
+  const item = document.createElement('li');
+  const summary = document.createElement('p');
+  const button = document.createElement('button');
+  const receipt = submission.originalReceipt.body;
+  const transactionId = receipt.transactionId;
+  summary.textContent =
+    `Operação ${index + 1}: HTTP ${submission.httpStatus} · recibo ${receipt.status} · replay ${receipt.idempotentReplay} · estado atual: consultando…`;
+  button.type = 'button';
+  button.textContent = 'Detalhes';
+  button.setAttribute('aria-label', `Detalhes da transação ${transactionId}`);
+  button.addEventListener('click', () => void showTransaction(transactionId));
+  item.append(summary, button);
+  element('demo-results-list').append(item);
+  return (view?: TransactionView) => {
+    const current = view ? `estado atual ${view.status}` : 'falha ao consultar estado atual';
+    summary.textContent =
+      `Operação ${index + 1}: HTTP ${submission.httpStatus} · recibo ${receipt.status} · replay ${receipt.idempotentReplay} · ${current}`;
+  };
+}
 async function loadTransactions(append = false) {
   const request = ++transactionRequest;
   const cursor = append ? transactionPageCursor : undefined;
@@ -212,10 +235,8 @@ async function showTransaction(transactionId: string) {
   section.hidden = false;
   element('transaction-detail-state').textContent = 'Consultando estado atual…';
   try {
-    const view = (await api(
-      `/wagering/transactions/${encodeURIComponent(transactionId)}`,
-    )) as TransactionView;
-    if (request !== detailRequest) return;
+    const view = await currentTransaction(transactionId, () => request === detailRequest);
+    if (!view || request !== detailRequest) return;
     appendFields(element('transaction-fields'), [
       ['ID', view.transactionId],
       ['ID externo', view.externalTransactionId ?? '—'],
@@ -230,18 +251,16 @@ async function showTransaction(transactionId: string) {
         view.balance ? `${view.balance.amount} ${view.balance.currency}` : '—',
       ],
     ]);
-    const receipt = view.originalReceipt?.body ?? {};
+    const receipt = view.originalReceipt?.body;
     appendFields(element('receipt-fields'), [
       ['HTTP', view.originalReceipt ? String(view.originalReceipt.httpStatus) : '—'],
-      ['Estado de aceite', String(receipt.status ?? 'Não se aplica')],
+      ['Estado de aceite', receipt?.status ?? 'Não se aplica'],
       [
         'Saldo no aceite',
-        receipt.balance && typeof receipt.balance === 'object'
-          ? `${(receipt.balance as { amount?: string; currency?: string }).amount ?? '—'} ${(receipt.balance as { currency?: string }).currency ?? ''}`
-          : '—',
+        receipt ? `${receipt.balance.amount} ${receipt.balance.currency}` : '—',
       ],
-      ['Replay', String(receipt.idempotentReplay ?? false)],
-      ['Código', String(receipt.failureCode ?? receipt.code ?? '—')],
+      ['Replay', receipt ? String(receipt.idempotentReplay) : '—'],
+      ['Código', receipt?.status === 'REJECTED' ? receipt.failureCode : '—'],
     ]);
     appendFields(element('current-fields'), [
       ['Estado consultado', view.status],
@@ -250,7 +269,10 @@ async function showTransaction(transactionId: string) {
       ['Falha atual', view.failureCode ?? '—'],
       ['Valor', `${view.money.amount} ${view.money.currency}`],
     ]);
-    element('transaction-detail-state').textContent = 'Consulta atualizada agora.';
+    element('transaction-detail-state').textContent =
+      view.status === 'PENDING' || view.status === 'PENDING_REFERENCE'
+        ? 'Ainda pendente. O último estado veio do GET; abra o detalhe novamente para consultar.'
+        : 'Consulta atualizada agora.';
   } catch (error) {
     if (request === detailRequest)
       element('transaction-detail-state').textContent =
@@ -289,6 +311,7 @@ async function reconcile() {
 async function showWallet(wallet: Wallet) {
   if (selected?.id !== wallet.id) {
     detailRequest++;
+    scenarioRequest++;
     element('transaction-detail').hidden = true;
   }
   selected = wallet;
@@ -364,18 +387,54 @@ element<HTMLFormElement>('scenario').addEventListener('submit', (event) => {
   void action(form, async () => {
     const walletId = selected?.id;
     if (!walletId) throw new Error('Consulte ou crie uma wallet antes de executar o cenário.');
+    const request = ++scenarioRequest;
+    const scenario = element<HTMLSelectElement>('scenario-kind').value as DemoScenarioResult['scenario'];
     const result = (await api('/demo/scenarios', {
-      scenario: element<HTMLSelectElement>('scenario-kind').value,
+      scenario,
       walletId,
-      amount: element<HTMLInputElement>('scenario-amount').value,
-    })) as { transactions: Array<{ originalReceipt: { transactionId: string } }> };
+      ...(scenario === 'race' ? {} : { amount: element<HTMLInputElement>('scenario-amount').value }),
+    })) as DemoScenarioResult;
+    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    element('demo-results').hidden = false;
+    element('demo-results-list').replaceChildren();
+    element('demo-results-state').textContent =
+      `${result.scenario} · ${result.providerId} · ${result.amount.amount} ${result.amount.currency} por operação. Consultando estados por GET…`;
     await loadTransactions();
-    if (selected?.id !== walletId) return;
+    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    const updateRows = result.transactions.map(showDemoResult);
+    const current = await Promise.all(
+      result.transactions.map((submission) =>
+        currentTransaction(submission.originalReceipt.body.transactionId, () =>
+          request === scenarioRequest && selected?.id === walletId,
+        ).catch(() => undefined),
+      ),
+    );
+    if (request !== scenarioRequest || selected?.id !== walletId) return;
+    for (const [index, view] of current.entries()) if (view) updateRows[index]?.(view);
+    for (const [index, view] of current.entries()) if (!view) updateRows[index]?.();
+    const failed = current.some((view) => !view);
+    const pending = current.some(
+      (view) => view && ['PENDING', 'PENDING_REFERENCE'].includes(view.status),
+    );
+    element('demo-results-state').textContent = failed
+      ? 'Não foi possível consultar todos os estados. Abra os detalhes para tentar novamente.'
+      : pending
+        ? 'Algumas operações seguem pendentes. Os estados mostrados vêm de GET; abra o detalhe para consultar novamente.'
+        : 'Todas as operações têm estado terminal confirmado por GET.';
     await showWallet(await api(`/wallets/${walletId}`));
-    const first = result.transactions[0]?.originalReceipt.transactionId;
+    const first = result.transactions[0]?.originalReceipt.body.transactionId;
     if (first) await showTransaction(first);
-    notice('Cenário concluído. Veja o recibo original e o estado atual da transação.');
+    notice('Cenário enviado. Confira cada recibo e o estado atual consultado por GET.');
   });
+});
+element<HTMLSelectElement>('scenario-kind').addEventListener('change', (event) => {
+  const race = (event.currentTarget as HTMLSelectElement).value === 'race';
+  const amount = element<HTMLInputElement>('scenario-amount');
+  amount.disabled = race;
+  amount.required = !race;
+  element('scenario-amount-help').textContent = race
+    ? 'O servidor calcula um valor acima da metade do saldo da wallet.'
+    : 'Use duas casas decimais. Ex.: 20.00';
 });
 element<HTMLFormElement>('transaction-filters').addEventListener('submit', (event) => {
   event.preventDefault();

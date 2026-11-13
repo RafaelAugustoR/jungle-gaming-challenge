@@ -37,8 +37,9 @@ test('provider client mappings are configured and malformed mappings fail at boo
       ...env,
       DEMO_PROVIDER_CLIENT_SECRETS: '{"provider-42":"demo-secret"}',
       PROVIDER_CLIENTS: '{"arcade":"provider-42"}',
-    }).demoProviderClientSecrets,
-  ).toEqual({ 'provider-42': 'demo-secret' });
+    }).demoProvider,
+  ).toEqual({ clientId: 'arcade', providerId: 'provider-42', secret: 'demo-secret' });
+  expect(loadConfig(env).demoProvider).toBeUndefined();
   expect(() =>
     loadConfig({ ...env, DEMO_PROVIDER_CLIENT_SECRETS: '{"unknown":"secret"}' }),
   ).toThrow('Invalid DEMO_PROVIDER_CLIENT_SECRETS');
