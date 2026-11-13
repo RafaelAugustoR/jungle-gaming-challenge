@@ -2,7 +2,12 @@ import { Inject, Injectable } from '@nestjs/common';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { Wallet } from '../../domain/wallet';
 import { Money } from '../../../../shared/domain/money';
-import type { WalletSession, WalletStore, LedgerEntryView } from '../../application/wallet-store';
+import type {
+  WalletSession,
+  WalletStore,
+  LedgerEntryView,
+  WalletReconciliationView,
+} from '../../application/wallet-store';
 import { PostgresWalletSession } from './opening-session';
 import { databaseOperation } from '../../../../shared/infrastructure/database-operation';
 
@@ -46,6 +51,7 @@ export class WalletRepository implements WalletStore {
         Array<{
           id: string;
           transaction_id: string;
+          external_transaction_id: string | null;
           kind: string;
           direction: 'CREDIT' | 'DEBIT';
           amount: string;
@@ -55,10 +61,18 @@ export class WalletRepository implements WalletStore {
           wallet_version: number;
           created_at: Date;
         }>
-      >('select * from wagering.wallet_ledger where wallet_id=? and wallet_version>? and wallet_version<=? order by wallet_version limit ?', [id, after, upper, limit]);
+      >(
+        `select l.*, t.external_transaction_id
+        from wagering.wallet_ledger l
+        join wagering.transactions t on t.id=l.transaction_id
+        where l.wallet_id=? and l.wallet_version>? and l.wallet_version<=?
+        order by l.wallet_version limit ?`,
+        [id, after, upper, limit],
+      );
       return rows.map((row) => ({
         id: row.id,
         transactionId: row.transaction_id,
+        externalTransactionId: row.external_transaction_id,
         kind: row.kind,
         direction: row.direction,
         amount: Money.rehydrate({ amount: row.amount, currency: row.currency }).toProps().amount,
@@ -74,6 +88,35 @@ export class WalletRepository implements WalletStore {
         walletVersion: row.wallet_version,
         createdAt: new Date(row.created_at).toISOString(),
       }));
+    });
+  }
+  reconcile(id: string): Promise<WalletReconciliationView | undefined> {
+    return databaseOperation(async () => {
+      const [row] = await this.orm.em.fork().execute<
+        Array<{
+          stored_balance: string;
+          calculated_balance: string;
+          currency: string;
+          checked_entries: number;
+        }>
+      >(
+        `select w.balance::text as stored_balance, w.currency,
+          coalesce(sum(case when l.direction='CREDIT' then l.amount else -l.amount end),0)::text as calculated_balance,
+          count(l.id)::int as checked_entries
+        from wagering.wallets w
+        left join wagering.wallet_ledger l on l.wallet_id=w.id
+        where w.id=?
+        group by w.id`,
+        [id],
+      );
+      return row
+        ? {
+            storedBalance: row.stored_balance,
+            calculatedBalance: row.calculated_balance,
+            currency: row.currency,
+            checkedEntries: row.checked_entries,
+          }
+        : undefined;
     });
   }
 }

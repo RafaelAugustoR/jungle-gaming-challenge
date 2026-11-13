@@ -103,6 +103,17 @@
                   <dd id="version"></dd>
                 </div>
               </dl>
+              <button id="reconcile" hidden>Reconciliar ledger</button>
+              <section id="reconciliation" class="reconciliation" aria-live="polite" hidden>
+                <h3>Resultado da reconciliação</h3>
+                <p id="reconciliation-status"></p>
+                <dl>
+                  <div><dt>Saldo registrado</dt><dd id="reconciliation-stored"></dd></div>
+                  <div><dt>Saldo reconstruído</dt><dd id="reconciliation-calculated"></dd></div>
+                  <div><dt>Diferença</dt><dd id="reconciliation-difference"></dd></div>
+                  <div><dt>Lançamentos verificados</dt><dd id="reconciliation-entries"></dd></div>
+                </dl>
+              </section>
             </div>
           </section>
           <section class="panel" aria-labelledby="ledger-heading">
@@ -114,6 +125,7 @@
                 <thead>
                   <tr>
                     <th>Operação</th>
+                    <th>Referência externa</th>
                     <th>Direção</th>
                     <th class="number">Valor (BRL)</th>
                     <th class="number">Saldo após</th>

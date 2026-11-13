@@ -8,10 +8,18 @@ type Wallet = {
 };
 type Entry = {
   kind: string;
+  externalTransactionId: string | null;
   direction: string;
   amount: string;
   balanceAfter: string;
   walletVersion: number;
+};
+type Reconciliation = {
+  storedBalance: { amount: string; currency: string };
+  calculatedBalance: { amount: string; currency: string };
+  difference: { amount: string; currency: string };
+  consistent: boolean;
+  checkedEntries: number;
 };
 const element = <T extends HTMLElement = HTMLElement>(id: string) =>
   document.getElementById(id) as T;
@@ -56,6 +64,7 @@ function clearWallet() {
   element('empty').hidden = false;
   element('ledger-content').hidden = true;
   element('entries').replaceChildren();
+  element('reconciliation').hidden = true;
   element('ledger-empty').hidden = false;
   element('ledger-empty').textContent = 'Selecione uma wallet para consultar os lançamentos.';
 }
@@ -69,6 +78,7 @@ async function ledger(append = false) {
     const row = document.createElement('tr');
     for (const [index, value] of [
       entry.kind,
+      entry.externalTransactionId ?? '—',
       entry.direction,
       entry.amount,
       entry.balanceAfter,
@@ -76,8 +86,8 @@ async function ledger(append = false) {
     ].entries()) {
       const cell = document.createElement('td');
       cell.textContent = value;
-      if (index >= 2) cell.classList.add('number');
-      if (index === 2 && entry.direction === 'CREDIT') cell.classList.add('credit');
+      if (index >= 3) cell.classList.add('number');
+      if (index === 3 && entry.direction === 'CREDIT') cell.classList.add('credit');
       row.append(cell);
     }
     element('entries').append(row);
@@ -89,6 +99,29 @@ async function ledger(append = false) {
   element('ledger-empty').textContent =
     'Nenhum lançamento. Uma abertura de 0.00 não movimenta o saldo.';
 }
+async function reconcile() {
+  if (!selected) return;
+  const button = element<HTMLButtonElement>('reconcile');
+  button.disabled = true;
+  notice('Conferindo saldo e lançamentos…');
+  try {
+    const result = (await api(`/wallets/${selected.id}/reconciliation`, {})) as Reconciliation;
+    element('reconciliation').hidden = false;
+    element('reconciliation-status').textContent = result.consistent
+      ? 'Saldo e ledger conferem.'
+      : 'Divergência encontrada. Nenhum saldo foi alterado.';
+    element('reconciliation-status').classList.toggle('error', !result.consistent);
+    element('reconciliation-stored').textContent = `${result.storedBalance.amount} ${result.storedBalance.currency}`;
+    element('reconciliation-calculated').textContent = `${result.calculatedBalance.amount} ${result.calculatedBalance.currency}`;
+    element('reconciliation-difference').textContent = `${result.difference.amount} ${result.difference.currency}`;
+    element('reconciliation-entries').textContent = String(result.checkedEntries);
+    notice('Reconciliação concluída.');
+  } catch (error) {
+    notice(error instanceof Error ? error.message : 'Falha de conexão. Tente novamente.', true);
+  } finally {
+    button.disabled = false;
+  }
+}
 async function showWallet(wallet: Wallet) {
   selected = wallet;
   element('wallet').hidden = false;
@@ -97,6 +130,7 @@ async function showWallet(wallet: Wallet) {
   element('wallet-id').textContent = wallet.id;
   element('version').textContent = String(wallet.version);
   element('balance').textContent = wallet.balance.amount;
+  element('reconciliation').hidden = true;
   element<HTMLInputElement>('wallet-lookup').value = wallet.id;
   try {
     await ledger();
@@ -152,6 +186,7 @@ element('more').addEventListener('click', async () => {
     button.disabled = false;
   }
 });
+element('reconcile').addEventListener('click', () => void reconcile());
 async function start() {
   const response = await fetch('/console-config');
   if (!response.ok) throw new Error('Configuração do console indisponível.');
@@ -187,8 +222,11 @@ async function start() {
   }
   element('workspace').hidden = false;
   const canCreate = identity.hasRealmRole('demo-operator');
+  const canReconcile =
+    identity.hasRealmRole('operator') || identity.hasRealmRole('demo-operator');
   element('create').hidden = !canCreate;
   element('read-only').hidden = canCreate;
+  element('reconcile').hidden = !canReconcile;
   notice(canCreate ? 'Crie uma wallet ou consulte uma existente.' : 'Acesso de consulta');
 }
 void start().catch(() => {

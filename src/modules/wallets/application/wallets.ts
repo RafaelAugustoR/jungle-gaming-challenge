@@ -1,6 +1,12 @@
 import { Wallet } from '../domain/wallet';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
-import type { CreateWalletCommand, WalletContext, WalletStore, LedgerQuery } from './wallet-store';
+import { Money } from '../../../shared/domain/money';
+import type {
+  CreateWalletCommand,
+  WalletContext,
+  WalletStore,
+  LedgerQuery,
+} from './wallet-store';
 
 export class Wallets {
   constructor(private readonly store: WalletStore) {}
@@ -32,6 +38,23 @@ export class Wallets {
     return {
       entries,
       next: rows.length > query.limit ? { after: entries.at(-1)!.walletVersion, upper } : null,
+    };
+  }
+  async reconcile(id: string) {
+    const result = await this.store.reconcile(id);
+    if (!result) throw new DomainError('WALLET_NOT_FOUND');
+    const stored = Money.rehydrate({ amount: result.storedBalance, currency: result.currency });
+    const calculated = Money.rehydrate({
+      amount: result.calculatedBalance,
+      currency: result.currency,
+    });
+    return {
+      walletId: id,
+      storedBalance: stored.toProps(),
+      calculatedBalance: calculated.toProps(),
+      difference: stored.subtract(calculated).toProps(),
+      consistent: stored.toProps().amount === calculated.toProps().amount,
+      checkedEntries: result.checkedEntries,
     };
   }
 }

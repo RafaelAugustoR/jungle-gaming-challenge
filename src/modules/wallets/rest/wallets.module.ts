@@ -2,6 +2,7 @@ import {
   Body,
   Controller,
   Get,
+  HttpCode,
   Inject,
   Module,
   Param,
@@ -25,12 +26,17 @@ import {
 } from './wallet-contract';
 import { parseUuid } from '../../../shared/rest/parse-uuid';
 import { Wallets } from '../application/wallets';
+import { WalletReconciliationMetrics } from '../application/reconciliation-metrics';
+import { JsonLogger } from '../../../observability/logger';
 
 @Controller('wallets')
 @UseGuards(Identity)
 @HumanRole('viewer')
 class WalletsController {
-  constructor(@Inject(Wallets) private readonly wallets: Wallets) {}
+  constructor(
+    @Inject(Wallets) private readonly wallets: Wallets,
+    @Inject(WalletReconciliationMetrics) private readonly metrics: WalletReconciliationMetrics,
+  ) {}
   @Post()
   @HumanRole('demo-operator')
   async create(
@@ -57,17 +63,41 @@ class WalletsController {
     parseUuid(id);
     return ledgerResponse(id, await this.wallets.ledger(id, parseLedgerQuery(id, cursor, limit)));
   }
+  @Post(':walletId/reconciliation')
+  @HumanRole('operator')
+  @HttpCode(200)
+  async reconcile(
+    @Param('walletId') id: string,
+    @Req() request: { principal: Principal; correlationId: string },
+  ) {
+    parseUuid(id);
+    const result = await this.wallets.reconcile(id);
+    if (!result.consistent) {
+      this.metrics.recordDivergence();
+      new JsonLogger().warn({
+        event: 'wallet_reconciliation_divergence',
+        walletId: id,
+        actorId: request.principal.subject,
+        correlationId: request.correlationId,
+        checkedEntries: result.checkedEntries,
+      });
+    }
+    return result;
+  }
 }
+
 @Module({
   imports: [IdentityModule],
   controllers: [WalletsController],
   providers: [
     WalletRepository,
+    WalletReconciliationMetrics,
     {
       provide: Wallets,
       inject: [WalletRepository],
       useFactory: (repository: WalletRepository) => new Wallets(repository),
     },
   ],
+  exports: [WalletReconciliationMetrics],
 })
 export class WalletsModule {}

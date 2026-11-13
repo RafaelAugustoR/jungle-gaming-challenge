@@ -42,11 +42,20 @@ export function parseLedgerQuery(
     throw new DomainError('INVALID_PAYLOAD');
   if (cursor === undefined) return { limit };
   try {
-    const parsed = JSON.parse(Buffer.from(cursor, 'base64url').toString());
+    const match = /^v1\.([A-Za-z0-9_-]+)$/.exec(cursor);
+    if (!match || cursor.length > 256) throw new Error();
+    const encoded = match[1]!;
+    const decoded = Buffer.from(encoded, 'base64url').toString();
+    if (Buffer.from(decoded).toString('base64url') !== encoded) throw new Error();
+    const parsed = JSON.parse(decoded);
     if (
+      !parsed ||
+      typeof parsed !== 'object' ||
+      Array.isArray(parsed) ||
+      Object.keys(parsed).sort().join(',') !== 'after,upper,walletId' ||
       parsed.walletId !== walletId ||
-      !Number.isInteger(parsed.after) ||
-      !Number.isInteger(parsed.upper) ||
+      !Number.isSafeInteger(parsed.after) ||
+      !Number.isSafeInteger(parsed.upper) ||
       parsed.after < 0 ||
       parsed.after >= parsed.upper
     )
@@ -71,7 +80,7 @@ export function ledgerResponse(
   return {
     entries: page.entries,
     nextCursor: page.next
-      ? Buffer.from(JSON.stringify({ walletId, ...page.next })).toString('base64url')
+      ? `v1.${Buffer.from(JSON.stringify({ walletId, ...page.next })).toString('base64url')}`
       : null,
   };
 }
