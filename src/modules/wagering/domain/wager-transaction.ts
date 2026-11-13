@@ -1,14 +1,20 @@
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
-import type { Wallet } from '../../wallets/domain/wallet';
+import type { Wallet, WalletChange } from '../../wallets/domain/wallet';
 import type { WagerCommand } from './wager-command';
 import type { WagerPayload } from './wager-payload';
 import {
   wagerFailureMessages,
+  submissionHttpStatus,
   type SubmissionReceipt,
   type WagerFailureCode,
 } from './submission-receipt';
-import { WagerTransactionProcessed, WagerTransactionRejected } from './events/wager-events';
+import {
+  WagerTransactionProcessed,
+  WagerTransactionRejected,
+  WagerTransactionPendingReference,
+  type WagerResultEvent,
+} from './events/wager-events';
 export type TransactionStatus =
   | 'PENDING'
   | 'PENDING_REFERENCE'
@@ -18,10 +24,18 @@ export type TransactionStatus =
 export interface TransactionState {
   status: TransactionStatus;
   failureCode?: WagerFailureCode;
+  referenceTransactionId?: string;
 }
 export type WagerOutcome =
-  | { status: 'PROCESSED'; wallet: Wallet }
-  | { status: 'REJECTED'; wallet: Wallet; failureCode: WagerFailureCode };
+  | { status: 'PROCESSED'; wallet: Wallet; change?: WalletChange; referenceTransactionId?: string }
+  | { status: 'PENDING_REFERENCE'; wallet: Wallet; change?: never; referenceTransactionId?: never }
+  | {
+      status: 'REJECTED';
+      wallet: Wallet;
+      failureCode: WagerFailureCode;
+      change?: never;
+      referenceTransactionId?: string;
+    };
 const transitions: Record<TransactionStatus, readonly TransactionStatus[]> = {
   PENDING: ['PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'],
   PENDING_REFERENCE: ['PROCESSED', 'REJECTED', 'FAILED'],
@@ -39,10 +53,13 @@ export interface WagerSnapshot extends TransactionState {
   receipt?: SubmissionReceipt;
 }
 export class WagerTransaction {
-  private event?: WagerTransactionProcessed | WagerTransactionRejected;
+  private event?: WagerResultEvent;
   private constructor(
     private readonly identity: Readonly<
-      Omit<WagerSnapshot, 'status' | 'failureCode' | 'processedAt' | 'receipt'>
+      Omit<
+        WagerSnapshot,
+        'status' | 'failureCode' | 'processedAt' | 'receipt' | 'referenceTransactionId'
+      >
     >,
     private state: Readonly<TransactionState>,
     private processedAt?: string,
@@ -68,10 +85,15 @@ export class WagerTransaction {
     );
   }
   static rehydrate(snapshot: WagerSnapshot): WagerTransaction {
-    const { status, failureCode, processedAt, receipt, ...identity } = snapshot;
+    const { status, failureCode, referenceTransactionId, processedAt, receipt, ...identity } =
+      snapshot;
     return new WagerTransaction(
       Object.freeze({ ...identity, command: Object.freeze({ ...identity.command }) }),
-      Object.freeze({ status, ...(failureCode ? { failureCode } : {}) }),
+      Object.freeze({
+        status,
+        ...(failureCode ? { failureCode } : {}),
+        ...(referenceTransactionId ? { referenceTransactionId } : {}),
+      }),
       processedAt,
       receipt && structuredClone(receipt),
     );
@@ -115,12 +137,13 @@ export class WagerTransaction {
     this.state = Object.freeze({ status, ...(failureCode ? { failureCode } : {}) });
   }
   complete(outcome: WagerOutcome, at: string, context: EventContext): void {
+    const originalReceipt = this.receipt;
     const balance = outcome.wallet.balance.toProps();
     const common = { transactionId: this.id, balance, idempotentReplay: false };
     if (outcome.status === 'REJECTED') {
       this.transition('REJECTED', outcome.failureCode);
       this.receipt = {
-        httpStatus: 422,
+        httpStatus: submissionHttpStatus.REJECTED,
         body: {
           ...common,
           status: 'REJECTED',
@@ -138,21 +161,43 @@ export class WagerTransaction {
         at,
         context,
       );
+    } else if (outcome.status === 'PENDING_REFERENCE') {
+      this.transition('PENDING_REFERENCE');
+      this.receipt = {
+        httpStatus: submissionHttpStatus.PENDING_REFERENCE,
+        body: { ...common, status: 'PENDING_REFERENCE' },
+      };
+      this.event = WagerTransactionPendingReference.from(
+        this.command,
+        this.id,
+        balance,
+        at,
+        context,
+      );
     } else {
       this.transition('PROCESSED');
       this.processedAt = at;
-      this.receipt = { httpStatus: 200, body: { ...common, status: 'PROCESSED' } };
+      this.receipt = {
+        httpStatus: submissionHttpStatus.PROCESSED,
+        body: { ...common, status: 'PROCESSED' },
+      };
       this.event = WagerTransactionProcessed.from(this.command, this.id, balance, at, context);
     }
+    if (outcome.status !== 'PENDING_REFERENCE' && outcome.referenceTransactionId)
+      this.state = Object.freeze({
+        ...this.state,
+        referenceTransactionId: outcome.referenceTransactionId,
+      });
+    this.receipt = originalReceipt ?? this.receipt;
   }
   getReceipt(idempotentReplay = false): SubmissionReceipt {
     const receipt = this.receipt;
     if (!receipt) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
-    if (receipt.httpStatus === 200)
-      return { httpStatus: 200, body: { ...structuredClone(receipt.body), idempotentReplay } };
-    return { httpStatus: 422, body: { ...structuredClone(receipt.body), idempotentReplay } };
+    const replay = structuredClone(receipt);
+    replay.body.idempotentReplay = idempotentReplay;
+    return replay;
   }
-  get resultEvent(): WagerTransactionProcessed | WagerTransactionRejected {
+  get resultEvent(): WagerResultEvent {
     if (!this.event) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
     return this.event;
   }

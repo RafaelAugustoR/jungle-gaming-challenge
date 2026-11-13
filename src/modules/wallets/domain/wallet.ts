@@ -44,7 +44,19 @@ export interface WalletChange {
 }
 export type WalletMovementResult =
   | { status: 'PROCESSED'; wallet: Wallet; change?: WalletChange }
-  | { status: 'REJECTED'; wallet: Wallet; failureCode: 'INSUFFICIENT_FUNDS'; change?: never };
+  | {
+      status: 'REJECTED';
+      wallet: Wallet;
+      failureCode: 'INSUFFICIENT_FUNDS' | 'AMOUNT_LIMIT_EXCEEDED';
+      change?: never;
+    };
+export interface WalletMovement {
+  transactionId: string;
+  money: Money;
+  counterpartAccountId: string;
+  occurredAt: string;
+  context: EventContext;
+}
 export class Wallet {
   private constructor(
     readonly id: string,
@@ -107,25 +119,42 @@ export class Wallet {
   get currency(): string {
     return this.balance.currency;
   }
-  debit(input: {
-    transactionId: string;
-    money: Money;
-    counterpartAccountId: string;
-    occurredAt: string;
-    context: EventContext;
-  }): WalletMovementResult {
-    if (input.money.isNegative()) throw new DomainError('INVALID_PAYLOAD');
+  debit(input: WalletMovement): WalletMovementResult {
+    this.validateMovement(input.money);
     const balance = this.balance.subtract(input.money);
     if (balance.isNegative())
       return { status: 'REJECTED', wallet: this, failureCode: 'INSUFFICIENT_FUNDS' };
+    return this.move(input, balance, this.accountId, input.counterpartAccountId);
+  }
+  credit(input: WalletMovement): WalletMovementResult {
+    this.validateMovement(input.money);
+    if (!this.balance.canAdd(input.money))
+      return { status: 'REJECTED', wallet: this, failureCode: 'AMOUNT_LIMIT_EXCEEDED' };
+    return this.move(
+      input,
+      this.balance.add(input.money),
+      input.counterpartAccountId,
+      this.accountId,
+    );
+  }
+  private validateMovement(money: Money): void {
+    if (money.isNegative()) throw new DomainError('INVALID_PAYLOAD');
+    if (money.currency !== this.currency) throw new DomainError('CURRENCY_MISMATCH');
+  }
+  private move(
+    input: WalletMovement,
+    balance: Money,
+    debitAccountId: string,
+    creditAccountId: string,
+  ): WalletMovementResult {
     if (input.money.isZero()) return { status: 'PROCESSED', wallet: this };
     const wallet = new Wallet(this.id, this.playerId, this.accountId, balance, this.version + 1);
     const entry = JournalEntry.create({
       walletId: this.id,
       transactionId: input.transactionId,
       playerAccountId: this.accountId,
-      debitAccountId: this.accountId,
-      creditAccountId: input.counterpartAccountId,
+      debitAccountId,
+      creditAccountId,
       money: input.money,
       balanceBefore: this.balance,
       balanceAfter: balance,

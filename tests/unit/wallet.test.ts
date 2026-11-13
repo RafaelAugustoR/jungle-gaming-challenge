@@ -112,3 +112,48 @@ test('Wallet.open produces one financial fact shared by journal and event, or no
   });
   expect(zero.opening).toBeUndefined();
 });
+
+test('zero credits preserve wallet identity but still reject a different currency', () => {
+  const wallet = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '100.00',
+    version: 1,
+  });
+  const input = {
+    transactionId: 'zero-credit',
+    money: Money.create('0.00', 'BRL'),
+    counterpartAccountId: 'gaming',
+    occurredAt: '2026-11-12T12:00:00.000Z',
+    context: { correlationId: 'zero-credit' },
+  };
+  expect(wallet.credit(input)).toEqual({ status: 'PROCESSED', wallet });
+  expect(() => wallet.credit({ ...input, money: Money.create('0.00', 'USD') })).toThrow(
+    'CURRENCY_MISMATCH',
+  );
+  expect(wallet.balance.toProps()).toEqual({ amount: '100.00', currency: 'BRL' });
+  expect(wallet.version).toBe(1);
+});
+
+test('credit overflow is a wallet rejection and leaves its financial state unchanged', () => {
+  const wallet = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '9999999999999999.99',
+    version: 1,
+  });
+  const result = wallet.credit({
+    transactionId: 'overflow',
+    money: Money.create('0.01', 'BRL'),
+    counterpartAccountId: 'gaming',
+    occurredAt: '2026-11-12T12:00:00.000Z',
+    context: { correlationId: 'overflow' },
+  });
+  expect(result).toEqual({ status: 'REJECTED', wallet, failureCode: 'AMOUNT_LIMIT_EXCEEDED' });
+  expect(result.change).toBeUndefined();
+  expect(wallet.version).toBe(1);
+});
