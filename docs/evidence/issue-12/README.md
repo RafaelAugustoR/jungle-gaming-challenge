@@ -36,7 +36,7 @@ são limpos antes da execução. A CI existente executa o cenário integrado em
 | --- | --- |
 | R02 | Todas as migrations up/down até zero/up no mesmo banco; schemas removidos, lista restaurada, inbox incompleta e saldo sem ledger recusados após restore. Suites anteriores ampliam constraints, imutabilidade e estados. |
 | R12 | HTTP e SQS disputam duas BET 80 sobre 100; barreira SQL segura ambas antes de liberar. Uma PROCESSED, uma REJECTED, saldo 20. |
-| R13/R14 | 25 HTTP + 25 SQS da mesma operação; três PIDs API e um consumidor bloqueados simultaneamente no PostgreSQL. São 25 IDs de mensagem distintos, sem depender do dedup FIFO. Uma transação, um débito, 25 inboxes. |
+| R13/R14 | A suíte BET existente prova 50 HTTP paralelas em três APIs. No roteiro integrado, 25 HTTP paralelas se sobrepõem ao consumo de 25 SQS da mesma operação, serializadas pelo grupo FIFO da wallet; três PIDs API e um consumidor bloqueados simultaneamente no PostgreSQL. São 25 IDs de mensagem distintos, sem depender do dedup FIFO. Uma transação, um débito, 25 inboxes. |
 | R14 | BET de outra wallet conclui via SQS enquanto a primeira permanece bloqueada via HTTP. |
 | R16 | Triggers falham, uma por vez, em transactions, wallet update, journal, receipt, inbox e outbox. Snapshot de todas essas tabelas/saldos permanece idêntico; a mesma entrega recupera sem reinjeção. |
 | R17/R24 | IPC confirma pós-commit/pré-ack; SIGKILL e novo PID recebem a mesma mensagem, sem duplicar débito. API também reinicia e repete recibo persistido. |
@@ -47,6 +47,13 @@ são limpos antes da execução. A CI existente executa o cenário integrado em
 | R24 | Reconciliação HTTP de toda wallet do banco com saldo esperado literal; journal por moeda balanceado, pares válidos, receipts/efeitos/eventos completos, projeções atualizadas, nenhuma pendência e filas/DLQs vazias. |
 
 ## Coordenação e limites
+
+O roteiro tem 18 testes ordenados, um por estágio (seis para as fronteiras atômicas),
+com setup/teardown no `recoveryHarness()`. O Bun identifica a falha pelo estágio e
+`afterEach` encerra seus workers antes do próximo. Evidência final só é gravada se
+todos os estágios e a auditoria passarem. `spawnStaged`, `drainQueue` e as barreiras
+de `sql-barrier.ts` também atendem as suítes anteriores; a barreira usa
+`pg_locks`/`pg_blocking_pids`, sem inspecionar o texto SQL do repositório.
 
 O roteiro integrado reutiliza `runCommandWorker`, `createSubmission`, o publisher
 existente com observers e os entry points de produção de publisher, consumidor de
@@ -64,8 +71,8 @@ Não é ensaio de carga nem prova de ganho linear; isso pertence à Issue #13.
 
 - `bun run build`: passou, incluindo typecheck e bundle do console.
 - `bun test tests/unit`: 35 passaram; zero falhas.
-- `bun run test:recovery`: 66 passaram em quatro fases; cerca de 80 s.
-- `bun run test:integration`: 104 passaram, um teste de navegador separado,
+- `bun run test:recovery`: 83 passaram em quatro fases; cerca de 80 s.
+- `bun run test:integration`: 121 passaram, um teste de navegador separado,
   zero falhas; 803 assertions, cerca de 92 s. A suíte de navegador existente
   não foi repetida neste recorte, que não altera frontend ou autenticação.
 - Cenário integrado: 13 wallets reconciliadas com diferença `0.00`; 27 partidas,
@@ -75,9 +82,27 @@ Não é ensaio de carga nem prova de ganho linear; isso pertence à Issue #13.
 - Controle negativo do runner com endereço PostgreSQL indisponível: exit 1,
   `completed=false`, apenas a primeira fase registrada e evidência anterior limpa.
 
-Asserções financeiras usam valores literais do roteiro e reconciliação pública.
+Asserções financeiras usam saldos literais por wallet e reconciliação pública.
+Totais de eventos/partidas são acumulados a partir dos resultados de negócio
+explicitamente esperados em cada estágio, sem ler resultados reais para gerá-los.
 O balanceamento decorre da partida pareada por registro, acrescido da validação
 de contas distintas/moedas compatíveis e dos totais esperados; não se apresenta
 uma soma artificial de `amount - amount` como prova independente.
 Logs completos e JSON por wallet estão nos artifacts locais ignorados pelo Git;
 a CI repete o roteiro e publica o JSON integral no log, sem tokens/credenciais.
+
+
+## Revisão do PR #23
+
+Os dez comentários foram incorporados: estágios separados, helpers de processo,
+fila e barreira SQL compartilhados com as suítes anteriores, tipo comum de comando,
+lease explícita, remoção da flag de barreira e runners compartilhados com descoberta
+por glob/diretório. A evidência distingue a prova anterior de 50 HTTP paralelas
+da prova integrada com 25 HTTP paralelas sobrepostas a 25 mensagens serializadas
+pelo grupo FIFO da wallet. Não se altera esse agrupamento financeiro para aparentar
+um paralelismo que o contrato FIFO não fornece.
+
+Após a refatoração, os 18 estágios passaram (89 assertions), o runner completo
+passou 83 testes e a integração completa passou 121 testes, com um browser separado,
+zero falhas e 803 assertions. Build/typecheck e 35 unitários passaram. O controle
+negativo do runner continua retornando exit 1 e `completed=false` na primeira fase.

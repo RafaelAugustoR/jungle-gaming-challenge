@@ -1,3 +1,4 @@
+import { lockWalletRows, waitForWalletLock } from '../support/sql-barrier';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import { disposableDatabase } from '../support/database';
 import { apiProcess } from '../support/api-cluster';
@@ -84,16 +85,8 @@ async function audit(id: string) {
   );
   return row;
 }
-async function untilBlocked(walletId: string, count = 1) {
-  const deadline = Date.now() + 5000;
-  while (Date.now() < deadline) {
-    const [row] = await database.owner.em.execute(
-      `select count(distinct application_name)::int n from pg_stat_activity where datname=current_database() and application_name like 'bet-test-%' and wait_event_type='Lock' and query like '%from wagering.wallets where id=%'`,
-    );
-    if (row.n >= count) return;
-    await Bun.sleep(10);
-  }
-  throw new Error(`Expected ${count} API processes blocked on wallet ${walletId}`);
+async function untilBlocked(_walletId: string, count = 1) {
+  await waitForWalletLock(database.owner, count, 'bet-test-');
 }
 
 integration(
@@ -104,7 +97,7 @@ integration(
       key = crypto.randomUUID();
     const lock = database.owner.em.fork();
     await lock.begin();
-    await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    await lockWalletRows(lock, w.id);
     const requests = Array.from({ length: 50 }, (_, i) => submit(i % 3, bet, key));
     try {
       await untilBlocked(w.id, 3);
@@ -153,7 +146,7 @@ integration(
     const w = await wallet();
     const lock = database.owner.em.fork();
     await lock.begin();
-    await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    await lockWalletRows(lock, w.id);
     const pending = [submit(0, command(w)), submit(1, command(w))];
     try {
       await untilBlocked(w.id, 2);
@@ -192,7 +185,7 @@ integration(
       b = await wallet();
     const lock = database.owner.em.fork();
     await lock.begin();
-    await lock.execute('select id from wagering.wallets where id=? for update', [a.id]);
+    await lockWalletRows(lock, a.id);
     let aCompleted = false;
     const pendingA = submit(0, command(a)).then((r) => {
       aCompleted = true;
@@ -226,10 +219,7 @@ integration(
       if (identity === 'external') second.externalTransactionId = first.externalTransactionId;
       const lock = database.owner.em.fork();
       await lock.begin();
-      await lock.execute(
-        'select id from wagering.wallets where id in (?,?) order by id for update',
-        [a.id, b.id],
-      );
+      await lockWalletRows(lock, [a.id, b.id]);
       const pending = [
         submit(0, first, key),
         submit(2, second, identity === 'key' ? key : crypto.randomUUID()),

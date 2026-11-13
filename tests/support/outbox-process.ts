@@ -9,11 +9,8 @@ const orm = await openDatabase(config),
 const mode = process.env.OUTBOX_TEST_PAUSE;
 const pause = async (stage: string, event: ReservedEvent) => {
   process.send?.({ stage, eventId: event.eventId, token: event.token, pid: process.pid });
-  if (mode === stage) {
-    if (process.env.OUTBOX_TEST_BARRIER === '1')
-      await new Promise<void>((resolve) => process.once('message', () => resolve()));
-    else await new Promise<void>(() => {});
-  }
+  if (mode === stage)
+    await new Promise<void>((resolve) => process.once('message', () => resolve()));
 };
 try {
   const publisher = new OutboxPublisher(

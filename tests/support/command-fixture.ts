@@ -1,3 +1,5 @@
+import type { WagerCommand } from '../../src/modules/wagering/domain/wager-command';
+import type { MoneyProps } from '../../src/shared/domain/money';
 import { afterAll, afterEach, beforeAll, beforeEach } from 'bun:test';
 import { DeleteQueueCommand, SendMessageCommand } from '@aws-sdk/client-sqs';
 import { loadCommandConfig } from '../../src/messaging/commands/config';
@@ -10,6 +12,27 @@ import { createSqsClient } from '../../src/config/sqs';
 import { Wallets } from '../../src/modules/wallets/application/wallets';
 import { WalletRepository } from '../../src/modules/wallets/infrastructure/persistence/wallet-repository';
 import { Money } from '../../src/shared/domain/money';
+export type CommandData = Omit<WagerCommand, 'money'> & {
+  money: MoneyProps;
+  idempotencyKey: string;
+};
+export interface CommandEnvelope {
+  messageId: string;
+  type: 'WagerTransactionRequested';
+  occurredAt: string;
+  data: CommandData;
+}
+export function commandEnvelope(
+  data: CommandData,
+  messageId = crypto.randomUUID(),
+): CommandEnvelope {
+  return {
+    messageId,
+    type: 'WagerTransactionRequested',
+    occurredAt: new Date().toISOString(),
+    data,
+  };
+}
 export function commandSuite() {
   const state = {} as {
     database: Awaited<ReturnType<typeof disposableDatabase>>;
@@ -50,25 +73,21 @@ export function commandSuite() {
     );
     return {
       wallet,
-      envelope: {
-        messageId: crypto.randomUUID(),
-        type: 'WagerTransactionRequested',
-        occurredAt: new Date().toISOString(),
-        data: {
-          providerId: 'provider-a',
-          externalTransactionId: crypto.randomUUID(),
-          idempotencyKey: crypto.randomUUID(),
-          walletId: wallet.id,
-          playerId: wallet.playerId,
-          roundId: 'r',
-          gameId: 'g',
-          kind: 'BET',
-          money: { amount: '20.00', currency: 'BRL' },
-        },
-      },
+      envelope: commandEnvelope({
+        providerId: 'provider-a',
+        externalTransactionId: crypto.randomUUID(),
+        idempotencyKey: crypto.randomUUID(),
+        walletId: wallet.id,
+        playerId: wallet.playerId,
+        roundId: 'r',
+        gameId: 'g',
+        kind: 'BET',
+        money: { amount: '20.00', currency: 'BRL' },
+      }),
     };
   }
-  async function send(envelope: Awaited<ReturnType<typeof fixture>>['envelope']) {
+  // Malformed-envelope tests deliberately send invalid business fields over real SQS.
+  async function send<T extends { data: { walletId: string } }>(envelope: T) {
     await state.sqs.send(
       new SendMessageCommand({
         QueueUrl: state.queue,
@@ -107,16 +126,4 @@ export function commandSuite() {
 
   return { state, fixture, send, consumer };
 }
-export async function retryUntil<T>(
-  read: () => Promise<T>,
-  done: (value: T) => boolean,
-  timeoutMs = 8000,
-): Promise<T> {
-  const end = Date.now() + timeoutMs;
-  do {
-    const value = await read();
-    if (done(value)) return value;
-    await Bun.sleep(25);
-  } while (Date.now() < end);
-  throw new Error('Condition did not become true');
-}
+export { retryUntil } from './poll';

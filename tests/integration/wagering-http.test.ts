@@ -1,3 +1,4 @@
+import { lockWalletRows } from '../support/sql-barrier';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { INestApplication } from '@nestjs/common';
 import { createApplication } from '../../src/bootstrap/application';
@@ -279,7 +280,7 @@ integration(
       key = crypto.randomUUID();
     const lock = database.owner.em.fork();
     await lock.begin();
-    await lock.execute('select id from wagering.wallets where id=? for update', [w.id]);
+    await lockWalletRows(lock, w.id);
     try {
       expect(await submit(bet, key)).toMatchObject({
         status: 503,

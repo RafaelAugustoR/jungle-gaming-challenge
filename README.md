@@ -275,7 +275,8 @@ RECOVERY=1 bun test tests/recovery/integrated.test.ts
 ```
 
 O comando reúne migrations/constraints, concorrência financeira, redelivery/DLQ e
-um roteiro integrado com HTTP/SQS concorrentes, interrupções coordenadas por IPC,
+um roteiro integrado em 18 estágios: 25 HTTP paralelas sobrepostas a 25 SQS
+serializadas pelo grupo FIFO da wallet, interrupções coordenadas por IPC,
 falhas isoladas de dependências e reconciliação de **todas** as wallets criadas.
 Usa bancos descartáveis, filas exclusivas e portas efêmeras; não interrompe a
 infraestrutura compartilhada. Evidências JSON e logs ficam em `artifacts/recovery/`
