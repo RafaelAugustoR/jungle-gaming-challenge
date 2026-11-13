@@ -9,10 +9,10 @@ export function referenceMetricsObserver(metrics: MetricsRegistry): ReferenceObs
         durationSeconds,
       );
     },
-    failed: ({ operation, durationSeconds }) => {
-      metrics.transactionAttempts.inc({ operation, channel: 'reference', status: 'error' });
+    failed: ({ operation, status, durationSeconds }) => {
+      metrics.transactionAttempts.inc({ operation, channel: 'reference', status });
       metrics.transactionDuration.observe(
-        { operation, channel: 'reference', status: 'error' },
+        { operation, channel: 'reference', status },
         durationSeconds,
       );
     },

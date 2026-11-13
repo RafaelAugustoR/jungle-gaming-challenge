@@ -701,6 +701,21 @@ integration(
       key = crypto.randomUUID();
     expect((await submit(bet, key)).status).toBe(200);
     const changed = { ...bet, walletId: crypto.randomUUID() };
+    const attempts = async (status: string) => {
+      const line = (await app.get(MetricsRegistry).scrape())
+        .split('\n')
+        .find((row) =>
+          row.startsWith(
+            `wager_transaction_attempts_total{operation="BET",channel="http",status="${status}"} `,
+          ),
+        );
+      return Number(line?.split(' ').pop() ?? 0);
+    };
+    const before = {
+      conflict: await attempts('conflict'),
+      notFound: await attempts('notFound'),
+      error: await attempts('error'),
+    };
     expect(await submit(changed, key)).toMatchObject({
       status: 409,
       body: { code: 'IDEMPOTENCY_CONFLICT' },
@@ -709,6 +724,10 @@ integration(
       status: 404,
       body: { code: 'WALLET_NOT_FOUND' },
     });
+    // Client failures keep their category and never count as infrastructure errors.
+    expect(await attempts('conflict')).toBe(before.conflict + 1);
+    expect(await attempts('notFound')).toBe(before.notFound + 1);
+    expect(await attempts('error')).toBe(before.error);
   },
 );
 

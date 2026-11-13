@@ -8,9 +8,9 @@ export function submissionMetricsObserver(metrics: MetricsRegistry): SubmissionO
       metrics.transactionDuration.observe({ operation, channel, status }, durationSeconds);
       if (idempotentReplay) metrics.transactionDuplicates.inc({ operation, channel });
     },
-    failed: ({ operation, channel, durationSeconds }) => {
-      metrics.transactionAttempts.inc({ operation, channel, status: 'error' });
-      metrics.transactionDuration.observe({ operation, channel, status: 'error' }, durationSeconds);
+    failed: ({ operation, channel, status, durationSeconds }) => {
+      metrics.transactionAttempts.inc({ operation, channel, status });
+      metrics.transactionDuration.observe({ operation, channel, status }, durationSeconds);
     },
   };
 }
