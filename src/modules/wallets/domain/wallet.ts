@@ -137,6 +137,34 @@ export class Wallet {
       change: { entry, event: WalletBalanceChanged.from(entry, input.occurredAt, input.context) },
     };
   }
+  credit(input: {
+    transactionId: string;
+    money: Money;
+    counterpartAccountId: string;
+    occurredAt: string;
+    context: EventContext;
+  }): WalletMovementResult {
+    if (input.money.isNegative()) throw new DomainError('INVALID_PAYLOAD');
+    if (input.money.isZero()) return { status: 'PROCESSED', wallet: this };
+    const balance = this.balance.add(input.money);
+    const wallet = new Wallet(this.id, this.playerId, this.accountId, balance, this.version + 1);
+    const entry = JournalEntry.create({
+      walletId: this.id,
+      transactionId: input.transactionId,
+      playerAccountId: this.accountId,
+      debitAccountId: input.counterpartAccountId,
+      creditAccountId: this.accountId,
+      money: input.money,
+      balanceBefore: this.balance,
+      balanceAfter: balance,
+      walletVersion: wallet.version,
+    });
+    return {
+      status: 'PROCESSED',
+      wallet,
+      change: { entry, event: WalletBalanceChanged.from(entry, input.occurredAt, input.context) },
+    };
+  }
   toProps(): WalletProps {
     return {
       id: this.id,

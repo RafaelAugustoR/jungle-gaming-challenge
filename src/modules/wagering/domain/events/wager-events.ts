@@ -62,3 +62,20 @@ export class WagerTransactionRejected extends IntegrationEvent<WagerResultData> 
     );
   }
 }
+
+export class WagerTransactionPendingReference extends IntegrationEvent<WagerResultData> {
+  readonly eventType = 'WagerTransactionPendingReference';
+  readonly version = 1;
+  private constructor(data: WagerResultData, at: string, context: EventContext) {
+    super(data.walletId, at, context, Object.freeze(data));
+  }
+  static from(
+    command: WagerCommand,
+    id: string,
+    balance: MoneyProps,
+    at: string,
+    context: EventContext,
+  ) {
+    return new WagerTransactionPendingReference(resultData(command, id, balance), at, context);
+  }
+}

@@ -235,7 +235,6 @@ integration(
     const bet = command(w);
     const key = crypto.randomUUID();
     const invalid = [
-      ...['WIN', 'LOSS', 'REFUND', 'ROLLBACK'].map((kind) => ({ ...bet, kind })),
       { ...bet, kind: 'OPENING' },
       { ...bet, surprise: true },
       { ...bet, referenceExternalTransactionId: null },

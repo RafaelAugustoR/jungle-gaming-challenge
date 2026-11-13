@@ -31,6 +31,7 @@ interface ReceiptBody {
 }
 export type SubmissionReceipt =
   | { httpStatus: 200; body: ReceiptBody & { status: 'PROCESSED' } }
+  | { httpStatus: 202; body: ReceiptBody & { status: 'PENDING_REFERENCE' } }
   | {
       httpStatus: 422;
       body: ReceiptBody & {
