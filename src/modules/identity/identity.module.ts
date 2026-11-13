@@ -12,10 +12,14 @@ import { APP_CONFIG } from '../../config/infrastructure.module';
 import type { AppConfig } from '../../config/config';
 import { apiError } from '../../shared/rest/api-error';
 
-export const HumanRole = (role: 'viewer' | 'demo-operator') => SetMetadata('humanRole', role);
-export type Principal =
-  | { kind: 'human'; subject: string; roles: string[] }
-  | { kind: 'provider'; subject: string; providerId: string };
+import type { Principal } from './principal';
+export type { Principal } from './principal';
+interface AccessPolicy {
+  provider?: boolean;
+  humanRoles?: readonly string[];
+}
+export const Access = (policy: AccessPolicy) => SetMetadata('accessPolicy', policy);
+export const HumanRole = (role: 'viewer' | 'demo-operator') => Access({ humanRoles: [role] });
 @Injectable()
 export class Identity implements CanActivate {
   private readonly keys;
@@ -62,12 +66,15 @@ export class Identity implements CanActivate {
       if (error instanceof Error && 'getStatus' in error) throw error;
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     }
-    const role = this.reflector.getAllAndOverride<string>('humanRole', [
+    const policy = this.reflector.getAllAndOverride<AccessPolicy>('accessPolicy', [
       context.getHandler(),
       context.getClass(),
     ]);
-    if (principal.kind !== 'human' || !principal.roles.includes(role))
-      throw apiError(403, 'FORBIDDEN');
+    const allowed =
+      principal.kind === 'provider'
+        ? policy?.provider === true
+        : policy?.humanRoles?.some((role) => principal.roles.includes(role));
+    if (!allowed) throw apiError(403, 'FORBIDDEN');
     request.principal = principal;
     return true;
   }

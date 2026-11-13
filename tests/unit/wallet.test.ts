@@ -2,6 +2,52 @@ import { expect, test } from 'bun:test';
 import { Wallet } from '../../src/modules/wallets/domain/wallet';
 import { Money } from '../../src/shared/domain/money';
 
+test('BET debit produces a balanced journal and increments version once; zero and insufficient funds do not', () => {
+  const wallet = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'account',
+    currency: 'BRL',
+    balance: '100.00',
+    version: 1,
+  });
+  const input = {
+    transactionId: 'bet',
+    money: Money.create('80.00', 'BRL'),
+    counterpartAccountId: 'gaming',
+    occurredAt: '2026-11-12T12:00:00.000Z',
+    context: { correlationId: 'debit-test' },
+  };
+  const debited = wallet.debit(input);
+  expect(debited.status).toBe('PROCESSED');
+  if (debited.status !== 'PROCESSED') throw new Error('Expected processed debit');
+  expect(debited.wallet.balance.toProps().amount).toBe('20.00');
+  expect(debited.wallet.version).toBe(2);
+  expect(debited.change!.entry.toProps()).toMatchObject({
+    debitAccountId: 'account',
+    creditAccountId: 'gaming',
+    amount: '80.00',
+    balanceBefore: '100.00',
+    balanceAfter: '20.00',
+    walletVersion: 2,
+  });
+  expect(debited.change!.event.toJSON()).toMatchObject({
+    correlationId: 'debit-test',
+    data: { direction: 'DEBIT', money: { amount: '80.00', currency: 'BRL' }, walletVersion: 2 },
+  });
+  expect(debited.wallet.debit(input)).toMatchObject({
+    status: 'REJECTED',
+    failureCode: 'INSUFFICIENT_FUNDS',
+    wallet: debited.wallet,
+  });
+  const zero = wallet.debit({ ...input, money: Money.create('0.00', 'BRL') });
+  expect(zero.wallet).toBe(wallet);
+  expect(zero.change).toBeUndefined();
+  expect(() => wallet.debit({ ...input, money: Money.create('1.00', 'USD') })).toThrow(
+    'CURRENCY_MISMATCH',
+  );
+});
+
 test('wallet factory validates opening while rehydrate preserves persisted state without reopening', () => {
   const input = {
     playerId: 'player-1',

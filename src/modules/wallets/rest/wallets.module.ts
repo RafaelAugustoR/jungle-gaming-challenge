@@ -19,11 +19,11 @@ import {
 import { WalletRepository } from '../infrastructure/persistence/wallet-repository';
 import {
   parseCreateWallet,
-  parseWalletId,
   parseLedgerQuery,
   walletResponse,
   ledgerResponse,
 } from './wallet-contract';
+import { parseUuid } from '../../../shared/rest/parse-uuid';
 import { Wallets } from '../application/wallets';
 
 @Controller('wallets')
@@ -46,7 +46,7 @@ class WalletsController {
   }
   @Get(':walletId')
   async get(@Param('walletId') id: string) {
-    return walletResponse(await this.wallets.get(parseWalletId(id)));
+    return walletResponse(await this.wallets.get(parseUuid(id)));
   }
   @Get(':walletId/ledger')
   async ledger(
@@ -54,7 +54,7 @@ class WalletsController {
     @Query('cursor') cursor?: string,
     @Query('limit') limit?: string,
   ) {
-    parseWalletId(id);
+    parseUuid(id);
     return ledgerResponse(id, await this.wallets.ledger(id, parseLedgerQuery(id, cursor, limit)));
   }
 }

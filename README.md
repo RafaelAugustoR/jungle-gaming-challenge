@@ -41,7 +41,7 @@ bun run dev
 
 As migrations criam o schema `wagering`. `migrate:down` é para desenvolvimento em banco descartável; os testes usam um banco temporário próprio. Para parar os serviços sem apagar o volume: `docker compose down`.
 
-A Issue #3 entrega autenticação, criação/consulta de wallet e ledger de abertura. `initialBalance` positivo confirma wallet, transação interna OPENING, journal e evento `WalletBalanceChanged` na mesma transação SQL. Abertura zero não gera transação, ledger ou evento. Em ambos os casos a versão inicial é 1. BET e demais operações de apostas, publicação da outbox e reconciliação pertencem aos próximos tickets.
+A Issue #3 entrega autenticação, criação/consulta de wallet e ledger de abertura. `initialBalance` positivo confirma wallet, transação interna OPENING, journal e evento `WalletBalanceChanged` na mesma transação SQL. Abertura zero não gera transação, ledger ou evento. Em ambos os casos a versão inicial é 1. A Issue #4 acrescenta BET autenticada e idempotente, recibos estáveis e consultas de transações. As demais operações de apostas, publicação da outbox e reconciliação pertencem aos próximos tickets.
 
 ### Login e contratos
 
@@ -55,7 +55,7 @@ O navegador usa o adaptador oficial Keycloak com Authorization Code + PKCE S256.
 
 Retorna 201 com `id`, `playerId`, `balance: { amount, currency }` e `version`. `GET /wallets/:id` e `GET /wallets/:id/ledger` exigem perfil viewer (herdado por operator e demo-operator). Duplicação de jogador/moeda retorna 409; payload inválido 400; token ausente/inválido 401; permissão insuficiente 403; wallet inexistente 404. Respostas de erro incluem `code`, `message` e `correlationId`; o header `X-Correlation-Id` está presente também em respostas de sucesso.
 
-O ledger retorna `{ entries, nextCursor }`. Cada entrada contém `id`, `transactionId`, `kind`, `direction`, `amount`, `currency`, `balanceBefore`, `balanceAfter`, `walletVersion`, `createdAt`; valores monetários são strings com duas casas. Limite padrão 50, máximo 100, cursor opaco vinculado à wallet e ao limite superior da primeira página. Este recorte tem no máximo um lançamento por wallet.
+O ledger retorna `{ entries, nextCursor }`. Cada entrada contém `id`, `transactionId`, `kind`, `direction`, `amount`, `currency`, `balanceBefore`, `balanceAfter`, `walletVersion`, `createdAt`; valores monetários são strings com duas casas. Limite padrão 50, máximo 100, cursor opaco vinculado à wallet e ao limite superior da primeira página. BET acrescenta um lançamento por débito positivo aprovado; rejeição, zero e replay não acrescentam entradas.
 
 ### Credenciais de banco e testes
 
@@ -75,7 +75,45 @@ CHROME_PATH=/usr/bin/google-chrome bun run test:browser
 
 O teste de navegador exige a API/console do Compose na porta 3000. `CONSOLE_URL` permite escolher outra URL já autorizada no realm. As integrações usam bancos descartáveis e não deixam wallets no banco de demonstração; o teste de navegador cria dados fictícios no console. `build` verifica tipos e gera `frontend/dist` com Bun. Prettier está fixado no lockfile; use `bunx prettier --write caminho/do/arquivo` para formatar os arquivos alterados. O Docker também gera os assets, sem servidor frontend separado.
 
-Como o PR ainda não foi mergeado, a migration financeira 0002 foi consolidada: cria diretamente transações, cadeia contábil e view do ledger, sem tabela intermediária de aberturas. Up/down/up é validado em banco descartável; bancos locais com o histórico anterior à consolidação devem ser recriados. Neste recorte T02 só se persistem registros finais PROCESSED, imutáveis; estados pendentes, failure_code, processed_at, transições e respectivos grants ficam para T03 antes de serem utilizados. Os testes SQL de BET/WIN verificam a base contábil, sem disponibilizar endpoints de apostas neste ticket.
+O PR #16 / Issue #3 foi mergeado com o baseline financeiro consolidado em 0002. A migration **0003** é incremental: acrescenta identidade externa, estados/transições, campos de falha/processamento e recibos, preservando as aberturas existentes. Up/down/up é validado em banco descartável. O down de 0003 recusa apagar metadados se já houver transações externas aceitas; não é um procedimento para desfazer apostas.
+
+### BET idempotente — Issue #4
+
+`POST /wagering/transactions` exige token de máquina vinculado ao `providerId` e header `Idempotency-Key` obrigatório (string não vazia de até 128 caracteres). Exemplo de corpo, substituindo wallet e jogador pelos dados de uma wallet criada:
+
+```json
+{
+  "providerId": "provider-a",
+  "externalTransactionId": "bet-001",
+  "playerId": "player-demo",
+  "walletId": "00000000-0000-0000-0000-000000000001",
+  "roundId": "round-001",
+  "gameId": "game-001",
+  "kind": "BET",
+  "money": { "amount": "20.00", "currency": "BRL" }
+}
+```
+
+O recibo contém `transactionId`, `status`, `balance: { amount, currency }` e `idempotentReplay`. Uma BET processada retorna 200; saldo insuficiente retorna 422 com `failureCode`, `code`, `message` e `correlationId`, sem débito. O mesmo provedor/chave/conteúdo retorna o recibo persistido, mudando somente `idempotentReplay`, mesmo após outras apostas ou reinício. No replay 422, o `correlationId` do corpo é original; `X-Correlation-Id` identifica o transporte atual. Payload divergente sob a mesma chave retorna 409 `IDEMPOTENCY_CONFLICT`, inclusive se trocar a wallet por um UUID válido inexistente; outra chave para a mesma identidade externa retorna 409 `EXTERNAL_TRANSACTION_CONFLICT`. Provedores diferentes têm escopos independentes.
+
+`GET /wagering/transactions/:transactionId` e `GET /providers/:providerId/wagering/transactions/:externalTransactionId` retornam o estado persistido e resultado financeiro. Viewer/operator/demo-operator consultam; provedores consultam somente suas operações. Recurso de outro provedor retorna 404. Humanos não submetem apostas diretamente. OPENING e referências em BET são recusados com 400, assim como campos desconhecidos. Wallet ausente retorna 404; jogador ou moeda incompatíveis são validações anteriores ao aceite (400 `PLAYER_MISMATCH` / `CURRENCY_MISMATCH`) e não consomem a chave. Identidade incompatível retorna 403.
+
+BET zero retorna 200 e evento de resultado, sem journal, incremento de versão ou evento de saldo. BET positiva aprovada incrementa a versão uma vez e confirma partidas dobradas, recibo e eventos de saldo/resultado na mesma transação. A outbox tem sequência própria por wallet; não publica nada durante o processamento financeiro.
+
+Timeouts de lock/statement/prazo financeiro são configuráveis por `FINANCIAL_LOCK_TIMEOUT_MS` (3000), `FINANCIAL_STATEMENT_TIMEOUT_MS` (5000) e `FINANCIAL_DEADLINE_MS` (15000). A transação recebe até três tentativas em deadlock/serialização/timeout de lock, usando o orçamento restante; indisponibilidade retorna 503 e não consome a chave. Repita a mesma chave se o resultado do commit for incerto.
+
+```sh
+# Inclui PostgreSQL e Keycloak reais; bancos de teste são descartáveis:
+bun run test:concurrency
+# Integrações + concorrência (também na CI):
+bun run test:integration
+# Relatório JSON opcional dos três processos:
+BET_EVIDENCE_PATH=/tmp/bet-concurrency.json bun run test:concurrency
+```
+
+O coordenador `SubmitWagerTransaction` compartilha transação, idempotência e persistência; apenas a etapa BET está habilitada. A entidade carrega identidade e resultado e produz recibo/evento tipados. CI publica logs e PIDs nos logs baixáveis da execução, sem versionar dados locais.
+
+As provas usam três processos Bun da API com PIDs distintos e barreiras observáveis em `pg_stat_activity`, além de um lock controlado no banco. O harness cobre 50 duplicatas, disputa de saldo, wallets independentes, conflitos UNIQUE entre wallets e replay após reinício. [Evidências da Issue #4](docs/evidence/issue-4/README.md).
 
 Veja [tratamento da revisão](docs/evidence/issue-3/review-follow-up.md) e [evidências da Issue #3](docs/evidence/issue-3/README.md) e [ARCHITECTURE.md](ARCHITECTURE.md).
 
