@@ -1,0 +1,43 @@
+# Issue #8 — publicação recuperável
+
+Requisito do desafio: eventos financeiros devem chegar a uma fila separada após o commit. A Issue #8 aplica R19/R20/R24 da [spec](../../spec.md), sem operação SQS dentro da transação financeira.
+
+## Executar
+
+```sh
+bun install --frozen-lockfile
+INTEGRATION=1 bun test tests/integration/outbox.test.ts
+bun run test:integration
+```
+
+Os testes criam bancos PostgreSQL descartáveis e filas SQS FIFO com UUIDs. Não limpam o banco de desenvolvimento nem reutilizam filas entre execuções. LocalStack executa SQS; não há mock do transporte ou da persistência. O helper de processo usa o mesmo publisher da aplicação; callbacks de observação existem somente como barreiras explícitas para matar o processo antes/depois do envio.
+
+## Provas automatizadas
+
+| Cenário               | Evidência verificada                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| Reservas concorrentes | `SKIP LOCKED` reserva cabeças distintas; token incorreto não confirma                             |
+| Dois processos        | PIDs distintos publicam três wallets cada; seis IDs únicos confirmados                            |
+| Morte antes do envio  | SIGKILL após reserva; outro processo recupera a lease expirada, preservando eventId               |
+| Morte após envio      | SIGKILL após resposta SQS e antes da confirmação; recuperação reenvia o mesmo eventId             |
+| Fencing               | Proprietário expirado não confirma; tentativa seguinte aumenta contador persistido                |
+| Ordenação             | Eventos 2/3 de uma BET aguardam confirmação dos predecessores da mesma wallet                     |
+| Isolamento            | Cabeça em backoff não impede publicação de outra wallet                                           |
+| Falha de transporte   | Fila ausente mantém evento pendente e agenda nova tentativa                                       |
+| Falha permanente      | Payload inválido permanece bloqueado e diagnosticável; reativação explícita preserva identidade   |
+| Inbox persistente     | Reentrega é reconhecida e apagada da fila somente após commit                                     |
+| Projeção              | Evento atrasado não reduz sequência, versão ou saldo; ID reutilizado com outro payload é recusado |
+| Atomicidade           | Falha injetada na projeção desfaz também a inbox; tentativa seguinte aplica o evento              |
+| Imutabilidade         | Papel runtime não altera payload nem apaga outbox                                                 |
+
+A expiração nos testes altera o prazo persistido com o papel proprietário em banco descartável. Isso evita depender de sleeps; a condição de posse é sempre avaliada pelo relógio PostgreSQL. A corrupção deliberada de payload desabilita temporariamente o trigger apenas no fixture privilegiado.
+
+## Validação local
+
+Em 13/11/2026: `bun run build`, `bun test` (32 aprovados; integrações desabilitadas nesse comando), `docker compose --profile events config --quiet` e a suíte completa `bun run test:integration` passaram. A suíte completa executou 66 testes de integração/concorrência, com 467 asserções e um teste exclusivo de navegador pulado. Em seguida, a suíte específica foi ampliada com smoke dos entrypoints de produção e fencing após troca de proprietário; a execução final passou com 9 testes e 70 asserções, incluindo os entrypoints reais. Nenhum teste de navegador foi necessário para esse recorte sem mudanças visuais.
+
+## Garantias e limites
+
+A entrega é **pelo menos uma vez**. A deduplicação FIFO de cinco minutos não substitui a inbox. Cada wallet tem um grupo SQS e somente a primeira entrada não publicada pode ser reservada. Leases expiradas não revogam um envio já em voo: uma cópia antiga pode chegar depois, por isso o consumidor também protege a sequência e a versão da projeção. Não há afirmação de exactly-once no transporte.
+
+A projeção demonstra o último saldo observado, com consistência eventual. Não substitui o ledger nem serve para autorizar apostas. Inbox, outbox e eventos bloqueados não têm expurgo automático nesta entrega. O consumidor demonstrativo não descarta mensagens inválidas; elas reaparecem após a visibility timeout e exigem investigação operacional. Não se cria outro journal ao consumir eventos.

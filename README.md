@@ -136,3 +136,35 @@ Monólito modular NestJS/TypeScript em Bun, MikroORM, PostgreSQL e SQS, com proc
 O projeto usa apenas dados de demonstração e não integra dinheiro real. `build` verifica tipos; Bun executa o mesmo fonte em desenvolvimento, testes e Docker.
 
 Os comandos acima cobrem o bootstrap; as demais entregas seguirão as Issues aprovadas.
+
+### Publicação recuperável de eventos — Issue #8
+
+A API grava eventos na outbox junto do commit financeiro. O processo separado `worker:outbox` reserva somente a primeira entrada não publicada de cada wallet (`FOR UPDATE SKIP LOCKED`), confirma por token de posse e lease vigente e envia para **`wager-events.fifo`**, separada da fila de comandos. O `eventId` original é o ID de deduplicação FIFO; a wallet é o grupo. O consumidor demonstrativo `worker:events` confirma a mensagem somente após persistir inbox e projeção na mesma transação.
+
+```sh
+# Após configurar .env e aplicar as migrations:
+bun run provision:events
+bun run worker:outbox
+# Outro terminal/processo:
+bun run worker:events
+# Alternativa Docker, com provisionamento e migrations automáticos:
+docker compose --profile events up --build -d outbox-publisher event-consumer
+# Adicionar outro publisher, sem portas HTTP:
+docker compose --profile events up -d --scale outbox-publisher=2 outbox-publisher
+```
+
+`--once` executa uma iteração e encerra: `bun run worker:outbox --once`. O `.env.example` documenta `OUTBOX_*`: lease padrão 30s, timeout de envio 5s (sempre menor que a lease), lote de até 20 wallets, backoff exponencial com jitter (base 1s, teto 60s) e polling de 500ms. SIGTERM/SIGINT aguardam a iteração atual e fecham conexões; morte abrupta deixa a lease recuperável.
+
+Falhas transitórias agendam `next_attempt_at`; erros permanentes de contrato/autorização ficam em `blocked_at` com `last_error_code`. A cabeça bloqueada retém os eventos seguintes **da mesma wallet**; outras wallets continuam. Para diagnóstico, consulte com acesso SQL autorizado:
+
+```sql
+select event_id, aggregate_id, sequence, attempts, lease_until,
+       next_attempt_at, blocked_at, last_error_code
+from wagering.outbox where published_at is null
+order by occurred_at, sequence;
+select * from wagering.event_projection;
+```
+
+Corrija a causa (permissão, configuração ou código) e reative explicitamente, preservando o evento: `bun run outbox:retry <eventId>`. Não altere o payload financeiro nem marque publicação manualmente. Payload inválido exige correção do produtor/validador e investigação antes de reativar; o comando não o reescreve. Não há expurgo automático de inbox/outbox, inclusive eventos publicados ou bloqueados.
+
+O transporte admite reentregas, inclusive após expiração da deduplicação SQS. A inbox persistente evita efeitos repetidos, e a projeção não regride por evento atrasado. Ela é demonstrativa e eventualmente consistente; decisões financeiras continuam usando wallet/ledger. Mensagens inválidas no consumidor permanecem na fila para investigação após o prazo de visibilidade. [Testes, garantias e limites da Issue #8](docs/evidence/issue-8/README.md).
