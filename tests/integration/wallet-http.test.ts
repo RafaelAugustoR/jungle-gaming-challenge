@@ -318,6 +318,7 @@ integration('reconciliation formats ledger aggregates beyond the wallet input bo
         [crypto.randomUUID(), transactionId, wallet.id, gaming!.id, owner!.account_id, walletVersion],
       );
     }
+    await em.execute('set constraints all immediate');
     await em.execute('alter table wagering.journal enable trigger journal_consistency');
     await em.execute('alter table wagering.transactions enable trigger external_submission_consistency');
     await em.execute('alter table wagering.transactions enable trigger transaction_consistency');
