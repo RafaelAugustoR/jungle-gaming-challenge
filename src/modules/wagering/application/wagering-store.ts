@@ -18,7 +18,29 @@ export interface TransactionView extends TransactionState {
   createdAt: string;
   processedAt: string | null;
 }
+export interface PendingReference {
+  transaction: WagerTransaction;
+  deadline: string;
+  attempts: number;
+  context: { correlationId: string; causationId?: string };
+}
+export interface PendingReferenceCandidate {
+  transactionId: string;
+  walletId: string;
+}
 export interface WageringSession {
+  referenceSchedule(id: string): Promise<{ attempts: number; now: string } | undefined>;
+  scheduleReference(
+    id: string,
+    schedule: { deadline: string; nextAttemptAt: string },
+    context: { correlationId: string; causationId?: string },
+  ): Promise<void>;
+  pendingReference(id: string): Promise<PendingReference | undefined>;
+  rescheduleReference(id: string, nextAttemptAt: string): Promise<void>;
+  savePendingResult(
+    input: { transaction: WagerTransaction; wallet: Wallet; change?: WalletChange },
+    at: string,
+  ): Promise<void>;
   lockWallet(id: string): Promise<Wallet | undefined>;
   findSubmission(providerId: string, key: string): Promise<WagerTransaction | undefined>;
   findReference(providerId: string, externalId: string): Promise<WagerReference | undefined>;
@@ -31,6 +53,7 @@ export interface WageringSession {
   }): Promise<void>;
 }
 export interface WageringStore {
+  dueReferences(limit: number): Promise<PendingReferenceCandidate[]>;
   transaction<T>(work: (session: WageringSession) => Promise<T>): Promise<T>;
   find(id: string): Promise<TransactionView | undefined>;
   findExternal(providerId: string, externalId: string): Promise<TransactionView | undefined>;

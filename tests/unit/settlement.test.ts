@@ -90,6 +90,71 @@ test('references validate every shared context field and reversal-specific rules
     failureCode: 'REFERENCE_KIND_MISMATCH',
   });
   expect(evaluate('REFUND', reference, true)).toMatchObject({ failureCode: 'ALREADY_REVERSED' });
+  for (const status of ['REJECTED', 'FAILED'] as const)
+    expect(evaluate('REFUND', { ...reference, status })).toMatchObject({
+      status: 'REJECTED',
+      failureCode: 'REFERENCE_NOT_PROCESSED',
+    });
   expect(evaluate('REFUND', undefined)).toMatchObject({ status: 'PENDING_REFERENCE' });
   expect(evaluate('WIN', reference)).toMatchObject({ status: 'PROCESSED' });
+});
+
+test('reference expiration is pure and retains the known reference identity', () => {
+  const transaction = WagerTransaction.create({
+    payload: WagerPayload.create({
+      ...base,
+      kind: 'ROLLBACK',
+      referenceExternalTransactionId: 'original',
+    }),
+    idempotencyKey: 'key',
+    createdAt: at,
+  });
+  const reference: WagerReference = {
+    id: 'reference',
+    providerId: 'provider-a',
+    externalTransactionId: 'original',
+    playerId: 'player',
+    walletId: 'wallet',
+    currency: 'BRL',
+    roundId: 'round',
+    kind: 'WIN',
+    status: 'PENDING_REFERENCE',
+    money: Money.create('20.00', 'BRL'),
+    reversedBy: new Set(),
+  };
+  const resources = { counterpartAccountId: 'gaming', occurredAt: '2026-11-12T00:16:00.000Z' };
+  const step = wagerStepFor('ROLLBACK');
+  const expired = step.apply(
+    transaction,
+    wallet,
+    resources,
+    { correlationId: 'request' },
+    reference,
+    '2026-11-12T00:15:00.000Z',
+  );
+  expect(expired).toMatchObject({
+    status: 'REJECTED',
+    failureCode: 'REFERENCE_NOT_READY',
+    referenceTransactionId: 'reference',
+  });
+  expect(
+    step.apply(
+      transaction,
+      wallet,
+      resources,
+      { correlationId: 'request' },
+      undefined,
+      '2026-11-12T00:15:00.000Z',
+    ),
+  ).toMatchObject({ status: 'REJECTED', failureCode: 'REFERENCE_NOT_FOUND' });
+  expect(
+    step.apply(
+      transaction,
+      wallet,
+      { ...resources, occurredAt: at },
+      { correlationId: 'request' },
+      reference,
+      '2026-11-12T00:15:00.000Z',
+    ),
+  ).toMatchObject({ status: 'PENDING_REFERENCE' });
 });

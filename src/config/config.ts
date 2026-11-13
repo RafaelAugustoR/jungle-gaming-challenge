@@ -13,6 +13,11 @@ export interface AppConfig {
   financialLockTimeoutMs: number;
   financialStatementTimeoutMs: number;
   financialDeadlineMs: number;
+  referenceTtlMs: number;
+  referenceBaseMs: number;
+  referenceMaxMs: number;
+  referencePollMs: number;
+  referenceBatchSize: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
   const integer = (key: string, fallback: string, max: number) => {
@@ -80,6 +85,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
     financialLockTimeoutMs: integer('FINANCIAL_LOCK_TIMEOUT_MS', '3000', 60000),
     financialStatementTimeoutMs: integer('FINANCIAL_STATEMENT_TIMEOUT_MS', '5000', 60000),
     financialDeadlineMs: integer('FINANCIAL_DEADLINE_MS', '15000', 60000),
+    referenceTtlMs: integer('REFERENCE_TTL_MS', '900000', 86400000),
+    referenceBaseMs: integer('REFERENCE_BASE_MS', '1000', 60000),
+    referenceMaxMs: integer('REFERENCE_MAX_MS', '30000', 60000),
+    referencePollMs: integer('REFERENCE_POLL_MS', '500', 60000),
+    referenceBatchSize: integer('REFERENCE_BATCH_SIZE', '50', 1000),
     probeTimeoutMs: integer('PROBE_TIMEOUT_MS', '2000', 30000),
   };
 }

@@ -14,7 +14,8 @@
     "test:integration": "bun scripts/test-integration.ts",
     "test:concurrency": "INTEGRATION=1 bun test tests/concurrency",
     "build:frontend": "bun scripts/build-frontend.ts",
-    "test:browser": "bun run build:frontend && BROWSER=1 bun test tests/integration/console.test.ts"
+    "test:browser": "bun run build:frontend && BROWSER=1 bun test tests/integration/console.test.ts",
+    "worker:references": "bun src/bootstrap/reference-worker.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",
