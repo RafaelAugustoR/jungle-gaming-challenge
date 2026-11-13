@@ -9,7 +9,11 @@ const orm = await openDatabase(config),
 const mode = process.env.OUTBOX_TEST_PAUSE;
 const pause = async (stage: string, event: ReservedEvent) => {
   process.send?.({ stage, eventId: event.eventId, token: event.token, pid: process.pid });
-  if (mode === stage) await new Promise<void>(() => {});
+  if (mode === stage) {
+    if (process.env.OUTBOX_TEST_BARRIER === '1')
+      await new Promise<void>((resolve) => process.once('message', () => resolve()));
+    else await new Promise<void>(() => {});
+  }
 };
 try {
   const publisher = new OutboxPublisher(
@@ -17,7 +21,7 @@ try {
     sqs,
     {
       queueUrl: process.env.OUTBOX_TEST_QUEUE!,
-      leaseMs: 1000,
+      leaseMs: Number(process.env.OUTBOX_TEST_LEASE ?? 1000),
       sendTimeoutMs: 500,
       batchSize: Number(process.env.OUTBOX_TEST_BATCH ?? 10),
       retryBaseMs: 10,

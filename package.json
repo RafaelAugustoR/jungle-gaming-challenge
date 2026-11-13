@@ -21,7 +21,8 @@
     "outbox:retry": "bun scripts/retry-outbox.ts",
     "worker:references": "bun src/bootstrap/reference-worker.ts",
     "worker:commands": "bun src/bootstrap/command-consumer.ts",
-    "provision:commands": "bun scripts/provision-commands.ts"
+    "provision:commands": "bun scripts/provision-commands.ts",
+    "test:recovery": "bun scripts/test-recovery.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",
