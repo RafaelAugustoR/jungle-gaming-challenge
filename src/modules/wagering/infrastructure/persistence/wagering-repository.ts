@@ -6,6 +6,8 @@ import type { AppConfig } from '../../../../config/config';
 import { MikroORM, type EntityManager } from '@mikro-orm/postgresql';
 import { DomainError } from '../../../../shared/domain/errors/domain-error';
 import {
+  isLockConflict,
+  transactionRetryReason,
   isRetryableTransactionError,
   pgCode,
   pgConstraint,
@@ -26,6 +28,11 @@ import type {
   WageringSession,
   WageringStore,
 } from '../../application/wagering-store';
+
+export interface WageringRepositoryObserver {
+  lockConflict?(): void;
+  retry?(reason: string): void;
+}
 
 interface TransactionRow {
   id: string;
@@ -139,6 +146,7 @@ export class WageringRepository implements WageringStore {
   constructor(
     @Inject(MikroORM) private readonly orm: MikroORM,
     @Inject(APP_CONFIG) private readonly config: AppConfig,
+    private readonly observer: WageringRepositoryObserver = {},
   ) {}
   async transaction<T>(
     work: (session: WageringSession) => Promise<T>,
@@ -157,6 +165,7 @@ export class WageringRepository implements WageringStore {
             }),
           );
         } catch (error) {
+          if (isLockConflict(error)) this.observer.lockConflict?.();
           const identityRace =
             pgCode(error) === '23505' &&
             ['provider_idempotency_key', 'provider_external_transaction'].includes(
@@ -168,8 +177,11 @@ export class WageringRepository implements WageringStore {
             attempt < 3 &&
             Date.now() < deadline &&
             (identityRace || isRetryableTransactionError(error))
-          )
+          ) {
+            const reason = identityRace ? 'identity_conflict' : transactionRetryReason(error);
+            this.observer.retry?.(reason);
             continue;
+          }
           if (identityRace) throw new DomainError('INFRASTRUCTURE_UNAVAILABLE');
           throw error;
         }

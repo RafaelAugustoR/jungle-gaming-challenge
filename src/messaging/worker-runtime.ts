@@ -6,6 +6,7 @@ import { loadConfig, type AppConfig } from '../config/config';
 import { openDatabase } from '../config/orm';
 import { createSqsClient } from '../config/sqs';
 import { JsonLogger } from '../observability/logger';
+import { MetricsRegistry, startMetricsListener } from '../observability/metrics.module';
 interface Runner {
   runOnce(): Promise<number>;
   stop?(): void;
@@ -17,12 +18,15 @@ export async function runWorker(
     sqs: SQSClient;
     config: AppConfig;
     signal: AbortSignal;
+    metrics: MetricsRegistry;
   }) => Promise<Runner>,
   options: { once: boolean; pollMs: number; config?: AppConfig; onReady?: () => void },
 ) {
   const config = options.config ?? loadConfig(),
     orm = await openDatabase(config),
     sqs = createSqsClient(config),
+    metrics = new MetricsRegistry(),
+    metricsServer = startMetricsListener(metrics, config.metricsPort, config.metricsAllowedNetwork),
     logger = new JsonLogger(),
     shutdown = new AbortController();
   let runner: Runner | undefined;
@@ -33,7 +37,7 @@ export async function runWorker(
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   try {
-    runner = await create({ orm, sqs, config, signal: shutdown.signal });
+    runner = await create({ orm, sqs, config, signal: shutdown.signal, metrics });
     logger.log({ event: 'worker_started', worker: name });
     options.onReady?.();
     while (!shutdown.signal.aborted) {
@@ -41,6 +45,7 @@ export async function runWorker(
       try {
         await runner.runOnce();
       } catch (error) {
+        metrics.retries.inc({ component: name, reason: 'iteration_error' });
         logger.error({ event: 'worker_iteration_failed', worker: name, error });
         if (options.once) throw error;
         if (error instanceof WorkerBackoff) delayMs = error.delayMs;
@@ -56,6 +61,7 @@ export async function runWorker(
     process.off('SIGTERM', stop);
     process.off('SIGINT', stop);
     sqs.destroy();
+    metricsServer?.stop(true);
     await orm.close(true);
     logger.log({ event: 'worker_stopped', worker: name });
   }

@@ -1,3 +1,5 @@
+import { referenceMetricsObserver } from '../../src/modules/wagering/infrastructure/observability/prometheus-reference-observer';
+import { MetricsRegistry } from '../../src/observability/metrics.module';
 import { lockWalletRows } from '../support/sql-barrier';
 import { openDatabase } from '../../src/config/orm';
 import { afterAll, beforeAll, expect, test } from 'bun:test';
@@ -287,6 +289,7 @@ integration(
     const w = await wallet(),
       pending = await submit(command(w, 'REFUND', '20.00', crypto.randomUUID()));
     await due(pending.body.transactionId, new Date(Date.now() - 1000).toISOString());
+    const retryMetrics = new MetricsRegistry();
     const impatient = new ReprocessReferences(
       new WageringRepository(runtime, {
         ...db.config,
@@ -294,6 +297,8 @@ integration(
         financialDeadlineMs: 500,
       }),
       new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+      () => {},
+      referenceMetricsObserver(retryMetrics),
     );
     await db.owner.em.fork().transactional(async (em) => {
       await lockWalletRows(em, w.id);
@@ -301,6 +306,9 @@ integration(
         impatient.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
       ).rejects.toMatchObject({ code: 'INFRASTRUCTURE_UNAVAILABLE' });
       expect(await impatient.runBatch(50)).toBe(0);
+      expect(await retryMetrics.scrape()).toContain(
+        'jungle_retries_total{component="reference",reason="processing_unavailable"} 1',
+      );
     });
     expect(await current(pending.body.transactionId)).toMatchObject({
       status: 'PENDING_REFERENCE',
@@ -375,5 +383,66 @@ integration(
     }
     await audit(broken.id);
     await audit(healthy.id);
+  },
+);
+
+integration(
+  'reference attempts and latency use the shared submission observer without counting another financial acceptance',
+  async () => {
+    const w = await wallet(),
+      origin = command(w, 'BET');
+    const pending = await submit(command(w, 'REFUND', '20.00', origin.externalTransactionId));
+    const metrics = new MetricsRegistry();
+    const measured = new ReprocessReferences(
+      new WageringRepository(runtime, db.config),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+      () => {},
+      referenceMetricsObserver(metrics),
+    );
+    await due(pending.body.transactionId);
+    expect(
+      await measured.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
+    ).toBe(false);
+    expect(await metrics.scrape()).toContain(
+      'wager_transaction_attempts_total{operation="REFUND",channel="reference",status="PENDING_REFERENCE"} 1',
+    );
+    await submit(origin);
+    await due(pending.body.transactionId);
+    expect(
+      await measured.execute({ walletId: w.id, transactionId: pending.body.transactionId }),
+    ).toBe(true);
+    const scrape = await metrics.scrape();
+    expect(scrape).toContain(
+      'wager_transaction_attempts_total{operation="REFUND",channel="reference",status="PROCESSED"} 1',
+    );
+    expect(scrape).toContain(
+      'jungle_retries_total{component="reference",reason="reference_pending"} 1',
+    );
+    expect(scrape).toContain(
+      'wager_transaction_duration_seconds_count{operation="REFUND",channel="reference",status="PROCESSED"} 1',
+    );
+    expect(await audit(w.id)).toMatchObject({ balance: '100.00', entries: 3 });
+  },
+);
+
+integration(
+  'reference batch failures are observed once without inventing a financial attempt',
+  async () => {
+    const registry = new MetricsRegistry();
+    const measured = new ReprocessReferences(
+      new WageringRepository(runtime, db.config),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+      () => {},
+      referenceMetricsObserver(registry),
+    );
+    await db.owner.em.execute('revoke select on wagering.reference_retries from jungle_runtime');
+    try {
+      await expect(measured.runBatch(10)).rejects.toThrow();
+      const text = await registry.scrape();
+      expect(text).toContain('jungle_retries_total{component="reference",reason="batch_error"} 1');
+      expect(text).not.toContain('channel="reference",status="error"');
+    } finally {
+      await db.owner.em.execute('grant select on wagering.reference_retries to jungle_runtime');
+    }
   },
 );

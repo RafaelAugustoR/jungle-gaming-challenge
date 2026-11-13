@@ -2,14 +2,27 @@ import type { MikroORM } from '@mikro-orm/postgresql';
 export interface ReservedEvent {
   eventId: string;
   aggregateId: string;
+  transactionId: string;
+  correlationId?: string;
+  providerId?: string;
   sequence: number;
   payload: Record<string, unknown>;
   token: string;
   attempts: number;
 }
+export function outboxLogContext(event: ReservedEvent) {
+  return {
+    eventId: event.eventId,
+    aggregateId: event.aggregateId,
+    transactionId: event.transactionId,
+    correlationId: event.correlationId,
+    providerId: event.providerId,
+  };
+}
 interface OutboxRow {
   event_id: string;
   aggregate_id: string;
+  transaction_id: string;
   sequence: number;
   payload: Record<string, unknown>;
   lease_token: string;
@@ -42,14 +55,19 @@ export class OutboxRepository {
         from heads where o.event_id=heads.event_id returning o.*`,
         [limit, crypto.randomUUID(), leaseMs],
       );
-      return rows.map((row) => ({
-        eventId: row.event_id,
-        aggregateId: row.aggregate_id,
-        sequence: row.sequence,
-        payload: row.payload,
-        token: row.lease_token,
-        attempts: row.attempts,
-      }));
+      return rows.map((row) => {
+        const context = eventLogContext(row.payload);
+        return {
+          eventId: row.event_id,
+          aggregateId: row.aggregate_id,
+          transactionId: row.transaction_id,
+          ...context,
+          sequence: row.sequence,
+          payload: row.payload,
+          token: row.lease_token,
+          attempts: row.attempts,
+        };
+      });
     });
   }
   async confirm(id: string, token: string): Promise<boolean> {
@@ -83,4 +101,19 @@ export class OutboxRepository {
     );
     return rows.length === 1;
   }
+}
+
+function eventLogContext(
+  payload: Record<string, unknown>,
+): Pick<ReservedEvent, 'correlationId' | 'providerId'> {
+  const eventData = payload.data;
+  const correlationId = payload.correlationId;
+  const providerId =
+    eventData && typeof eventData === 'object' && 'providerId' in eventData
+      ? (eventData as { providerId?: unknown }).providerId
+      : undefined;
+  return {
+    correlationId: typeof correlationId === 'string' ? correlationId : undefined,
+    providerId: typeof providerId === 'string' ? providerId : undefined,
+  };
 }

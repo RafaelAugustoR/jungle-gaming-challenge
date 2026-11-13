@@ -1,3 +1,7 @@
+import { combineObservers } from '../../shared/application/combine-observers';
+import { wageringRepositoryMetricsObserver } from '../../modules/wagering/infrastructure/observability/prometheus-repository-observer';
+import { commandConsumerMetricsObserver } from './observability/prometheus-command-observer';
+import { submissionMetricsObserver } from '../../modules/wagering/infrastructure/observability/prometheus-submission-observer';
 import type { AppConfig } from '../../config/config';
 import { WageringRepository } from '../../modules/wagering/infrastructure/persistence/wagering-repository';
 import { createSubmission } from '../../modules/wagering/infrastructure/create-submission';
@@ -9,6 +13,7 @@ import {
   type CommandConsumerOptions,
 } from './command-consumer';
 import type { loadCommandConfig } from './config';
+
 type Options = ReturnType<typeof loadCommandConfig> &
   Partial<Pick<CommandConsumerOptions, 'queueUrl' | 'dlqUrl'>>;
 export async function runCommandWorker(
@@ -24,13 +29,21 @@ export async function runCommandWorker(
   try {
     await runWorker(
       'command',
-      async ({ orm, sqs, signal }) => {
+      async ({ orm, sqs, signal, metrics }) => {
         const resolveOptions = { signal, timeoutMs: options.callTimeoutMs };
         const source = options.queueUrl ?? (await queueUrl(sqs, options.queueName, resolveOptions));
         const dlq =
           options.dlqUrl ?? (await queueUrl(sqs, dlqName(options.queueName), resolveOptions));
+        const observer = combineObservers<CommandConsumerObserver>(
+          commandConsumerMetricsObserver(metrics),
+          hooks.observer,
+        );
         return new CommandConsumer(
-          createSubmission(new WageringRepository(orm, config), config),
+          createSubmission(
+            new WageringRepository(orm, config, wageringRepositoryMetricsObserver(metrics)),
+            config,
+            submissionMetricsObserver(metrics),
+          ),
           sqs,
           {
             ...options,
@@ -38,7 +51,7 @@ export async function runCommandWorker(
             dlqUrl: dlq,
             financialDeadlineMs: config.financialDeadlineMs,
           },
-          hooks.observer,
+          observer,
         );
       },
       { config, once: hooks.once ?? false, pollMs: hooks.pollMs ?? 0, onReady: hooks.onReady },

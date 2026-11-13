@@ -1,7 +1,7 @@
 import { SendMessageCommand, GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
 import { publicationFailure, retryDelay, MessageTooLarge } from './publication-policy';
 import { WorkerBackoff } from '../worker-backoff';
-import { OutboxRepository, type ReservedEvent } from './outbox-repository';
+import { OutboxRepository, outboxLogContext, type ReservedEvent } from './outbox-repository';
 import { JsonLogger } from '../../observability/logger';
 
 export interface PublisherOptions {
@@ -15,9 +15,11 @@ export interface PublisherOptions {
 export interface PublisherObserver {
   reserved?(event: ReservedEvent): Promise<void>;
   sent?(event: ReservedEvent): Promise<void>;
+  retryScheduled?(disposition: 'blocked' | 'retryable'): void;
 }
 export class OutboxPublisher {
   private outageAttempts = 0;
+  private readonly logger = new JsonLogger();
   constructor(
     private readonly repository: OutboxRepository,
     private readonly sqs: SQSClient,
@@ -44,10 +46,11 @@ export class OutboxPublisher {
     return events.length;
   }
   private async publish(event: ReservedEvent): Promise<boolean> {
+    const logContext = outboxLogContext(event);
     await this.observer.reserved?.(event);
     const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
     try {
-      await this.sqs.send(
+      const sent = await this.sqs.send(
         new SendMessageCommand({
           QueueUrl: this.options.queueUrl,
           MessageBody: body,
@@ -59,10 +62,16 @@ export class OutboxPublisher {
       await this.observer.sent?.(event);
       const confirmed = await this.repository.confirm(event.eventId, event.token);
       if (!confirmed)
-        new JsonLogger().warn({
+        this.logger.warn({
           event: 'outbox_confirmation_stale',
-          eventId: event.eventId,
-          aggregateId: event.aggregateId,
+          ...logContext,
+          messageId: sent.MessageId ?? event.eventId,
+        });
+      else
+        this.logger.log({
+          event: 'outbox_published',
+          ...logContext,
+          messageId: sent.MessageId ?? event.eventId,
         });
     } catch (error) {
       let failure = error;
@@ -92,11 +101,12 @@ export class OutboxPublisher {
         event.attempts,
         this.options,
       );
+      this.observer.retryScheduled?.(blocked ? 'blocked' : 'retryable');
       await this.repository.fail(event.eventId, event.token, code, delayMs, blocked);
-      new JsonLogger().warn({
+      this.logger.warn({
         event: blocked ? 'outbox_blocked' : 'outbox_retry',
-        eventId: event.eventId,
-        aggregateId: event.aggregateId,
+        ...logContext,
+        messageId: event.eventId,
         code,
         attempt: event.attempts,
       });

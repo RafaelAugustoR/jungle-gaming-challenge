@@ -1,13 +1,19 @@
-import type { SubmissionExecution } from './wagering-store';
+import { observed, type ProcessingObserver } from './observed';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
 import { WagerTransaction } from '../domain/wager-transaction';
-import type { WagerCommand } from '../domain/wager-command';
+import type { WagerCommand, WagerKind } from '../domain/wager-command';
 import { WagerPayload } from '../domain/wager-payload';
 import { ReferenceRetryPolicy } from '../domain/reference-retry';
 import { settleWager } from './settle-wager';
 import type { SubmissionReceipt } from '../domain/submission-receipt';
-import type { WageringSession, WageringStore } from './wagering-store';
+import type { SubmissionExecution, WageringSession, WageringStore } from './wagering-store';
+
+export type SubmissionObserver = ProcessingObserver<
+  SubmissionExecution['channel'],
+  WagerKind,
+  SubmissionReceipt['body']['status']
+>;
 
 function replay(existing: WagerTransaction, hash: string): SubmissionReceipt {
   if (!existing.matchesPayload(hash)) throw new DomainError('IDEMPOTENCY_CONFLICT');
@@ -18,21 +24,36 @@ export class SubmitWagerTransaction {
     private readonly store: WageringStore,
     private readonly knownProviders: ReadonlySet<string>,
     private readonly policy: ReferenceRetryPolicy,
+    private readonly observer: SubmissionObserver = {},
   ) {}
   async execute(
     input: WagerCommand,
     key: string,
     context: EventContext,
-    execution: SubmissionExecution = {},
+    execution: SubmissionExecution,
   ): Promise<SubmissionReceipt> {
-    if (!this.knownProviders.has(input.providerId)) throw new DomainError('UNKNOWN_PROVIDER');
-    const payload = WagerPayload.create(input);
-    return this.store.transaction(async (session) => {
-      const receipt = await this.submit(session, payload, key, context);
-      if (execution.inbox) await session.recordInbox(execution.inbox, receipt.body.transactionId);
-      return receipt;
-    }, execution.signal);
+    return observed(
+      this.observer,
+      { channel: execution.channel, operation: input.kind },
+      async () => {
+        if (!this.knownProviders.has(input.providerId)) throw new DomainError('UNKNOWN_PROVIDER');
+        const payload = WagerPayload.create(input);
+        const receipt = await this.store.transaction(async (session) => {
+          const result = await this.submit(session, payload, key, context);
+          if (execution.inbox)
+            await session.recordInbox(execution.inbox, result.body.transactionId);
+          return result;
+        }, execution.signal);
+        return {
+          value: receipt,
+          operation: input.kind,
+          status: receipt.body.status,
+          idempotentReplay: receipt.body.idempotentReplay,
+        };
+      },
+    );
   }
+
   private async submit(
     session: WageringSession,
     payload: WagerPayload,

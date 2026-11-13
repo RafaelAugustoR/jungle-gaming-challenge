@@ -3,8 +3,11 @@ import type { LoggerService } from '@nestjs/common';
 export function safeMessage(value: unknown): string {
   const text = value instanceof Error ? `${value.name}: ${value.message}` : String(value);
   return text.replace(/(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
-    .replace(/(password|secret|token|authorization)([=:]\s*)[^\s,;]+/gi, '$1$2[redacted]');
+    .replace(/(password|secret|token|authorization)([=:]\s*)[^\s,;]+/gi, '$1$2[redacted]')
+    .replace(/("?(?:money|amount|balance|payload|body|originalBody)"?\s*[:=]\s*)("(?:\\.|[^"\\])*"|\{[^}]*\}|\[[^\]]*\]|[^\s,;]+)/gi, '$1[redacted]');
 }
+
+const sensitiveField = /password|secret|token|authorization|payload|body|money|amount|balance/i;
 
 function sanitize(value: unknown, seen = new WeakSet<object>()): unknown {
   if (typeof value === 'string') return safeMessage(value);
@@ -14,7 +17,7 @@ function sanitize(value: unknown, seen = new WeakSet<object>()): unknown {
     seen.add(value);
     if (Array.isArray(value)) return value.map(item => sanitize(item, seen));
     return Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-      /password|secret|token|authorization/i.test(key) ? '[redacted]' : sanitize(item, seen)]));
+      sensitiveField.test(key) ? '[redacted]' : sanitize(item, seen)]));
   }
   return typeof value === 'bigint' ? value.toString() : value;
 }

@@ -1,6 +1,10 @@
 import { integer as envInteger } from './integer';
+import { parseMetricsCidr, type ParsedMetricsCidr } from '../observability/metrics-network';
 export interface AppConfig {
   port: number;
+  metricsPort: number;
+  metricsAllowedCidr: string;
+  metricsAllowedNetwork?: ParsedMetricsCidr;
   keycloakIssuer: string;
   keycloakTokenUrl: string;
   providerClients: Readonly<Record<string, string>>;
@@ -23,8 +27,8 @@ export interface AppConfig {
   referenceBatchSize: number;
 }
 export function loadConfig(env: Record<string, string | undefined> = process.env): AppConfig {
-  const integer = (key: string, fallback: string, max: number) =>
-    envInteger(env, key, Number(fallback), max);
+  const integer = (key: string, fallback: string, max: number, min = 1) =>
+    envInteger(env, key, Number(fallback), max, min);
   const url = (key: string, protocols: string[]) => {
     const value = env[key];
     try {
@@ -36,6 +40,11 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
   };
   if (Boolean(env.AWS_ACCESS_KEY_ID) !== Boolean(env.AWS_SECRET_ACCESS_KEY))
     throw new Error('AWS credentials must be supplied together');
+  const metricsAllowedCidr = env.METRICS_ALLOWED_CIDR ?? '';
+  const metricsAllowedNetwork = metricsAllowedCidr
+    ? parseMetricsCidr(metricsAllowedCidr)
+    : undefined;
+  if (metricsAllowedCidr && !metricsAllowedNetwork) throw new Error('Invalid METRICS_ALLOWED_CIDR');
   const urlWithDefault = (key: string, fallback: string) => {
     const value = env[key] ?? fallback;
     try {
@@ -109,6 +118,9 @@ export function loadConfig(env: Record<string, string | undefined> = process.env
       `${env.KEYCLOAK_ISSUER || 'http://localhost:18080/realms/jungle'}/protocol/openid-connect/certs`,
     ),
     port: integer('PORT', '3000', 65535),
+    metricsPort: integer('METRICS_PORT', '0', 65535, 0),
+    metricsAllowedCidr,
+    metricsAllowedNetwork,
     databaseUrl: url('DATABASE_URL', ['postgres:', 'postgresql:']),
     sqsEndpoint: url('SQS_ENDPOINT', ['http:', 'https:']),
     awsRegion: env.AWS_REGION || 'us-east-1',

@@ -1,3 +1,4 @@
+import { dlqDepth } from '../queue';
 import { createHash } from 'node:crypto';
 import {
   ChangeMessageVisibilityCommand,
@@ -27,6 +28,8 @@ export interface CommandConsumerOptions {
 export interface CommandConsumerObserver {
   committed?(messageId: string): Promise<void>;
   deadLetterSent?(messageId: string): Promise<void>;
+  retryScheduled?(reason: 'message_retry'): void;
+  dlqDepth?(depth: number): void;
 }
 type ReceivedCommand = Message & { MessageId: string; ReceiptHandle: string };
 export class CommandConsumer {
@@ -35,6 +38,7 @@ export class CommandConsumer {
   private stopping = false;
   private active?: AbortController;
   private drainTimer?: ReturnType<typeof setTimeout>;
+  private lastDlqSampleAt = 0;
   constructor(
     private readonly submit: SubmitWagerTransaction,
     private readonly sqs: SQSClient,
@@ -97,8 +101,16 @@ export class CommandConsumer {
       const disposition = await this.withLease(message, (signal) => this.handle(message, signal));
       await this.settle(message, disposition);
     }
+    await this.refreshDlqDepth();
     return messages.length;
   }
+  private async refreshDlqDepth() {
+    if (!this.observer.dlqDepth || Date.now() - this.lastDlqSampleAt < 5000) return;
+    this.lastDlqSampleAt = Date.now();
+    const depth = await dlqDepth(this.sqs, this.options.dlqUrl, this.callOptions().abortSignal);
+    if (depth !== undefined) this.observer.dlqDepth(depth);
+  }
+
   private async withLease(
     message: ReceivedCommand,
     handle: (signal: AbortSignal) => Promise<Disposition>,
@@ -159,6 +171,7 @@ export class CommandConsumer {
             hash: commandInboxHash(envelope.command, envelope.key),
           },
           signal,
+          channel: 'sqs',
         },
       );
       context.transactionId = receipt.body.transactionId;
@@ -231,5 +244,6 @@ export class CommandConsumer {
       : Math.max(1, Math.ceil(retryDelay(attempts, this.options) / 1000));
     // Financial work/cancellation has finished before returning visibility.
     await this.visibility(message, seconds).catch(() => undefined);
+    if (!this.stopping) this.observer.retryScheduled?.('message_retry');
   }
 }

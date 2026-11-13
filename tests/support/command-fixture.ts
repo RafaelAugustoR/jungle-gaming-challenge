@@ -101,6 +101,7 @@ export function commandSuite() {
     overrides: Partial<
       import('../../src/messaging/commands/command-consumer').CommandConsumerOptions
     > = {},
+    observer: import('../../src/messaging/commands/command-consumer').CommandConsumerObserver = {},
   ) {
     const { CommandConsumer } = await import('../../src/messaging/commands/command-consumer');
     return new CommandConsumer(
@@ -121,6 +122,7 @@ export function commandSuite() {
         drainMs: 20000,
         ...overrides,
       },
+      observer,
     );
   }
 

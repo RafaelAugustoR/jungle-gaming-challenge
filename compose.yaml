@@ -1,5 +1,6 @@
 name: jungle-challenge
 x-backend-env: &backend-env
+  METRICS_ALLOWED_CIDR: ${METRICS_NETWORK_SUBNET:-172.31.20.0/24}
   DATABASE_URL: postgresql://jungle_runtime:runtime-demo-only@postgres:5432/jungle
   PROVIDER_CLIENTS: ${PROVIDER_CLIENTS:-}
   FINANCIAL_LOCK_TIMEOUT_MS: ${FINANCIAL_LOCK_TIMEOUT_MS:-3000}
@@ -57,11 +58,13 @@ services:
     build:
       context: .
       target: runtime
+    ports: ["127.0.0.1:3000:3000"]
+    networks: [default, metrics-scrape]
     environment:
       <<: *backend-env
+      METRICS_PORT: 9464
       DEMO_PROVIDER_CLIENT_SECRETS: ${DEMO_PROVIDER_CLIENT_SECRETS:-}
       KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/token
-    ports: ["127.0.0.1:3000:3000"]
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 2s
@@ -77,8 +80,10 @@ services:
       context: .
       target: runtime
     command: ["bun", "src/bootstrap/reference-worker.ts"]
+    networks: [default, metrics-scrape]
     environment:
       <<: *backend-env
+      METRICS_PORT: 9465
       REFERENCE_POLL_MS: ${REFERENCE_POLL_MS:-500}
       REFERENCE_BATCH_SIZE: ${REFERENCE_BATCH_SIZE:-50}
     stop_grace_period: 25s
@@ -122,8 +127,10 @@ services:
       target: runtime
     command: ['bun', 'run', 'worker:commands']
     restart: unless-stopped
+    networks: [default, metrics-scrape]
     environment:
       <<: *backend-env
+      METRICS_PORT: 9466
       COMMAND_QUEUE_NAME: ${COMMAND_QUEUE_NAME:-wager-transactions.fifo}
       COMMAND_VISIBILITY_SECONDS: ${COMMAND_VISIBILITY_SECONDS:-30}
       COMMAND_CALL_TIMEOUT_MS: ${COMMAND_CALL_TIMEOUT_MS:-5000}
@@ -153,8 +160,10 @@ services:
       target: runtime
     command: ["bun", "run", "worker:outbox"]
     restart: unless-stopped
+    networks: [default, metrics-scrape]
     environment: &event-env
       <<: *backend-env
+      METRICS_PORT: 9467
       OUTBOX_QUEUE_NAME: ${OUTBOX_QUEUE_NAME:-wager-events.fifo}
       OUTBOX_LEASE_MS: ${OUTBOX_LEASE_MS:-30000}
       OUTBOX_SEND_TIMEOUT_MS: ${OUTBOX_SEND_TIMEOUT_MS:-5000}
@@ -172,7 +181,10 @@ services:
       target: runtime
     command: ["bun", "run", "worker:events"]
     restart: unless-stopped
-    environment: *event-env
+    networks: [default, metrics-scrape]
+    environment:
+      <<: *event-env
+      METRICS_PORT: 9468
     depends_on:
       migrate: { condition: service_completed_successfully }
       provision-events: { condition: service_completed_successfully }
@@ -183,6 +195,7 @@ services:
       target: test
     environment:
       <<: *backend-env
+      METRICS_PORT: 0
       DATABASE_URL: postgresql://jungle:local-demo-only@postgres:5432/jungle
       KEYCLOAK_ISSUER: http://keycloak:8080/realms/jungle
       INTEGRATION: "1"
@@ -191,5 +204,40 @@ services:
       sqs: { condition: service_healthy }
       keycloak: { condition: service_healthy }
       provision: { condition: service_completed_successfully }
+  prometheus:
+    image: prom/prometheus:v3.5.0
+    command: ["--config.file=/etc/prometheus/prometheus.yml", "--storage.tsdb.path=/prometheus", "--storage.tsdb.retention.time=7d"]
+    volumes: ["./infra/observability/prometheus.yml:/etc/prometheus/prometheus.yml:ro", "prometheus-data:/prometheus"]
+    ports: ["127.0.0.1:9090:9090"]
+    networks: [metrics-scrape, metrics-ui, monitoring-edge]
+    depends_on:
+      api: { condition: service_started }
+      command-consumer: { condition: service_started }
+      reference-worker: { condition: service_started }
+  grafana:
+    image: grafana/grafana:12.1.1
+    environment:
+      GF_SECURITY_ADMIN_USER: ${GRAFANA_ADMIN_USER:-admin}
+      GF_SECURITY_ADMIN_PASSWORD: ${GRAFANA_ADMIN_PASSWORD:-local-demo-only}
+      GF_USERS_ALLOW_SIGN_UP: "false"
+    volumes:
+      - grafana-data:/var/lib/grafana
+      - ./infra/observability/grafana/provisioning:/etc/grafana/provisioning:ro
+      - ./infra/observability/grafana/dashboards:/var/lib/grafana/dashboards:ro
+    ports: ["127.0.0.1:3001:3000"]
+    networks: [metrics-ui, monitoring-edge]
+    depends_on:
+      prometheus: { condition: service_started }
 volumes:
   postgres-data:
+  prometheus-data:
+  grafana-data:
+networks:
+  metrics-scrape:
+    internal: true
+    ipam:
+      config:
+        - subnet: ${METRICS_NETWORK_SUBNET:-172.31.20.0/24}
+  metrics-ui:
+    internal: true
+  monitoring-edge: {}

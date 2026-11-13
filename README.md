@@ -12,7 +12,7 @@ curl --fail http://localhost:3000/health/live
 curl --fail http://localhost:3000/health/ready
 ```
 
-O Compose aplica migrations antes de iniciar a API. A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Abra **http://localhost:3000** para acessar o console. Keycloak importa o realm `jungle` com os usuários `viewer`, `operator` e `demo-operator`, todos com senha local `demo-only`. Use `demo-operator` para criar wallets e executar cenários; os demais perfis consultam. Administração local: `admin` / `local-demo-only`.
+O Compose aplica migrations antes de iniciar a API. A API usa a porta 3000; PostgreSQL 55439; SQS 4566; Keycloak 18080; Prometheus 9090; Grafana 3001. Portas são publicadas apenas em loopback. As credenciais do Compose são públicas e exclusivas de demonstração local. Abra **http://localhost:3000** para acessar o console. Keycloak importa o realm `jungle` com os usuários `viewer`, `operator` e `demo-operator`, todos com senha local `demo-only`. Use `demo-operator` para criar wallets e executar cenários; os demais perfis consultam. Administração local: `admin` / `local-demo-only` no Keycloak e `admin` / `local-demo-only` no Grafana; defina `GRAFANA_ADMIN_PASSWORD` antes de compartilhar o ambiente.
 
 ```sh
 bun install --frozen-lockfile
@@ -134,6 +134,8 @@ Veja [tratamento da revisão](docs/evidence/issue-3/review-follow-up.md) e [evid
 - [Experimento de carga](docs/load-testing.md)
 - [Observabilidade](docs/observability.md)
 - [Entrega e demonstração](docs/delivery.md)
+
+Prometheus/Grafana são iniciados pelo Compose. O dashboard **Jungle Gaming Operations** é provisionado automaticamente. O scrape dos processos usa portas internas sem publicação no host; o acesso detalhado e os procedimentos para diagnosticar/reiniciar dependências estão em [docs/observability.md](docs/observability.md). Para incluir o publisher no dashboard, inicie também `docker compose --profile events up --build -d outbox-publisher event-consumer`.
 
 ## Direção técnica
 

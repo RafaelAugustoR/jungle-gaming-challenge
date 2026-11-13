@@ -1,4 +1,4 @@
-import { GetQueueUrlCommand, type SQSClient } from '@aws-sdk/client-sqs';
+import { GetQueueUrlCommand, GetQueueAttributesCommand, type SQSClient } from '@aws-sdk/client-sqs';
 export function dlqName(name: string): string {
   return name.replace(/\.fifo$/, '-dlq.fifo');
 }
@@ -13,4 +13,28 @@ export async function queueUrl(
   });
   if (!QueueUrl) throw new Error('QUEUE_NOT_FOUND');
   return QueueUrl;
+}
+
+const depthAttributes = [
+  'ApproximateNumberOfMessages',
+  'ApproximateNumberOfMessagesNotVisible',
+  'ApproximateNumberOfMessagesDelayed',
+] as const;
+export async function dlqDepth(
+  sqs: SQSClient,
+  url: string,
+  signal: AbortSignal,
+): Promise<number | undefined> {
+  try {
+    const { Attributes } = await sqs.send(
+      new GetQueueAttributesCommand({ QueueUrl: url, AttributeNames: [...depthAttributes] }),
+      { abortSignal: signal },
+    );
+    const values = depthAttributes.map((name) => Number(Attributes?.[name] ?? 0));
+    return values.every((value) => Number.isFinite(value) && value >= 0)
+      ? values.reduce((sum, value) => sum + value, 0)
+      : undefined;
+  } catch {
+    return undefined;
+  } // telemetry failure never changes message disposition
 }

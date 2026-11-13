@@ -416,6 +416,7 @@ integration(
     const worker = commandWorker(state.database.config, state.queue, state.dlq);
     try {
       await worker.wait('committed');
+      expect((await worker.wait('dlqDepth')).depth).toBe(0);
       await worker.stop();
       const logs = (await worker.logs)
         .trim()

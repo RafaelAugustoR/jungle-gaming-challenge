@@ -67,6 +67,10 @@ test('HTTP validates token signature, issuer, audience, expiry and required clai
   const tampered = `${header}.${Buffer.from(JSON.stringify({ ...JSON.parse(Buffer.from(payload!, 'base64url').toString()), sub: 'another-user' })).toString('base64url')}.${signature}`;
   expect((await post(tampered)).status).toBe(401);
 });
+test('liveness remains public while internal metrics require an authenticated viewer', async () => {
+  expect((await fetch(`${base}/health/live`)).status).toBe(200);
+  expect((await fetch(`${base}/internal/metrics`)).status).toBe(401);
+});
 test('HTTP does not trust role-bearing tokens from unrelated clients or providers', async () => {
   for (const claims of [
     { azp: 'other-client' },

@@ -1,7 +1,11 @@
 import type { WagerReference } from '../domain/wager-step';
 import type { TransactionKind, WagerKind } from '../domain/wager-command';
 import type { Wallet, WalletChange } from '../../wallets/domain/wallet';
-import type { TransactionState, TransactionStatus, WagerTransaction } from '../domain/wager-transaction';
+import type {
+  TransactionState,
+  TransactionStatus,
+  WagerTransaction,
+} from '../domain/wager-transaction';
 import type { SubmissionReceipt } from '../domain/submission-receipt';
 import type { MoneyProps } from '../../../shared/domain/money';
 export interface TransactionView extends TransactionState {
@@ -46,6 +50,7 @@ export interface PendingReferenceCandidate {
 export interface SubmissionExecution {
   inbox?: { consumerName: string; messageId: string; hash: string };
   signal?: AbortSignal;
+  channel: 'http' | 'sqs';
 }
 export interface WageringSession {
   recordInbox(
