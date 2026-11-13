@@ -155,16 +155,18 @@ docker compose --profile events up -d --scale outbox-publisher=2 outbox-publishe
 
 `--once` executa uma iteração e encerra: `bun run worker:outbox --once`. O `.env.example` documenta `OUTBOX_*`: lease padrão 30s, timeout de envio 5s (sempre menor que a lease), lote de até 20 wallets, backoff exponencial com jitter (base 1s, teto 60s) e polling de 500ms. SIGTERM/SIGINT aguardam a iteração atual e fecham conexões; morte abrupta deixa a lease recuperável.
 
-Falhas transitórias agendam `next_attempt_at`; erros permanentes de contrato/autorização ficam em `blocked_at` com `last_error_code`. A cabeça bloqueada retém os eventos seguintes **da mesma wallet**; outras wallets continuam. Para diagnóstico, consulte com acesso SQL autorizado:
+Falhas transitórias agendam `next_attempt_at`. Erros de credencial/configuração liberam a lease e colocam o publisher inteiro em backoff; após corrigir a causa, a recuperação é automática. Somente rejeição específica de conteúdo pelo SQS (`InvalidMessageContents`) bloqueia o evento em `blocked_at` com `last_error_code`. A cabeça bloqueada retém os eventos seguintes **da mesma wallet**; outras wallets continuam. Para diagnóstico, consulte com acesso SQL autorizado:
 
 ```sql
 select event_id, aggregate_id, sequence, attempts, lease_until,
        next_attempt_at, blocked_at, last_error_code
 from wagering.outbox where published_at is null
 order by occurred_at, sequence;
-select * from wagering.event_projection;
+select * from demo_consumer.event_projection;
 ```
 
-Corrija a causa (permissão, configuração ou código) e reative explicitamente, preservando o evento: `bun run outbox:retry <eventId>`. Não altere o payload financeiro nem marque publicação manualmente. Payload inválido exige correção do produtor/validador e investigação antes de reativar; o comando não o reescreve. Não há expurgo automático de inbox/outbox, inclusive eventos publicados ou bloqueados.
+Corrija a causa (permissão, configuração ou código) e reative explicitamente, preservando o evento: `bun run outbox:retry <eventId>`. Não altere o payload financeiro nem marque publicação manualmente. Conteúdo recusado pelo SQS exige investigação/correção do produtor ou transporte antes de reativar; o comando não o reescreve. O publisher confia no payload já persistido e acrescenta somente a sequência como metadado de transporte; a validação de entrada fica no consumidor. Não há expurgo automático de inbox/outbox, inclusive eventos publicados ou bloqueados.
 
-O transporte admite reentregas, inclusive após expiração da deduplicação SQS. A inbox persistente evita efeitos repetidos, e a projeção não regride por evento atrasado. Ela é demonstrativa e eventualmente consistente; decisões financeiras continuam usando wallet/ledger. Mensagens inválidas no consumidor permanecem na fila para investigação após o prazo de visibilidade. [Testes, garantias e limites da Issue #8](docs/evidence/issue-8/README.md).
+O transporte admite reentregas, inclusive após expiração da deduplicação SQS. A inbox persistente evita efeitos repetidos, e a projeção não regride por evento atrasado. Ela é demonstrativa e eventualmente consistente; decisões financeiras continuam usando wallet/ledger. O provisionamento cria também `wager-events-dlq.fifo` (retenção 14 dias) e configura redrive nativo após cinco recebimentos. Mensagens inválidas/conflitantes não são apagadas pelo consumidor; seguem para essa DLQ. Falhas são isoladas por mensagem/grupo, sem impedir ack de outras wallets. Investigue o motivo nos logs por MessageId, corrija a causa e use redrive SQS autorizado para a fila original, preservando o corpo; a inbox continua protegendo eventos já aplicados. Não faça redrive automático de conteúdo ainda inválido. [Testes, garantias e limites da Issue #8](docs/evidence/issue-8/README.md).
+
+O schema `demo_consumer` separa inbox/projeção demonstrativas do domínio financeiro. Neste recorte os processos ainda usam o papel de demonstração `jungle_runtime`, com grants explícitos por tabela/coluna; separar logins API/publisher/consumidor exige coordenar provisionamento e gestão de credenciais e fica como endurecimento posterior, sem ampliar os grants financeiros.

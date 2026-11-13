@@ -25,25 +25,28 @@ export class Migration202611130006 extends Migration {
       create trigger outbox_identity before update on wagering.outbox for each row execute function wagering.outbox_identity();
       create index outbox_publishable on wagering.outbox(next_attempt_at,occurred_at) where published_at is null and blocked_at is null;
       grant update(published_at,lease_token,lease_until,attempts,next_attempt_at,blocked_at,last_error_code) on wagering.outbox to jungle_runtime;
-      create table wagering.event_inbox (
+      create schema demo_consumer;
+      grant usage on schema demo_consumer to jungle_runtime;
+      create table demo_consumer.event_inbox (
         consumer_name text not null, event_id uuid not null, payload_hash text not null,
         aggregate_id uuid not null, sequence integer not null check(sequence>0),
         processed_at timestamptz not null default clock_timestamp(), primary key(consumer_name,event_id)
       );
-      create trigger event_inbox_immutable before update or delete or truncate on wagering.event_inbox for each statement execute function wagering.immutable_record();
-      create table wagering.event_projection (
+      create trigger event_inbox_immutable before update or delete or truncate on demo_consumer.event_inbox for each statement execute function wagering.immutable_record();
+      create table demo_consumer.event_projection (
         consumer_name text not null, aggregate_id uuid not null,
         sequence integer not null check(sequence>0), event_id uuid not null,
         event_type text not null, balance jsonb, wallet_version integer,
         primary key(consumer_name,aggregate_id)
       );
-      grant select,insert on wagering.event_inbox to jungle_runtime;
-      grant select,insert,update on wagering.event_projection to jungle_runtime;
+      grant select,insert on demo_consumer.event_inbox to jungle_runtime;
+      grant select,insert,update on demo_consumer.event_projection to jungle_runtime;
     `);
   }
   async down(): Promise<void> {
     this.addSql(`
-      drop table wagering.event_projection,wagering.event_inbox;
+      drop table demo_consumer.event_projection,demo_consumer.event_inbox;
+      drop schema demo_consumer;
       drop trigger outbox_identity on wagering.outbox;
       drop function wagering.outbox_identity();
       drop trigger outbox_no_delete on wagering.outbox;

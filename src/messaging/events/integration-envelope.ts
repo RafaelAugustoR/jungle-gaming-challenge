@@ -1,21 +1,20 @@
-import { Money, type MoneyProps } from '../../shared/domain/money';
-export interface IntegrationEnvelope {
-  eventId: string;
-  aggregateId: string;
-  eventType: string;
-  version: number;
-  occurredAt: string;
-  correlationId: string;
-  sequence: number;
-  data: Record<string, unknown>;
-}
+import { Money } from '../../shared/domain/money';
+import type { IntegrationEvent } from '../../shared/domain/events/integration-event';
+import type { WalletBalanceChanged } from '../../modules/wallets/domain/events/wallet-balance-changed';
+import type { WagerResultEvent } from '../../modules/wagering/domain/events/wager-events';
+import { isUuid } from '../../shared/domain/is-uuid';
+type Envelope<E extends IntegrationEvent<unknown>> =
+  E extends IntegrationEvent<unknown>
+    ? Omit<ReturnType<E['toJSON']>, 'eventType'> & { eventType: E['eventType']; sequence: number }
+    : never;
+export type IntegrationEnvelope = Envelope<WalletBalanceChanged | WagerResultEvent>;
 export class InvalidIntegrationEvent extends Error {
   constructor() {
     super('INVALID_INTEGRATION_EVENT');
     this.name = 'InvalidIntegrationEvent';
   }
 }
-const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
   let value: unknown;
   try {
@@ -27,13 +26,16 @@ export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
     throw new InvalidIntegrationEvent();
   const event = value as IntegrationEnvelope;
   if (
-    typeof event.eventId !== 'string' ||
-    !uuid.test(event.eventId) ||
-    typeof event.aggregateId !== 'string' ||
-    !uuid.test(event.aggregateId) ||
+    !isUuid(event.eventId) ||
+    !isUuid(event.aggregateId) ||
     typeof event.eventType !== 'string' ||
     !event.eventType ||
-    event.eventType.length > 128 ||
+    ![
+      'WalletBalanceChanged',
+      'WagerTransactionProcessed',
+      'WagerTransactionRejected',
+      'WagerTransactionPendingReference',
+    ].includes(event.eventType) ||
     !Number.isSafeInteger(event.version) ||
     event.version < 1 ||
     !Number.isSafeInteger(event.sequence) ||
@@ -42,17 +44,47 @@ export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
     !Number.isFinite(Date.parse(event.occurredAt)) ||
     typeof event.correlationId !== 'string' ||
     !event.correlationId ||
+    (event.causationId !== undefined && typeof event.causationId !== 'string') ||
     !event.data ||
     typeof event.data !== 'object' ||
     Array.isArray(event.data)
   )
     throw new InvalidIntegrationEvent();
   if (event.eventType === 'WalletBalanceChanged') {
-    if (!Number.isSafeInteger(event.data.walletVersion) || (event.data.walletVersion as number) < 1)
+    if (!Number.isSafeInteger(event.data.walletVersion) || event.data.walletVersion < 1)
+      throw new InvalidIntegrationEvent();
+    if (
+      !isUuid(event.data.walletId) ||
+      !isUuid(event.data.transactionId) ||
+      !['CREDIT', 'DEBIT'].includes(event.data.direction)
+    )
       throw new InvalidIntegrationEvent();
     try {
-      const balance = Money.rehydrate(event.data.balanceAfter as MoneyProps);
+      Money.rehydrate(event.data.money);
+      Money.rehydrate(event.data.balanceBefore);
+      const balance = Money.rehydrate(event.data.balanceAfter);
       if (balance.isNegative()) throw new Error();
+    } catch {
+      throw new InvalidIntegrationEvent();
+    }
+  } else {
+    const data = event.data;
+    if (
+      !isUuid(data.transactionId) ||
+      !isUuid(data.walletId) ||
+      ![
+        data.providerId,
+        data.externalTransactionId,
+        data.playerId,
+        data.roundId,
+        data.gameId,
+      ].every((value) => typeof value === 'string') ||
+      !['BET', 'WIN', 'LOSS', 'CANCEL', 'ROLLBACK'].includes(data.kind)
+    )
+      throw new InvalidIntegrationEvent();
+    try {
+      Money.rehydrate(data.money);
+      Money.rehydrate(data.balance);
     } catch {
       throw new InvalidIntegrationEvent();
     }

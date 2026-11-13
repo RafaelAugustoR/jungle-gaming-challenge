@@ -24,13 +24,13 @@ Os testes criam bancos PostgreSQL descartáveis e filas SQS FIFO com UUIDs. Não
 | Ordenação             | Eventos 2/3 de uma BET aguardam confirmação dos predecessores da mesma wallet                     |
 | Isolamento            | Cabeça em backoff não impede publicação de outra wallet                                           |
 | Falha de transporte   | Fila ausente mantém evento pendente e agenda nova tentativa                                       |
-| Falha permanente      | Payload inválido permanece bloqueado e diagnosticável; reativação explícita preserva identidade   |
+| Falha permanente      | Rejeição de conteúdo fica retida; erros de credencial usam retry automático e backoff global      |
 | Inbox persistente     | Reentrega é reconhecida e apagada da fila somente após commit                                     |
 | Projeção              | Evento atrasado não reduz sequência, versão ou saldo; ID reutilizado com outro payload é recusado |
 | Atomicidade           | Falha injetada na projeção desfaz também a inbox; tentativa seguinte aplica o evento              |
 | Imutabilidade         | Papel runtime não altera payload nem apaga outbox                                                 |
 
-A expiração nos testes altera o prazo persistido com o papel proprietário em banco descartável. Isso evita depender de sleeps; a condição de posse é sempre avaliada pelo relógio PostgreSQL. A corrupção deliberada de payload desabilita temporariamente o trigger apenas no fixture privilegiado.
+A expiração nos testes altera o prazo persistido com o papel proprietário em banco descartável. Isso evita depender de sleeps; a condição de posse é sempre avaliada pelo relógio PostgreSQL. Não se corrompe mais o payload no teste: o publisher confia no evento persistido; o parse ocorre apenas na fronteira do consumidor. A política pura testa classificação/jitter, e um erro de credencial é injetado somente no adaptador SQS para provar liberação da lease e retomada sem reset.
 
 ## Validação local
 
@@ -40,4 +40,10 @@ Em 13/11/2026: `bun run build`, `bun test` (32 aprovados; integrações desabili
 
 A entrega é **pelo menos uma vez**. A deduplicação FIFO de cinco minutos não substitui a inbox. Cada wallet tem um grupo SQS e somente a primeira entrada não publicada pode ser reservada. Leases expiradas não revogam um envio já em voo: uma cópia antiga pode chegar depois, por isso o consumidor também protege a sequência e a versão da projeção. Não há afirmação de exactly-once no transporte.
 
-A projeção demonstra o último saldo observado, com consistência eventual. Não substitui o ledger nem serve para autorizar apostas. Inbox, outbox e eventos bloqueados não têm expurgo automático nesta entrega. O consumidor demonstrativo não descarta mensagens inválidas; elas reaparecem após a visibility timeout e exigem investigação operacional. Não se cria outro journal ao consumir eventos.
+A projeção demonstra o último saldo observado, com consistência eventual. Não substitui o ledger nem serve para autorizar apostas. Inbox, outbox e eventos bloqueados não têm expurgo automático nesta entrega. O consumidor demonstrativo não descarta mensagens inválidas; o redrive nativo move-as para a DLQ FIFO após cinco recebimentos. O teste usa visibility zero para provar cinco falhas e entrega na DLQ real sem sleeps; outra wallet do mesmo lote recebe ack. O provisionamento também atualiza filas já existentes. A DLQ tem retenção de 14 dias e requer investigação/redrive manual após corrigir a causa. Não se cria outro journal ao consumir eventos.
+
+## Rodada de revisão
+
+As threads operacionais foram tratadas com testes de política, credenciais, DLQ real, isolamento por grupo, schema separado e bootstraps independentes. O publisher deixou de revalidar o evento próprio; a sequência ainda é enriquecimento de transporte para evitar alterar os writers financeiros no recorte paralelo da Issue #6. O parser do consumidor deriva os tipos das classes concretas e inclui causationId. Separação de principals SQL foi documentada como endurecimento posterior; grants seguem explícitos e nenhum privilégio financeiro novo foi concedido.
+
+Validação da revisão: suíte completa com **69 aprovados, 483 asserções e um teste exclusivo de navegador pulado**. A suíte específica cobre 11 cenários (76 asserções após incluir provisionamento idempotente de fila existente). Quatro testes unitários adicionais cobrem classificação, jitter, configuração independente e envelope com causação.

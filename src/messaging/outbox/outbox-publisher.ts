@@ -1,5 +1,6 @@
 import { SendMessageCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { InvalidIntegrationEvent, parseIntegrationEvent } from '../events/integration-envelope';
+import { publicationFailure, retryDelay } from './publication-policy';
+import { WorkerBackoff } from '../worker-backoff';
 import { OutboxRepository, type ReservedEvent } from './outbox-repository';
 import { JsonLogger } from '../../observability/logger';
 
@@ -15,26 +16,8 @@ export interface PublisherObserver {
   reserved?(event: ReservedEvent): Promise<void>;
   sent?(event: ReservedEvent): Promise<void>;
 }
-function errorCode(error: unknown): string {
-  return error instanceof Error && /^[A-Za-z0-9_]{1,100}$/.test(error.name)
-    ? error.name
-    : 'PublishError';
-}
-function permanent(error: unknown): boolean {
-  return (
-    error instanceof InvalidIntegrationEvent ||
-    (error instanceof Error &&
-      [
-        'InvalidMessageContents',
-        'InvalidParameterValue',
-        'UnsupportedOperation',
-        'AccessDeniedException',
-        'InvalidClientTokenId',
-        'UnrecognizedClientException',
-      ].includes(error.name))
-  );
-}
 export class OutboxPublisher {
+  private outageAttempts = 0;
   constructor(
     private readonly repository: OutboxRepository,
     private readonly sqs: SQSClient,
@@ -53,15 +36,17 @@ export class OutboxPublisher {
         failures.map((result) => result.reason),
         'OUTBOX_BATCH_FAILED',
       );
+    if (results.some((result) => result.status === 'fulfilled' && result.value)) {
+      this.outageAttempts++;
+      throw new WorkerBackoff(retryDelay(this.outageAttempts, this.options));
+    }
+    if (events.length) this.outageAttempts = 0;
     return events.length;
   }
-  private async publish(event: ReservedEvent): Promise<void> {
+  private async publish(event: ReservedEvent): Promise<boolean> {
     await this.observer.reserved?.(event);
     try {
       const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
-      const envelope = parseIntegrationEvent(body);
-      if (envelope.eventId !== event.eventId || envelope.aggregateId !== event.aggregateId)
-        throw new InvalidIntegrationEvent();
       await this.sqs.send(
         new SendMessageCommand({
           QueueUrl: this.options.queueUrl,
@@ -80,14 +65,12 @@ export class OutboxPublisher {
           aggregateId: event.aggregateId,
         });
     } catch (error) {
-      const code = errorCode(error),
-        blocked = permanent(error);
-      const maximum = Math.min(
-        this.options.retryMaxMs,
-        this.options.retryBaseMs * 2 ** Math.min(event.attempts - 1, 20),
+      const { code, blocked, delayMs, pauseWorker } = publicationFailure(
+        error,
+        event.attempts,
+        this.options,
       );
-      const delay = Math.floor(maximum * (0.5 + Math.random() / 2));
-      await this.repository.fail(event.eventId, event.token, code, delay, blocked);
+      await this.repository.fail(event.eventId, event.token, code, delayMs, blocked);
       new JsonLogger().warn({
         event: blocked ? 'outbox_blocked' : 'outbox_retry',
         eventId: event.eventId,
@@ -95,6 +78,8 @@ export class OutboxPublisher {
         code,
         attempt: event.attempts,
       });
+      return pauseWorker;
     }
+    return false;
   }
 }

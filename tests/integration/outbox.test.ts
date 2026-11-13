@@ -135,7 +135,7 @@ integration(
       const [projection] = await runtime.em
         .fork()
         .execute(
-          'select sequence,balance,wallet_version from wagering.event_projection where aggregate_id=?',
+          'select sequence,balance,wallet_version from demo_consumer.event_projection where aggregate_id=?',
           [wallet.id],
         );
       expect(projection).toMatchObject({
@@ -148,7 +148,7 @@ integration(
       ).rejects.toThrow();
       const [{ count }] = await runtime.em
         .fork()
-        .execute('select count(*)::int as count from wagering.event_inbox');
+        .execute('select count(*)::int as count from demo_consumer.event_inbox');
       expect(count).toBe(3);
     } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
@@ -283,7 +283,7 @@ integration(
     const [retry] = await repository.claim(10, 30000);
     expect(retry!.eventId).toBe(event!.eventId);
     expect(
-      await repository.fail(retry!.eventId, retry!.token, 'InvalidIntegrationEvent', 0, true),
+      await repository.fail(retry!.eventId, retry!.token, 'InvalidMessageContents', 0, true),
     ).toBe(true);
     expect(await repository.claim(10, 30000)).toHaveLength(0);
     expect(await repository.retryBlocked(retry!.eventId)).toBe(true);
@@ -401,7 +401,7 @@ integration(
 );
 
 integration(
-  'failed sends retry and invalid committed payloads block without being discarded',
+  'missing queue pauses publisher and leaves the event retryable',
   async () => {
     const wallet = await opening();
     const { createSqsClient } = await import('../../src/config/sqs');
@@ -417,7 +417,7 @@ integration(
         retryBaseMs: 10000,
         retryMaxMs: 10000,
       });
-      expect(await publisher.runOnce()).toBe(1);
+      await expect(publisher.runOnce()).rejects.toThrow('WORKER_BACKOFF');
       const [state] = await database.owner.em.execute(
         'select published_at,lease_token,blocked_at,attempts,last_error_code,next_attempt_at>clock_timestamp() as waiting from wagering.outbox where aggregate_id=?',
         [wallet.id],
@@ -430,23 +430,6 @@ integration(
         waiting: true,
       });
       expect(state.last_error_code).toBeString();
-      await database.owner.em.fork().transactional(async (em) => {
-        await em.execute('alter table wagering.outbox disable trigger outbox_identity');
-        await em.execute(
-          "update wagering.outbox set payload='{}'::jsonb,next_attempt_at=clock_timestamp() where aggregate_id=?",
-          [wallet.id],
-        );
-        await em.execute('alter table wagering.outbox enable trigger outbox_identity');
-      });
-      expect(await publisher.runOnce()).toBe(1);
-      const [blocked] = await database.owner.em.execute(
-        'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=?',
-        [wallet.id],
-      );
-      expect(blocked.published_at).toBeNull();
-      expect(blocked.blocked_at).not.toBeNull();
-      expect(blocked.last_error_code).toBe('InvalidIntegrationEvent');
-      expect(await publisher.runOnce()).toBe(0);
     } finally {
       sqs.destroy();
     }
@@ -464,20 +447,22 @@ integration('consumer commits inbox and projection atomically', async () => {
     const body = JSON.stringify({ ...event!.payload, sequence: event!.sequence });
     await database.owner.em
       .execute(`create function wagering.fail_projection() returns trigger language plpgsql as $$ begin raise exception 'injected projection failure'; end $$;
-      create trigger fail_projection before insert on wagering.event_projection for each row execute function wagering.fail_projection();`);
+      create trigger fail_projection before insert on demo_consumer.event_projection for each row execute function wagering.fail_projection();`);
     const consumer = new EventConsumer(runtime, sqs, 'unused');
     await expect(consumer.accept(body)).rejects.toThrow('injected projection failure');
-    expect(await runtime.em.fork().execute('select * from wagering.event_inbox')).toHaveLength(0);
-    expect(await runtime.em.fork().execute('select * from wagering.event_projection')).toHaveLength(
+    expect(await runtime.em.fork().execute('select * from demo_consumer.event_inbox')).toHaveLength(
       0,
     );
+    expect(
+      await runtime.em.fork().execute('select * from demo_consumer.event_projection'),
+    ).toHaveLength(0);
     await database.owner.em.execute(
-      'drop trigger fail_projection on wagering.event_projection; drop function wagering.fail_projection();',
+      'drop trigger fail_projection on demo_consumer.event_projection; drop function wagering.fail_projection();',
     );
     expect(await consumer.accept(body)).toBe('processed');
     const [projection] = await runtime.em
       .fork()
-      .execute('select aggregate_id from wagering.event_projection');
+      .execute('select aggregate_id from demo_consumer.event_projection');
     expect(projection.aggregate_id).toBe(wallet.id);
   } finally {
     sqs.destroy();
@@ -503,6 +488,9 @@ integration(
             ...process.env,
             DATABASE_URL: database.config.databaseUrl,
             OUTBOX_QUEUE_NAME: name,
+            ...(entry.includes('event-consumer')
+              ? { OUTBOX_LEASE_MS: 'invalid', OUTBOX_SEND_TIMEOUT_MS: 'invalid' }
+              : {}),
           },
           stdout: 'pipe',
           stderr: 'pipe',
@@ -527,7 +515,9 @@ integration(
       expect(publisher).not.toBe(consumer);
       const [projection] = await runtime.em
         .fork()
-        .execute('select balance from wagering.event_projection where aggregate_id=?', [wallet.id]);
+        .execute('select balance from demo_consumer.event_projection where aggregate_id=?', [
+          wallet.id,
+        ]);
       expect(projection.balance).toEqual({ amount: '100.00', currency: 'BRL' });
     } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
@@ -535,4 +525,137 @@ integration(
     }
   },
   30000,
+);
+
+integration(
+  'poison events reach DLQ after five receives while another wallet is acknowledged',
+  async () => {
+    const wallet = await opening();
+    const { createSqsClient } = await import('../../src/config/sqs');
+    const { provisionEventQueues } = await import('../../scripts/provision-events');
+    const { EventConsumer } = await import('../../src/messaging/events/event-consumer');
+    const {
+      SendMessageCommand,
+      ReceiveMessageCommand,
+      DeleteQueueCommand,
+      GetQueueAttributesCommand,
+    } = await import('@aws-sdk/client-sqs');
+    const sqs = createSqsClient(database.config);
+    const existingName = `poison-${crypto.randomUUID()}.fifo`;
+    const { CreateQueueCommand } = await import('@aws-sdk/client-sqs');
+    const existing = await sqs.send(
+      new CreateQueueCommand({ QueueName: existingName, Attributes: { FifoQueue: 'true' } }),
+    );
+    const { queue, dlq } = await provisionEventQueues(sqs, existingName);
+    expect(queue).toBe(existing.QueueUrl!);
+    expect((await provisionEventQueues(sqs, existingName)).queue).toBe(queue);
+    try {
+      const { Attributes } = await sqs.send(
+        new GetQueueAttributesCommand({ QueueUrl: queue, AttributeNames: ['RedrivePolicy'] }),
+      );
+      expect(JSON.parse(Attributes!.RedrivePolicy!).maxReceiveCount).toBe(5);
+      const [event] = await new OutboxRepository(runtime).claim(1, 30000);
+      await sqs.send(
+        new SendMessageCommand({
+          QueueUrl: queue,
+          MessageBody: 'invalid-json',
+          MessageGroupId: 'poison-wallet',
+          MessageDeduplicationId: crypto.randomUUID(),
+        }),
+      );
+      await sqs.send(
+        new SendMessageCommand({
+          QueueUrl: queue,
+          MessageBody: JSON.stringify({ ...event!.payload, sequence: event!.sequence }),
+          MessageGroupId: wallet.id,
+          MessageDeduplicationId: event!.eventId,
+        }),
+      );
+      const consumer = new EventConsumer(runtime, sqs, queue, 'demo-wallet-events', 0);
+      await consumer.runOnce();
+      expect(
+        await runtime.em
+          .fork()
+          .execute('select * from demo_consumer.event_projection where aggregate_id=?', [
+            wallet.id,
+          ]),
+      ).toHaveLength(1);
+      for (let i = 0; i < 5; i++) await consumer.runOnce();
+      const dead = await sqs.send(new ReceiveMessageCommand({ QueueUrl: dlq, WaitTimeSeconds: 2 }));
+      expect(dead.Messages).toHaveLength(1);
+      expect(dead.Messages![0]!.Body).toBe('invalid-json');
+    } finally {
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: dlq }));
+      sqs.destroy();
+    }
+  },
+  30000,
+);
+
+integration(
+  'credential outage releases leases without blocking events and recovery needs no operator reset',
+  async () => {
+    const wallet = await opening();
+    const { createSqsClient } = await import('../../src/config/sqs');
+    const { OutboxPublisher } = await import('../../src/messaging/outbox/outbox-publisher');
+    const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
+    const sqs = createSqsClient(database.config);
+    const queue = (
+      await sqs.send(
+        new CreateQueueCommand({
+          QueueName: `credentials-${crypto.randomUUID()}.fifo`,
+          Attributes: { FifoQueue: 'true' },
+        }),
+      )
+    ).QueueUrl!;
+    const send = sqs.send.bind(sqs);
+    try {
+      Object.defineProperty(sqs, 'send', {
+        configurable: true,
+        value: async () => {
+          throw Object.assign(new Error('denied'), { name: 'AccessDeniedException' });
+        },
+      });
+      const publisher = new OutboxPublisher(new OutboxRepository(runtime), sqs, {
+        queueUrl: queue,
+        leaseMs: 30000,
+        sendTimeoutMs: 5000,
+        batchSize: 10,
+        retryBaseMs: 1000,
+        retryMaxMs: 60000,
+      });
+      await expect(publisher.runOnce()).rejects.toThrow('WORKER_BACKOFF');
+      const [state] = await runtime.em
+        .fork()
+        .execute(
+          'select blocked_at,lease_token,published_at,last_error_code from wagering.outbox where aggregate_id=?',
+          [wallet.id],
+        );
+      expect(state).toEqual({
+        blocked_at: null,
+        lease_token: null,
+        published_at: null,
+        last_error_code: 'AccessDeniedException',
+      });
+      Object.defineProperty(sqs, 'send', { configurable: true, value: send });
+      await database.owner.em.execute(
+        'update wagering.outbox set next_attempt_at=clock_timestamp() where aggregate_id=?',
+        [wallet.id],
+      );
+      expect(await publisher.runOnce()).toBe(1);
+      const [recovered] = await runtime.em
+        .fork()
+        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
+          wallet.id,
+        ]);
+      expect(recovered.published_at).not.toBeNull();
+      expect(recovered.blocked_at).toBeNull();
+    } finally {
+      Object.defineProperty(sqs, 'send', { configurable: true, value: send });
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+      sqs.destroy();
+    }
+  },
+  15000,
 );

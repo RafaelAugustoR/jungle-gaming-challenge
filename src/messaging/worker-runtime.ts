@@ -1,13 +1,17 @@
-import { GetQueueUrlCommand } from '@aws-sdk/client-sqs';
+import type { SQSClient } from '@aws-sdk/client-sqs';
+import type { MikroORM } from '@mikro-orm/postgresql';
+import { WorkerBackoff } from './worker-backoff';
 import { loadConfig } from '../config/config';
 import { openDatabase } from '../config/orm';
 import { createSqsClient } from '../config/sqs';
-import { loadOutboxConfig } from './outbox/config';
 import { JsonLogger } from '../observability/logger';
 
-export async function runMessagingWorker(kind: 'publisher' | 'consumer') {
-  const config = loadConfig(),
-    options = loadOutboxConfig();
+export async function runWorker(
+  name: string,
+  create: (deps: { orm: MikroORM; sqs: SQSClient }) => Promise<{ runOnce(): Promise<number> }>,
+  options: { once: boolean; pollMs: number },
+) {
+  const config = loadConfig();
   const orm = await openDatabase(config),
     sqs = createSqsClient(config);
   const logger = new JsonLogger();
@@ -20,30 +24,20 @@ export async function runMessagingWorker(kind: 'publisher' | 'consumer') {
   process.once('SIGTERM', stop);
   process.once('SIGINT', stop);
   try {
-    const queueUrl = (
-      await sqs.send(new GetQueueUrlCommand({ QueueName: options.queueName }), {
-        abortSignal: AbortSignal.timeout(options.sendTimeoutMs),
-      })
-    ).QueueUrl;
-    if (!queueUrl) throw new Error('EVENT_QUEUE_NOT_FOUND');
-    const { OutboxPublisher } = await import('./outbox/outbox-publisher');
-    const { OutboxRepository } = await import('./outbox/outbox-repository');
-    const { EventConsumer } = await import('./events/event-consumer');
-    const runner =
-      kind === 'publisher'
-        ? new OutboxPublisher(new OutboxRepository(orm), sqs, { ...options, queueUrl })
-        : new EventConsumer(orm, sqs, queueUrl);
-    logger.log({ event: 'worker_started', worker: kind });
+    const runner = await create({ orm, sqs });
+    logger.log({ event: 'worker_started', worker: name });
     do {
+      let delayMs = options.pollMs;
       try {
         await runner.runOnce();
       } catch (error) {
-        logger.error({ event: 'worker_iteration_failed', worker: kind, error });
-        if (process.argv.includes('--once')) throw error;
+        logger.error({ event: 'worker_iteration_failed', worker: name, error });
+        if (options.once) throw error;
+        if (error instanceof WorkerBackoff) delayMs = error.delayMs;
       }
-      if (stopping || process.argv.includes('--once')) break;
+      if (stopping || options.once) break;
       await new Promise<void>((resolve) => {
-        const timer = setTimeout(resolve, options.pollMs);
+        const timer = setTimeout(resolve, delayMs);
         wake = () => {
           clearTimeout(timer);
           resolve();
@@ -56,6 +50,6 @@ export async function runMessagingWorker(kind: 'publisher' | 'consumer') {
     process.off('SIGINT', stop);
     sqs.destroy();
     await orm.close(true);
-    logger.log({ event: 'worker_stopped', worker: kind });
+    logger.log({ event: 'worker_stopped', worker: name });
   }
 }
