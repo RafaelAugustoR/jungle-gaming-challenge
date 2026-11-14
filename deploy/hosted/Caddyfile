@@ -1,0 +1,31 @@
+# Public edge of the hosted demonstration. Everything not listed here stays on the internal network.
+{
+	{$CADDY_GLOBAL_OPTIONS}
+}
+
+(security_headers) {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+}
+
+{$DEMO_ORIGIN} {
+	import security_headers
+	# Viewer-protected metrics stay internal in the hosted demo; health stays public per the challenge.
+	@internal path /internal /internal/*
+	respond @internal 404
+	reverse_proxy api:3000
+}
+
+{$AUTH_ORIGIN} {
+	import security_headers
+	# Only the demo realm's login/token endpoints and theme resources; no admin console or master realm.
+	@public path /realms/jungle/* /resources/*
+	handle @public {
+		reverse_proxy keycloak:8080
+	}
+	respond 404
+}
