@@ -32,75 +32,34 @@ function state(overrides: Partial<Parameters<typeof OutboxMessage.rehydrate>[0]>
     payload: {},
     occurredAt,
     attempts: 1,
-    nextAttemptAt: occurredAt,
     ...overrides,
   };
 }
 
-test('enqueue captures the event envelope as a pending, immediately due message', () => {
+test('enqueue captures the serialized event envelope with no attempts yet', () => {
   const source = event();
   const message = OutboxMessage.enqueue(source);
-  expect(message.id).toBe(source.eventId);
-  expect(message.eventId).toBe(source.eventId);
+  expect(message.eventId).toBe(source.toJSON().eventId);
   expect(message.aggregateId).toBe(walletId);
   expect(message.eventType).toBe('WagerTransactionProcessed');
-  expect(message.payload).toEqual(source.toJSON());
   expect(message.occurredAt).toBe(occurredAt);
+  expect(message.payload).toEqual(source.toJSON());
   expect(message.attempts).toBe(0);
-  expect(message.nextAttemptAt).toBe(occurredAt);
-  expect(message.publishedAt).toBeUndefined();
-  expect(message.isPending()).toBe(true);
-  expect(message.isDue(occurredAt)).toBe(true);
 });
 
-test('a message is due only while pending and once its next attempt has arrived', () => {
-  const message = OutboxMessage.rehydrate(state({ nextAttemptAt: '2026-11-14T10:00:05.000Z' }));
-  expect(message.isDue('2026-11-14T10:00:04.999Z')).toBe(false);
-  expect(message.isDue('2026-11-14T10:00:05.000Z')).toBe(true);
-  message.markPublished('2026-11-14T10:00:06.000Z');
-  expect(message.isDue('2026-11-14T10:00:07.000Z')).toBe(false);
-});
-
-test('a published message cannot be published again or rescheduled', () => {
-  const message = OutboxMessage.enqueue(event());
-  message.markPublished('2026-11-14T10:00:01.000Z');
-  expect(message.isPending()).toBe(false);
-  expect(message.publishedAt).toBe('2026-11-14T10:00:01.000Z');
-  expect(() => message.markPublished('2026-11-14T10:00:02.000Z')).toThrow(
-    'INVALID_MESSAGE_TRANSITION',
-  );
-  expect(() => message.scheduleRetry('2026-11-14T10:00:02.000Z', options)).toThrow(
-    'INVALID_MESSAGE_TRANSITION',
-  );
-  expect(message.publishedAt).toBe('2026-11-14T10:00:01.000Z');
-});
-
-test('retries back off exponentially with bounded jitter from the leased attempt count', () => {
-  const now = '2026-11-14T10:01:00.000Z';
-  const first = OutboxMessage.rehydrate(state({ attempts: 1 }));
-  expect(first.scheduleRetry(now, options, 0)).toBe(500);
-  expect(first.nextAttemptAt).toBe('2026-11-14T10:01:00.500Z');
-  expect(first.attempts).toBe(1);
-  expect(first.isDue('2026-11-14T10:01:00.499Z')).toBe(false);
-  expect(OutboxMessage.rehydrate(state({ attempts: 1 })).scheduleRetry(now, options, 1)).toBe(1000);
-  expect(OutboxMessage.rehydrate(state({ attempts: 3 })).scheduleRetry(now, options, 0)).toBe(2000);
-  for (const random of [0, 0.3, 1]) {
-    const delay = OutboxMessage.rehydrate(state({ attempts: 100 })).scheduleRetry(
-      now,
-      options,
-      random,
-    );
+test('retryDelay backs off exponentially from the attempts already counted by the claim', () => {
+  expect(OutboxMessage.rehydrate(state({ attempts: 1 })).retryDelay(options, 0)).toBe(500);
+  expect(OutboxMessage.rehydrate(state({ attempts: 1 })).retryDelay(options, 1)).toBe(1000);
+  expect(OutboxMessage.rehydrate(state({ attempts: 3 })).retryDelay(options, 0)).toBe(2000);
+  for (const random of [0, 0.5, 1]) {
+    const delay = OutboxMessage.rehydrate(state({ attempts: 100 })).retryDelay(options, random);
     expect(delay).toBeGreaterThanOrEqual(30000);
     expect(delay).toBeLessThanOrEqual(60000);
   }
 });
 
 test('rehydrate restores persisted state without revalidating it', () => {
-  const published = OutboxMessage.rehydrate(
-    state({ attempts: 7, eventType: '', publishedAt: '2026-11-14T10:00:01.000Z' }),
-  );
-  expect(published.eventType).toBe('');
-  expect(published.attempts).toBe(7);
-  expect(published.isPending()).toBe(false);
-  expect(() => published.markPublished(occurredAt)).toThrow('INVALID_MESSAGE_TRANSITION');
+  const restored = OutboxMessage.rehydrate(state({ attempts: 7, eventType: 'Legacy' }));
+  expect(restored.attempts).toBe(7);
+  expect(restored.eventType).toBe('Legacy');
 });

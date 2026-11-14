@@ -1,21 +1,18 @@
 import type { MikroORM } from '@mikro-orm/postgresql';
 import { OutboxMessage } from '../domain/outbox-message';
+/** A leased outbox message plus what belongs to the reservation itself. */
 export interface ReservedEvent {
   message: OutboxMessage;
-  eventId: string;
-  aggregateId: string;
   transactionId: string;
+  sequence: number;
+  token: string;
   correlationId?: string;
   providerId?: string;
-  sequence: number;
-  payload: Record<string, unknown>;
-  token: string;
-  attempts: number;
 }
 export function outboxLogContext(event: ReservedEvent) {
   return {
-    eventId: event.eventId,
-    aggregateId: event.aggregateId,
+    eventId: event.message.eventId,
+    aggregateId: event.message.aggregateId,
     transactionId: event.transactionId,
     correlationId: event.correlationId,
     providerId: event.providerId,
@@ -31,7 +28,6 @@ interface OutboxRow {
   occurred_at: Date;
   lease_token: string;
   attempts: number;
-  next_attempt_at: Date;
 }
 /**
  * Publishable heads: the oldest unpublished event of each aggregate (per-aggregate order,
@@ -75,16 +71,11 @@ export class OutboxRepository {
             payload: row.payload,
             occurredAt: new Date(row.occurred_at).toISOString(),
             attempts: row.attempts,
-            nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
           }),
-          eventId: row.event_id,
-          aggregateId: row.aggregate_id,
           transactionId: row.transaction_id,
           ...context,
           sequence: row.sequence,
-          payload: row.payload,
           token: row.lease_token,
-          attempts: row.attempts,
         };
       });
     });

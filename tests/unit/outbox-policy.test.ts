@@ -1,5 +1,6 @@
 import { expect, test } from 'bun:test';
-import { publicationFailure, retryDelay } from '../../src/messaging/outbox/publication-policy';
+import { publicationFailure } from '../../src/messaging/outbox/publication-policy';
+import { retryDelay } from '../../src/messaging/domain/retry-backoff';
 import { loadEventConfig } from '../../src/messaging/outbox/config';
 const options = { retryBaseMs: 1000, retryMaxMs: 60000 };
 const failure = (name: string) => Object.assign(new Error('sensitive'), { name });

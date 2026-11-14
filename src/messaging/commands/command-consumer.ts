@@ -11,7 +11,7 @@ import {
 import type { SubmitWagerTransaction } from '../../modules/wagering/application/submit-wager-transaction';
 import { DomainError } from '../../shared/domain/errors/domain-error';
 import { JsonLogger } from '../../observability/logger';
-import { retryDelay } from '../outbox/publication-policy';
+import { retryDelay } from '../domain/retry-backoff';
 import { commandInboxHash, diagnosticMessageId, parseCommandEnvelope } from './command-envelope';
 import { classify, type CommandLogContext, type Disposition } from './disposition';
 export interface CommandConsumerOptions {
@@ -146,7 +146,6 @@ export class CommandConsumer {
     }
   }
   private async handle(message: ReceivedCommand, signal: AbortSignal): Promise<Disposition> {
-    const receivedAt = new Date().toISOString();
     const messageId = diagnosticMessageId(message.Body ?? '') ?? message.MessageId;
     const context: CommandLogContext = {
       messageId,
@@ -170,7 +169,6 @@ export class CommandConsumer {
             consumerName: 'wager-commands',
             messageId,
             payloadHash: commandInboxHash(envelope.command, envelope.key),
-            receivedAt,
           },
           signal,
           channel: 'sqs',

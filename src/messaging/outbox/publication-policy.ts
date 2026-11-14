@@ -1,19 +1,4 @@
-export interface RetryOptions {
-  retryBaseMs: number;
-  retryMaxMs: number;
-}
-export function retryDelay(
-  attempts: number,
-  options: RetryOptions,
-  random = Math.random(),
-): number {
-  const maximum = Math.min(
-    options.retryMaxMs,
-    options.retryBaseMs * 2 ** Math.min(Math.max(attempts - 1, 0), 20),
-  );
-  return Math.floor(maximum * (0.5 + Math.min(1, Math.max(0, random)) / 2));
-}
-/** Classifies a send failure; the retry delay belongs to OutboxMessage.scheduleRetry. */
+/** Classifies an SQS send failure; the retry delay comes from OutboxMessage.retryDelay. */
 export function publicationFailure(error: unknown) {
   const name = error instanceof Error ? error.name : '';
   return {
