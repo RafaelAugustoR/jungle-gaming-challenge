@@ -97,8 +97,11 @@ o `eventId` é estável e o consumidor deduplica pela inbox persistente
 também `wager-events-dlq.fifo` (redrive após 5 recebimentos, retenção de 14 dias). Não há expurgo
 automático da inbox nem da outbox.
 
-O limite conhecido de vazão está descrito em [ARCHITECTURE.md](../ARCHITECTURE.md#limitações-conhecidas)
-e na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27).
+Vazão por wallet: a ordem por agregado limita cada wallet a um evento por ciclo de reserva, envio e
+confirmação. Neste ambiente isso dá ~96 eventos/s (~48 ops/s) por wallet. A decisão e o critério
+para revisitá-la estão na [ADR 0013](adr/0013-outbox-persistent-leases.md), e as medições na
+[issue #27](evidence/issue-27/README.md). Para investigar o plano da reserva com backlogs
+configuráveis, use `bun scripts/explain-outbox-claim.ts`.
 
 ## Indisponibilidade de dependências
 

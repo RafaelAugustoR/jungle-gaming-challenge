@@ -235,13 +235,16 @@ O §6 permite adaptar nomes e assinaturas desde que as garantias se mantenham. A
 
 ## Limitações conhecidas
 
-- **Vazão da outbox.** É o principal limite medido. O publisher reserva só o evento cabeça de cada
-  wallet por ciclo, para preservar a ordem por agregado. Por isso uma wallet quente publica poucos
-  eventos por segundo, e sob carga sustentada a outbox não drenou nos 30 s seguintes. O caminho
-  financeiro não é afetado: as respostas não esperam a publicação e as invariantes passaram. O
-  sleep após lote cheio foi removido no PR #28. Reservar cadeias por agregado muda a ADR 0013 e
-  está na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27), fora
-  desta entrega.
+- **Vazão da outbox por wallet.** O publisher reserva só o evento cabeça de cada wallet por ciclo,
+  para preservar a ordem por agregado. A carga da #13 mostrou a wallet quente publicando ~1,7
+  eventos/s. Duas correções vieram depois: o PR #28 removeu a pausa após iterações produtivas, e a
+  [#27](docs/evidence/issue-27/README.md) mostrou que o custo real era a consulta de reserva,
+  resolvido com um índice parcial `(aggregate_id, sequence) where published_at is null`. Com
+  elas, uma wallet publica ~96 eventos/s (~48 ops/s, porque cada operação processada gera dois
+  eventos) e os cenários distribuídos drenam em ~0,1 s. Uma wallet acima de ~48 ops/s sustentados
+  ainda acumula atraso de publicação. Reservar cadeias por agregado foi adiado, com critério para
+  revisitar, na [ADR 0013](docs/adr/0013-outbox-persistent-leases.md). O caminho financeiro não é
+  afetado: as respostas não esperam a publicação.
 - **Wallet quente.** O lock por wallet serializa a wallet: ~110–127 ops/s neste host, e mais
   instâncias não aumentam esse teto. Com 3 APIs em wallets distribuídas, as 500 ops/s oferecidas
   foram sustentadas; o teto com 3 APIs não foi medido.
