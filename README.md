@@ -123,8 +123,9 @@ Instale o Chromium com `bunx playwright install --with-deps chromium` ou aponte
 (padrão `demo-operator`/`demo-only`).
 
 A CI ([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) executa, em sequência: typecheck,
-unidade, `test:integration`, a API do Compose com healthcheck, `test:stack` contra o Compose e
-`test:browser`. Prettier está fixado no lockfile; para formatar um arquivo, use
+unidade, `test:integration`, a API do Compose com healthcheck e `test:browser`. O `test:stack`
+ainda não está na CI e é executado manualmente contra o Compose (ver
+[issue-14](docs/evidence/issue-14/README.md)). Prettier está fixado no lockfile; para formatar um arquivo, use
 `bunx prettier --write <arquivo>`.
 
 ### Variáveis de ambiente
