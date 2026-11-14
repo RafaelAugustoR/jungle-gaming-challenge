@@ -25,7 +25,9 @@
     "test:recovery": "bun scripts/test-recovery.ts",
     "test:load": "bun scripts/test-load.ts",
     "test:stack": "bun test tests/stack",
-    "demo:record": "bun scripts/record-demo.ts"
+    "demo:record": "bun scripts/record-demo.ts",
+    "demo:voice": "bun scripts/demo/voice.ts",
+    "demo:mix": "bun scripts/demo/mix.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",

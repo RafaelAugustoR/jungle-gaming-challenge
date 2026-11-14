@@ -1,10 +1,10 @@
 {
-  "startedAt": "2026-11-14T17:08:26.667Z",
-  "consoleUrl": "http://localhost:3010",
+  "startedAt": "2026-11-14T20:07:17.453Z",
+  "consoleUrl": "http://localhost:3000",
   "health": "{\"status\":\"ok\",\"checks\":{\"postgres\":true,\"sqs\":true}}",
   "wallet": {
-    "walletId": "e360182a-9ca7-41ff-82ad-33e22a878403",
-    "playerId": "video-a795a5be",
+    "walletId": "0cda96e1-82d8-415e-89c3-72d32909e857",
+    "playerId": "video-84419031",
     "opening": "100.00"
   },
   "race": [
@@ -13,7 +13,7 @@
       "originalReceipt": {
         "httpStatus": 200,
         "body": {
-          "transactionId": "ed4accb7-3b02-4464-a811-985868f8be1a",
+          "transactionId": "d7499f7c-615b-4cac-bb6a-634226644963",
           "balance": {
             "amount": "20.00",
             "currency": "BRL"
@@ -28,7 +28,7 @@
       "originalReceipt": {
         "httpStatus": 422,
         "body": {
-          "transactionId": "b4964f06-221d-4273-86f0-ffde82a773ef",
+          "transactionId": "5c4e1b06-4992-4613-86c9-e64aee46aa43",
           "balance": {
             "amount": "20.00",
             "currency": "BRL"
@@ -38,7 +38,7 @@
           "failureCode": "INSUFFICIENT_FUNDS",
           "code": "INSUFFICIENT_FUNDS",
           "message": "Wallet balance is insufficient for this wager",
-          "correlationId": "f879b6c2-a215-42fa-bb46-5382931f3c09"
+          "correlationId": "a9cd9937-b759-4c0c-94e8-c3d6cba52700"
         }
       }
     }
@@ -49,7 +49,7 @@
       "originalReceipt": {
         "httpStatus": 200,
         "body": {
-          "transactionId": "55c7f4c8-36f7-4da9-9b94-38c4dcc1080d",
+          "transactionId": "6c8c4923-41a5-4e04-bedc-e7cc9e766f45",
           "balance": {
             "amount": "15.00",
             "currency": "BRL"
@@ -69,20 +69,19 @@
             "amount": "15.00",
             "currency": "BRL"
           },
-          "transactionId": "55c7f4c8-36f7-4da9-9b94-38c4dcc1080d",
+          "transactionId": "6c8c4923-41a5-4e04-bedc-e7cc9e766f45",
           "idempotentReplay": true
         }
       }
     }
   ],
-  "killReferenceWorker": "Container jungle-issue14-reference-worker-1 Killing \n Container jungle-issue14-reference-worker-1 Killed",
-  "outOfOrder": [
+  "outOfOrderProof": [
     {
       "httpStatus": 202,
       "originalReceipt": {
         "httpStatus": 202,
         "body": {
-          "transactionId": "1e098b41-614a-4367-a598-2ed6eef12522",
+          "transactionId": "6435f4c3-f338-4fe8-a947-f70bf8df5850",
           "balance": {
             "amount": "15.00",
             "currency": "BRL"
@@ -97,7 +96,40 @@
       "originalReceipt": {
         "httpStatus": 200,
         "body": {
-          "transactionId": "a52d144e-e29d-4587-99c8-878922c1ce5d",
+          "transactionId": "4c8d5dd7-8058-495f-9fb8-5bfe6e95b1be",
+          "balance": {
+            "amount": "10.00",
+            "currency": "BRL"
+          },
+          "idempotentReplay": false,
+          "status": "PROCESSED"
+        }
+      }
+    }
+  ],
+  "killReferenceWorker": "Container jungle-challenge-reference-worker-1 Killing \n Container jungle-challenge-reference-worker-1 Killed",
+  "outOfOrder": [
+    {
+      "httpStatus": 202,
+      "originalReceipt": {
+        "httpStatus": 202,
+        "body": {
+          "transactionId": "8fa1072e-0923-4acd-b7ca-bef9fc09a1d9",
+          "balance": {
+            "amount": "15.00",
+            "currency": "BRL"
+          },
+          "idempotentReplay": false,
+          "status": "PENDING_REFERENCE"
+        }
+      }
+    },
+    {
+      "httpStatus": 200,
+      "originalReceipt": {
+        "httpStatus": 200,
+        "body": {
+          "transactionId": "258cbfa5-0262-4929-9c9c-c2afcbab9f78",
           "balance": {
             "amount": "10.00",
             "currency": "BRL"
@@ -109,15 +141,15 @@
     }
   ],
   "refundWhileWorkerDown": {
-    "transactionId": "1e098b41-614a-4367-a598-2ed6eef12522",
+    "transactionId": "8fa1072e-0923-4acd-b7ca-bef9fc09a1d9",
     "providerId": "provider-a",
-    "externalTransactionId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6-refund",
-    "playerId": "video-a795a5be",
-    "walletId": "e360182a-9ca7-41ff-82ad-33e22a878403",
-    "roundId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6",
+    "externalTransactionId": "demo-579096f3-8a5b-4389-baf9-081bc799935e-refund",
+    "playerId": "video-84419031",
+    "walletId": "0cda96e1-82d8-415e-89c3-72d32909e857",
+    "roundId": "demo-579096f3-8a5b-4389-baf9-081bc799935e",
     "gameId": "jungle-demo",
     "kind": "REFUND",
-    "referenceExternalTransactionId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6-source",
+    "referenceExternalTransactionId": "demo-579096f3-8a5b-4389-baf9-081bc799935e-source",
     "status": "PENDING_REFERENCE",
     "money": {
       "amount": "5.00",
@@ -127,7 +159,7 @@
       "amount": "15.00",
       "currency": "BRL"
     },
-    "createdAt": "2026-11-14T17:08:55.899Z",
+    "createdAt": "2026-11-14T20:09:21.084Z",
     "processedAt": null,
     "originalReceipt": {
       "httpStatus": 202,
@@ -137,23 +169,23 @@
           "amount": "15.00",
           "currency": "BRL"
         },
-        "transactionId": "1e098b41-614a-4367-a598-2ed6eef12522",
+        "transactionId": "8fa1072e-0923-4acd-b7ca-bef9fc09a1d9",
         "idempotentReplay": false
       }
     }
   },
-  "startReferenceWorker": "Container jungle-issue14-postgres-1 Waiting \n Container jungle-issue14-postgres-1 Healthy \n Container jungle-issue14-provision-1 Starting \n Container jungle-issue14-provision-1 Started \n Container jungle-issue14-provision-1 Waiting \n Container jungle-issue14-postgres-1 Waiting \n Container jungle-issue14-provision-1 Exited \n Container jungle-issue14-postgres-1 Healthy \n Container jungle-issue14-migrate-1 Starting \n Container jungle-issue14-migrate-1 Started \n Container jungle-issue14-postgres-1 Waiting \n Container jungle-issue14-migrate-1 Waiting \n Container jungle-issue14-postgres-1 Healthy \n Container jungle-issue14-migrate-1 Exited \n Container jungle-issue14-reference-worker-1 Starting \n Container jungle-issue14-reference-worker-1 Started",
+  "startReferenceWorker": "Container jungle-challenge-postgres-1 Waiting \n Container jungle-challenge-postgres-1 Healthy \n Container jungle-challenge-provision-1 Starting \n Container jungle-challenge-provision-1 Started \n Container jungle-challenge-provision-1 Waiting \n Container jungle-challenge-postgres-1 Waiting \n Container jungle-challenge-provision-1 Exited \n Container jungle-challenge-postgres-1 Healthy \n Container jungle-challenge-migrate-1 Starting \n Container jungle-challenge-migrate-1 Started \n Container jungle-challenge-migrate-1 Waiting \n Container jungle-challenge-postgres-1 Waiting \n Container jungle-challenge-postgres-1 Healthy \n Container jungle-challenge-migrate-1 Exited \n Container jungle-challenge-reference-worker-1 Starting \n Container jungle-challenge-reference-worker-1 Started",
   "refundAfterRestart": {
-    "transactionId": "1e098b41-614a-4367-a598-2ed6eef12522",
+    "transactionId": "8fa1072e-0923-4acd-b7ca-bef9fc09a1d9",
     "providerId": "provider-a",
-    "externalTransactionId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6-refund",
-    "playerId": "video-a795a5be",
-    "walletId": "e360182a-9ca7-41ff-82ad-33e22a878403",
-    "roundId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6",
+    "externalTransactionId": "demo-579096f3-8a5b-4389-baf9-081bc799935e-refund",
+    "playerId": "video-84419031",
+    "walletId": "0cda96e1-82d8-415e-89c3-72d32909e857",
+    "roundId": "demo-579096f3-8a5b-4389-baf9-081bc799935e",
     "gameId": "jungle-demo",
     "kind": "REFUND",
-    "referenceExternalTransactionId": "demo-3e881101-1693-45a4-ac97-9a4e0f26eda6-source",
-    "referenceTransactionId": "a52d144e-e29d-4587-99c8-878922c1ce5d",
+    "referenceExternalTransactionId": "demo-579096f3-8a5b-4389-baf9-081bc799935e-source",
+    "referenceTransactionId": "258cbfa5-0262-4929-9c9c-c2afcbab9f78",
     "status": "PROCESSED",
     "money": {
       "amount": "5.00",
@@ -163,8 +195,8 @@
       "amount": "15.00",
       "currency": "BRL"
     },
-    "createdAt": "2026-11-14T17:08:55.899Z",
-    "processedAt": "2026-11-14T17:09:14.534Z",
+    "createdAt": "2026-11-14T20:09:21.084Z",
+    "processedAt": "2026-11-14T20:09:37.771Z",
     "originalReceipt": {
       "httpStatus": 202,
       "body": {
@@ -173,25 +205,25 @@
           "amount": "15.00",
           "currency": "BRL"
         },
-        "transactionId": "1e098b41-614a-4367-a598-2ed6eef12522",
+        "transactionId": "8fa1072e-0923-4acd-b7ca-bef9fc09a1d9",
         "idempotentReplay": false
       }
     }
   },
-  "killCommandConsumer": "Container jungle-issue14-command-consumer-1 Killing \n Container jungle-issue14-command-consumer-1 Killed",
+  "killCommandConsumer": "Container jungle-challenge-command-consumer-1 Killing \n Container jungle-challenge-command-consumer-1 Killed",
   "sqsFirst": {
-    "messageId": "sqs-ab531c54:delivery-1",
-    "queueDepth": "1"
+    "messageId": "sqs-565690f1:delivery-1",
+    "queueDepth": 1
   },
-  "startCommandConsumer": "Container jungle-issue14-postgres-1 Waiting \n Container jungle-issue14-sqs-1 Waiting \n Container jungle-issue14-sqs-1 Healthy \n Container jungle-issue14-provision-commands-1 Starting \n Container jungle-issue14-postgres-1 Healthy \n Container jungle-issue14-provision-1 Starting \n Container jungle-issue14-provision-commands-1 Started \n Container jungle-issue14-provision-1 Started \n Container jungle-issue14-provision-1 Waiting \n Container jungle-issue14-postgres-1 Waiting \n Container jungle-issue14-postgres-1 Healthy \n Container jungle-issue14-provision-1 Exited \n Container jungle-issue14-migrate-1 Starting \n Container jungle-issue14-migrate-1 Started \n Container jungle-issue14-migrate-1 Waiting \n Container jungle-issue14-provision-commands-1 Waiting \n Container jungle-issue14-provision-commands-1 Exited \n Container jungle-issue14-migrate-1 Exited \n Container jungle-issue14-command-consumer-1 Starting \n Container jungle-issue14-command-consumer-1 Started",
+  "startCommandConsumer": "Container jungle-challenge-sqs-1 Waiting \n Container jungle-challenge-postgres-1 Waiting \n Container jungle-challenge-postgres-1 Healthy \n Container jungle-challenge-provision-1 Starting \n Container jungle-challenge-sqs-1 Healthy \n Container jungle-challenge-provision-commands-1 Starting \n Container jungle-challenge-provision-1 Started \n Container jungle-challenge-provision-1 Waiting \n Container jungle-challenge-postgres-1 Waiting \n Container jungle-challenge-provision-commands-1 Started \n Container jungle-challenge-provision-1 Exited \n Container jungle-challenge-postgres-1 Healthy \n Container jungle-challenge-migrate-1 Starting \n Container jungle-challenge-migrate-1 Started \n Container jungle-challenge-migrate-1 Waiting \n Container jungle-challenge-provision-commands-1 Waiting \n Container jungle-challenge-provision-commands-1 Exited \n Container jungle-challenge-migrate-1 Exited \n Container jungle-challenge-command-consumer-1 Starting \n Container jungle-challenge-command-consumer-1 Started",
   "sqsProcessed": {
-    "transactionId": "f0891891-7447-4be0-a157-bcf9b9f26751",
+    "transactionId": "cfb14def-3474-4f10-8ebf-24276adbc60f",
     "providerId": "provider-a",
-    "externalTransactionId": "sqs-ab531c54",
-    "playerId": "video-a795a5be",
-    "walletId": "e360182a-9ca7-41ff-82ad-33e22a878403",
-    "roundId": "demo-video-sqs-ab531c54",
-    "gameId": "jungle-demo",
+    "externalTransactionId": "sqs-565690f1",
+    "playerId": "video-84419031",
+    "walletId": "0cda96e1-82d8-415e-89c3-72d32909e857",
+    "roundId": "demo-video-sqs-565690f1",
+    "gameId": "lastro-demo",
     "kind": "BET",
     "status": "PROCESSED",
     "money": {
@@ -202,8 +234,8 @@
       "amount": "5.00",
       "currency": "BRL"
     },
-    "createdAt": "2026-11-14T17:09:56.434Z",
-    "processedAt": "2026-11-14T17:09:56.434Z",
+    "createdAt": "2026-11-14T20:10:24.842Z",
+    "processedAt": "2026-11-14T20:10:24.842Z",
     "originalReceipt": {
       "httpStatus": 200,
       "body": {
@@ -212,36 +244,36 @@
           "amount": "5.00",
           "currency": "BRL"
         },
-        "transactionId": "f0891891-7447-4be0-a157-bcf9b9f26751",
+        "transactionId": "cfb14def-3474-4f10-8ebf-24276adbc60f",
         "idempotentReplay": false
       }
     }
   },
   "sqsSecond": {
-    "messageId": "sqs-ab531c54:delivery-2"
+    "messageId": "sqs-565690f1:delivery-2"
   },
   "walletAfterSqs": {
     "afterFirst": {
-      "id": "e360182a-9ca7-41ff-82ad-33e22a878403",
-      "playerId": "video-a795a5be",
+      "id": "0cda96e1-82d8-415e-89c3-72d32909e857",
+      "playerId": "video-84419031",
       "balance": {
         "amount": "5.00",
         "currency": "BRL"
       },
-      "version": 6
+      "version": 8
     },
     "afterSecond": {
-      "id": "e360182a-9ca7-41ff-82ad-33e22a878403",
-      "playerId": "video-a795a5be",
+      "id": "0cda96e1-82d8-415e-89c3-72d32909e857",
+      "playerId": "video-84419031",
       "balance": {
         "amount": "5.00",
         "currency": "BRL"
       },
-      "version": 6
+      "version": 8
     }
   },
   "reconciliation": {
-    "walletId": "e360182a-9ca7-41ff-82ad-33e22a878403",
+    "walletId": "0cda96e1-82d8-415e-89c3-72d32909e857",
     "storedBalance": {
       "amount": "5.00",
       "currency": "BRL"
@@ -255,7 +287,7 @@
       "currency": "BRL"
     },
     "consistent": true,
-    "checkedEntries": 6
+    "checkedEntries": 8
   },
-  "finishedAt": "2026-11-14T17:10:24.096Z"
+  "finishedAt": "2026-11-14T20:11:27.684Z"
 }

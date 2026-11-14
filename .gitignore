@@ -13,3 +13,4 @@ artifacts/
 .impeccable/live/
 .impeccable/review/
 .impeccable/questions/
+.venv-tts/
