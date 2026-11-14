@@ -1,5 +1,5 @@
 import { expect, test } from 'bun:test';
-import { publicationFailure } from '../../src/messaging/outbox/publication-policy';
+import { publicationFailure, retryDelay } from '../../src/messaging/outbox/publication-policy';
 import { loadEventConfig } from '../../src/messaging/outbox/config';
 const options = { retryBaseMs: 1000, retryMaxMs: 60000 };
 const failure = (name: string) => Object.assign(new Error('sensitive'), { name });
@@ -10,25 +10,25 @@ test('only event-specific failures block; configuration outages pause the whole 
     'UnrecognizedClientException',
     'QueueDoesNotExist',
   ]) {
-    expect(publicationFailure(failure(code), 1, options, 0)).toMatchObject({
+    expect(publicationFailure(failure(code))).toMatchObject({
       blocked: false,
       pauseWorker: true,
-      delayMs: 500,
       code,
     });
   }
-  expect(publicationFailure(failure('InvalidMessageContents'), 1, options, 0)).toMatchObject({
+  expect(publicationFailure(failure('InvalidMessageContents'))).toMatchObject({
     blocked: true,
     pauseWorker: false,
   });
-  expect(publicationFailure(failure('TimeoutError'), 1, options, 0)).toMatchObject({
+  expect(publicationFailure(failure('TimeoutError'))).toMatchObject({
     blocked: false,
     pauseWorker: false,
   });
 });
 test('retry backoff has bounded exponential growth and jitter', () => {
-  expect(publicationFailure(failure('TimeoutError'), 3, options, 0).delayMs).toBe(2000);
-  expect(publicationFailure(failure('TimeoutError'), 100, options, 1).delayMs).toBe(60000);
+  expect(retryDelay(1, options, 0)).toBe(500);
+  expect(retryDelay(3, options, 0)).toBe(2000);
+  expect(retryDelay(100, options, 1)).toBe(60000);
 });
 test('consumer configuration ignores publisher-only invalid settings', () => {
   expect(
@@ -68,11 +68,11 @@ test('consumer parses the concrete event contract including optional causation',
 });
 
 test('ambiguous invalid parameters retry while proven size failures block only the event', () => {
-  expect(publicationFailure(failure('InvalidParameterValue'), 1, options, 0)).toMatchObject({
+  expect(publicationFailure(failure('InvalidParameterValue'))).toMatchObject({
     blocked: false,
     pauseWorker: true,
   });
-  expect(publicationFailure(failure('MessageTooLarge'), 1, options, 0)).toMatchObject({
+  expect(publicationFailure(failure('MessageTooLarge'))).toMatchObject({
     blocked: true,
     pauseWorker: false,
   });

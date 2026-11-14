@@ -10,6 +10,7 @@ export const domainErrorCategories = {
   INVALID_PAYLOAD: 'invalid',
   INSUFFICIENT_FUNDS: 'rejected',
   INVALID_TRANSACTION_TRANSITION: 'internal',
+  INVALID_MESSAGE_TRANSITION: 'internal',
   PLAYER_MISMATCH: 'invalid',
   UNKNOWN_PROVIDER: 'forbidden',
   IDEMPOTENCY_CONFLICT: 'conflict',

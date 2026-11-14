@@ -2,6 +2,7 @@ import { observed, type ProcessingObserver } from './observed';
 import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
 import { WagerTransaction } from '../domain/wager-transaction';
+import { InboxMessage } from '../../../messaging/domain/inbox-message';
 import type { WagerCommand, WagerKind } from '../domain/wager-command';
 import { WagerPayload } from '../domain/wager-payload';
 import { ReferenceRetryPolicy } from '../domain/reference-retry';
@@ -40,8 +41,14 @@ export class SubmitWagerTransaction {
         const payload = WagerPayload.create(input);
         const receipt = await this.store.transaction(async (session) => {
           const result = await this.submit(session, payload, key, context);
+          // Built per attempt: a retried database transaction must not reuse processed state.
           if (execution.inbox)
-            await session.recordInbox(execution.inbox, result.body.transactionId);
+            await session.recordInbox(
+              InboxMessage.receive(execution.inbox).markProcessed(
+                new Date().toISOString(),
+                result.body.transactionId,
+              ),
+            );
           return result;
         }, execution.signal);
         return {

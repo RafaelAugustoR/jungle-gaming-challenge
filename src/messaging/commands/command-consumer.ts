@@ -146,6 +146,7 @@ export class CommandConsumer {
     }
   }
   private async handle(message: ReceivedCommand, signal: AbortSignal): Promise<Disposition> {
+    const receivedAt = new Date().toISOString();
     const messageId = diagnosticMessageId(message.Body ?? '') ?? message.MessageId;
     const context: CommandLogContext = {
       messageId,
@@ -168,7 +169,8 @@ export class CommandConsumer {
           inbox: {
             consumerName: 'wager-commands',
             messageId,
-            hash: commandInboxHash(envelope.command, envelope.key),
+            payloadHash: commandInboxHash(envelope.command, envelope.key),
+            receivedAt,
           },
           signal,
           channel: 'sqs',

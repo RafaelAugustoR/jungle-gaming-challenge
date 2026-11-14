@@ -1,5 +1,7 @@
 import type { MikroORM } from '@mikro-orm/postgresql';
+import { OutboxMessage } from '../domain/outbox-message';
 export interface ReservedEvent {
+  message: OutboxMessage;
   eventId: string;
   aggregateId: string;
   transactionId: string;
@@ -24,9 +26,12 @@ interface OutboxRow {
   aggregate_id: string;
   transaction_id: string;
   sequence: number;
+  event_type: string;
   payload: Record<string, unknown>;
+  occurred_at: Date;
   lease_token: string;
   attempts: number;
+  next_attempt_at: Date;
 }
 /**
  * Publishable heads: the oldest unpublished event of each aggregate (per-aggregate order,
@@ -63,6 +68,15 @@ export class OutboxRepository {
       return rows.map((row) => {
         const context = eventLogContext(row.payload);
         return {
+          message: OutboxMessage.rehydrate({
+            eventId: row.event_id,
+            aggregateId: row.aggregate_id,
+            eventType: row.event_type,
+            payload: row.payload,
+            occurredAt: new Date(row.occurred_at).toISOString(),
+            attempts: row.attempts,
+            nextAttemptAt: new Date(row.next_attempt_at).toISOString(),
+          }),
           eventId: row.event_id,
           aggregateId: row.aggregate_id,
           transactionId: row.transaction_id,
