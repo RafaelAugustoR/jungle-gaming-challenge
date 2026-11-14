@@ -19,8 +19,9 @@ jobs:
       - run: docker compose up -d --wait postgres sqs keycloak
       - run: docker compose run --rm provision
       - run: bun run test:integration
-      - run: docker compose up -d --build --wait api
+      - run: docker compose up -d --build --wait api reference-worker
       - run: curl --fail http://localhost:3000/health/ready
+      - run: STACK_URL=http://localhost:3000 bun run test:stack
       - run: bunx playwright install --with-deps chromium
       - run: bun run test:browser
       - if: failure()
