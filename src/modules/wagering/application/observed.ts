@@ -6,7 +6,13 @@ export type ProcessingChannel = 'http' | 'sqs' | 'reference';
 export type ObservedOperation = WagerKind | 'unknown';
 export type ObservedStatus = TransactionStatus | 'skipped';
 /** Client-caused failures keep their category; infrastructure and unexpected failures are `error`. */
-export type FailureStatus = 'invalid' | 'rejected' | 'forbidden' | 'conflict' | 'notFound' | 'error';
+export type FailureStatus =
+  | 'invalid'
+  | 'rejected'
+  | 'forbidden'
+  | 'conflict'
+  | 'notFound'
+  | 'error';
 export function failureStatus(error: unknown): FailureStatus {
   if (!(error instanceof DomainError)) return 'error';
   const { category } = error;

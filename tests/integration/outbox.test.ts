@@ -232,8 +232,9 @@ integration(
           retryMaxMs: 10,
         });
         expect(await publisher.runOnce()).toBe(1);
+        // The opening has two events; the crashed publisher held the head.
         const [state] = await database.owner.em.execute(
-          'select event_id,published_at,attempts from wagering.outbox where aggregate_id=?',
+          'select event_id,published_at,attempts from wagering.outbox where aggregate_id=? order by sequence',
           [wallet.id],
         );
         expect(state.event_id).toBe(reached.eventId);
@@ -249,6 +250,8 @@ integration(
         expect(
           delivery.Messages?.some((m) => JSON.parse(m.Body!).eventId === reached.eventId),
         ).toBe(true);
+        // Publish the opening's second event so the next stage's child claims its own wallet.
+        expect(await publisher.runOnce()).toBe(1);
       }
     } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
@@ -428,7 +431,7 @@ integration(
       });
       await expect(publisher.runOnce()).rejects.toThrow('WORKER_BACKOFF');
       const [state] = await database.owner.em.execute(
-        'select published_at,lease_token,blocked_at,attempts,last_error_code,next_attempt_at>clock_timestamp() as waiting from wagering.outbox where aggregate_id=?',
+        'select published_at,lease_token,blocked_at,attempts,last_error_code,next_attempt_at>clock_timestamp() as waiting from wagering.outbox where aggregate_id=? order by sequence',
         [wallet.id],
       );
       expect(state).toMatchObject({
@@ -576,8 +579,9 @@ integration(
             [wallet.id],
           )
       )[0].n as number;
-    // Opening + (processed + balance changed) per BET, all heads of the same aggregate.
-    expect(await pending()).toBe(17);
+    // Opening (balance changed + processed) + (processed + balance changed) per BET, all
+    // heads of the same aggregate.
+    expect(await pending()).toBe(18);
     const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
     const { createSqsClient } = await import('../../src/config/sqs');
     const sqs = createSqsClient(database.config);
@@ -613,7 +617,7 @@ integration(
           [wallet.id],
         );
       expect((order as { sequence: number }[]).map((row) => row.sequence)).toEqual(
-        Array.from({ length: 17 }, (_, i) => i + 1),
+        Array.from({ length: 18 }, (_, i) => i + 1),
       );
     } finally {
       child.kill('SIGTERM');
@@ -790,7 +794,7 @@ integration(
       const [state] = await runtime.em
         .fork()
         .execute(
-          'select blocked_at,lease_token,published_at,last_error_code from wagering.outbox where aggregate_id=?',
+          'select blocked_at,lease_token,published_at,last_error_code from wagering.outbox where aggregate_id=? order by sequence',
           [wallet.id],
         );
       expect(state).toEqual({
@@ -807,9 +811,10 @@ integration(
       expect(await publisher.runOnce()).toBe(1);
       const [recovered] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
-          wallet.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [wallet.id],
+        );
       expect(recovered.published_at).not.toBeNull();
       expect(recovered.blocked_at).toBeNull();
     } finally {
@@ -888,7 +893,8 @@ integration(
         retryMaxMs: 60000,
       });
       const consumer = new EventConsumer(runtime, sqs, queue);
-      for (let i = 0; i < 5; i++) {
+      // Opening (2 events, the processed one with kind OPENING), BET (2), REFUND (2).
+      for (let i = 0; i < 6; i++) {
         expect(await publisher.runOnce()).toBe(1);
         expect(await consumer.runOnce()).toBe(1);
       }
@@ -899,7 +905,7 @@ integration(
           [wallet.id],
         );
       expect(state).toMatchObject({
-        sequence: 5,
+        sequence: 6,
         balance: { amount: '100.00', currency: 'BRL' },
         wallet_version: 3,
       });
@@ -956,7 +962,7 @@ integration(
       const [bad] = await runtime.em
         .fork()
         .execute(
-          'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=?',
+          'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=? order by sequence',
           [large.id],
         );
       expect(bad.published_at).toBeNull();
@@ -964,9 +970,10 @@ integration(
       expect(bad.last_error_code).toBe('MessageTooLarge');
       const [good] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
-          small.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [small.id],
+        );
       expect(good.published_at).not.toBeNull();
       expect(good.blocked_at).toBeNull();
     } finally {

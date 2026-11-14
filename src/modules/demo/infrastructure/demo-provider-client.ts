@@ -35,7 +35,9 @@ export class DemoProviderClient {
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     }
     const token =
-      body && typeof body === 'object' && 'access_token' in body &&
+      body &&
+      typeof body === 'object' &&
+      'access_token' in body &&
       typeof body.access_token === 'string'
         ? body.access_token
         : undefined;
@@ -73,26 +75,27 @@ export class DemoProviderClient {
     if (response.status >= 500 || response.status === 401 || response.status === 403)
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     const hasTransactionId =
-      body && typeof body === 'object' && 'transactionId' in body &&
+      body &&
+      typeof body === 'object' &&
+      'transactionId' in body &&
       typeof body.transactionId === 'string';
     if (
       ![200, 202, 422].includes(response.status) ||
       (response.status === 422 && !hasTransactionId)
     ) {
       const code =
-        body && typeof body === 'object' && 'code' in body &&
-        typeof body.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(body.code)
+        body &&
+        typeof body === 'object' &&
+        'code' in body &&
+        typeof body.code === 'string' &&
+        /^[A-Z0-9_]{1,64}$/.test(body.code)
           ? body.code
           : 'INVALID_PAYLOAD';
       throw apiError(response.status, code);
     }
-    if (!hasTransactionId)
-      throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
+    if (!hasTransactionId) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     try {
-      const receipt = restoreSubmissionReceipt(
-        response.status,
-        body as SubmissionReceipt['body'],
-      );
+      const receipt = restoreSubmissionReceipt(response.status, body as SubmissionReceipt['body']);
       return { httpStatus: receipt.httpStatus, originalReceipt: receipt };
     } catch {
       throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');

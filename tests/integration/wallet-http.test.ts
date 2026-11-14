@@ -72,87 +72,90 @@ integration(
   },
 );
 
-integration('ledger cursor keeps its captured wallet version while new entries arrive', async () => {
-  const demo = await humanToken('demo-operator');
-  const viewer = await humanToken('viewer');
-  const provider = await providerToken('a');
-  const headers = (token: string) => ({
-    Authorization: `Bearer ${token}`,
-    'Content-Type': 'application/json',
-  });
-  const created = await fetch(`${base}/wallets`, {
-    method: 'POST',
-    headers: headers(demo),
-    body: JSON.stringify({
-      playerId: crypto.randomUUID(),
-      initialBalance: { amount: '100.00', currency: 'BRL' },
-    }),
-  });
-  const wallet = (await created.json()) as { id: string; playerId: string };
-  const wager = async (amount: string) => {
-    const response = await fetch(`${base}/wagering/transactions`, {
+integration(
+  'ledger cursor keeps its captured wallet version while new entries arrive',
+  async () => {
+    const demo = await humanToken('demo-operator');
+    const viewer = await humanToken('viewer');
+    const provider = await providerToken('a');
+    const headers = (token: string) => ({
+      Authorization: `Bearer ${token}`,
+      'Content-Type': 'application/json',
+    });
+    const created = await fetch(`${base}/wallets`, {
       method: 'POST',
-      headers: { ...headers(provider), 'Idempotency-Key': crypto.randomUUID() },
+      headers: headers(demo),
       body: JSON.stringify({
-        providerId: 'provider-a',
-        externalTransactionId: crypto.randomUUID(),
-        playerId: wallet.playerId,
-        walletId: wallet.id,
-        roundId: 'cursor-round',
-        gameId: 'cursor-game',
-        kind: 'BET',
-        money: { amount, currency: 'BRL' },
+        playerId: crypto.randomUUID(),
+        initialBalance: { amount: '100.00', currency: 'BRL' },
       }),
     });
-    expect(response.status).toBe(200);
-  };
-  await wager('10.00');
-  await wager('5.00');
+    const wallet = (await created.json()) as { id: string; playerId: string };
+    const wager = async (amount: string) => {
+      const response = await fetch(`${base}/wagering/transactions`, {
+        method: 'POST',
+        headers: { ...headers(provider), 'Idempotency-Key': crypto.randomUUID() },
+        body: JSON.stringify({
+          providerId: 'provider-a',
+          externalTransactionId: crypto.randomUUID(),
+          playerId: wallet.playerId,
+          walletId: wallet.id,
+          roundId: 'cursor-round',
+          gameId: 'cursor-game',
+          kind: 'BET',
+          money: { amount, currency: 'BRL' },
+        }),
+      });
+      expect(response.status).toBe(200);
+    };
+    await wager('10.00');
+    await wager('5.00');
 
-  const first = await fetch(`${base}/wallets/${wallet.id}/ledger?limit=1`, {
-    headers: headers(viewer),
-  });
-  const firstPage = (await first.json()) as {
-    entries: { kind: string; walletVersion: number }[];
-    nextCursor: string;
-  };
-  expect(firstPage.entries).toMatchObject([{ kind: 'OPENING', walletVersion: 1 }]);
-  expect(firstPage.nextCursor).toBeTruthy();
-  await wager('1.00');
+    const first = await fetch(`${base}/wallets/${wallet.id}/ledger?limit=1`, {
+      headers: headers(viewer),
+    });
+    const firstPage = (await first.json()) as {
+      entries: { kind: string; walletVersion: number }[];
+      nextCursor: string;
+    };
+    expect(firstPage.entries).toMatchObject([{ kind: 'OPENING', walletVersion: 1 }]);
+    expect(firstPage.nextCursor).toBeTruthy();
+    await wager('1.00');
 
-  const second = await fetch(
-    `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
-    { headers: headers(viewer) },
-  );
-  const secondPage = (await second.json()) as {
-    entries: { kind: string; walletVersion: number }[];
-    nextCursor: string | null;
-  };
-  expect(secondPage.entries).toMatchObject([{ kind: 'BET', walletVersion: 2 }]);
-  expect(secondPage.nextCursor).toBeTruthy();
-  const third = await fetch(
-    `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(secondPage.nextCursor!)}`,
-    { headers: headers(viewer) },
-  );
-  expect(await third.json()).toMatchObject({
-    entries: [{ kind: 'BET', walletVersion: 3 }],
-    nextCursor: null,
-  });
-  const otherCreated = await fetch(`${base}/wallets`, {
-    method: 'POST',
-    headers: headers(demo),
-    body: JSON.stringify({
-      playerId: crypto.randomUUID(),
-      initialBalance: { amount: '1.00', currency: 'BRL' },
-    }),
-  });
-  const otherWallet = (await otherCreated.json()) as { id: string };
-  const crossWalletCursor = await fetch(
-    `${base}/wallets/${otherWallet.id}/ledger?cursor=${encodeURIComponent(firstPage.nextCursor)}`,
-    { headers: headers(viewer) },
-  );
-  expect(crossWalletCursor.status).toBe(400);
-});
+    const second = await fetch(
+      `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+      { headers: headers(viewer) },
+    );
+    const secondPage = (await second.json()) as {
+      entries: { kind: string; walletVersion: number }[];
+      nextCursor: string | null;
+    };
+    expect(secondPage.entries).toMatchObject([{ kind: 'BET', walletVersion: 2 }]);
+    expect(secondPage.nextCursor).toBeTruthy();
+    const third = await fetch(
+      `${base}/wallets/${wallet.id}/ledger?limit=1&cursor=${encodeURIComponent(secondPage.nextCursor!)}`,
+      { headers: headers(viewer) },
+    );
+    expect(await third.json()).toMatchObject({
+      entries: [{ kind: 'BET', walletVersion: 3 }],
+      nextCursor: null,
+    });
+    const otherCreated = await fetch(`${base}/wallets`, {
+      method: 'POST',
+      headers: headers(demo),
+      body: JSON.stringify({
+        playerId: crypto.randomUUID(),
+        initialBalance: { amount: '1.00', currency: 'BRL' },
+      }),
+    });
+    const otherWallet = (await otherCreated.json()) as { id: string };
+    const crossWalletCursor = await fetch(
+      `${base}/wallets/${otherWallet.id}/ledger?cursor=${encodeURIComponent(firstPage.nextCursor)}`,
+      { headers: headers(viewer) },
+    );
+    expect(crossWalletCursor.status).toBe(400);
+  },
+);
 
 integration('reconciliation is operator-only and reports an exact ledger snapshot', async () => {
   const demo = await humanToken('demo-operator');
@@ -303,24 +306,37 @@ integration('reconciliation formats ledger aggregates beyond the wallet input bo
       [owner!.currency],
     );
     await em.execute('alter table wagering.transactions disable trigger transaction_consistency');
-    await em.execute('alter table wagering.transactions disable trigger external_submission_consistency');
+    await em.execute(
+      'alter table wagering.transactions disable trigger external_submission_consistency',
+    );
     await em.execute('alter table wagering.journal disable trigger journal_consistency');
     for (const walletVersion of [2, 3]) {
       const transactionId = crypto.randomUUID();
       await em.execute(
-        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status)
-         values(?,?,'BRL','9999999999999999.99','WIN','PROCESSED')`,
-        [transactionId, wallet.id],
+        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,
+           idempotency_key,request_hash,player_id,round_id,game_id,processed_at)
+         select ?,?,'BRL','9999999999999999.99','WIN','PROCESSED','divergence',?,?,repeat('a',64),player_id,'round','game',clock_timestamp()
+         from wagering.wallets where id=?`,
+        [transactionId, wallet.id, transactionId, transactionId, wallet.id],
       );
       await em.execute(
         `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version)
          values(?,?,?,'BRL','9999999999999999.99',?,?,0,'9999999999999999.99',?)`,
-        [crypto.randomUUID(), transactionId, wallet.id, gaming!.id, owner!.account_id, walletVersion],
+        [
+          crypto.randomUUID(),
+          transactionId,
+          wallet.id,
+          gaming!.id,
+          owner!.account_id,
+          walletVersion,
+        ],
       );
     }
     await em.execute('set constraints all immediate');
     await em.execute('alter table wagering.journal enable trigger journal_consistency');
-    await em.execute('alter table wagering.transactions enable trigger external_submission_consistency');
+    await em.execute(
+      'alter table wagering.transactions enable trigger external_submission_consistency',
+    );
     await em.execute('alter table wagering.transactions enable trigger transaction_consistency');
   });
 
