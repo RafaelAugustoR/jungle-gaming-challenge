@@ -33,6 +33,12 @@ Diferenças em relação ao Compose local:
   Se o realm renderizado ainda tiver `demo-only`, o script falha.
 - O papel `jungle_runtime` recebe a senha gerada (`runtime-role.sql`). Os grants continuam nas
   migrations.
+- O arquivo é independente do `compose.yaml` local de propósito. Um overlay herdaria toda
+  credencial local que não fosse sobrescrita explicitamente. Para evitar divergência,
+  `tests/unit/hosted-compose.test.ts` exige as mesmas imagens, os mesmos healthchecks e os mesmos
+  comandos dos workers do Compose local. O teste também exige que só o Caddy publique portas e que
+  não haja credenciais `demo-only`. O Keycloak escuta em 8080 aqui porque fica atrás do proxy; no
+  local ele usa 18080 dentro e fora da rede para manter o issuer público coerente.
 
 ## Publicar
 
