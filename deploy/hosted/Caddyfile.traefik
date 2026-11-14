@@ -1,0 +1,31 @@
+{
+	auto_https off
+}
+
+# TLS terminates at the existing Traefik. This port is never published on the host.
+:8080 {
+	header {
+		Strict-Transport-Security "max-age=31536000"
+		X-Content-Type-Options nosniff
+		Referrer-Policy no-referrer
+		-Server
+	}
+	@demo host {$DEMO_HOST}
+	handle @demo {
+		@internal path /internal /internal/*
+		respond @internal 404
+		reverse_proxy api:3000 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+	@auth {
+		host {$AUTH_HOST}
+		path /realms/jungle/* /resources/*
+	}
+	handle @auth {
+		reverse_proxy keycloak:8080 {
+			header_up X-Forwarded-Proto https
+		}
+	}
+	respond 404
+}

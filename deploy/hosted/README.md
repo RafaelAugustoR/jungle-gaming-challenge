@@ -91,3 +91,29 @@ PW="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)"
 Uma VM de 2 vCPU e 4 GB em provedores comuns custa na ordem de US$ 5–25 por mês, e o domínio, se
 for necessário, cerca de US$ 10–15 por ano. Os valores são aproximados e precisam ser confirmados
 no provedor escolhido antes de qualquer contratação.
+
+## Existing Coolify/Traefik proxy
+
+Use `compose.traefik.yaml` when the host already runs Traefik with `http`/`https`
+entrypoints and the `letsencrypt` resolver. Run `prepare.ts` first; it derives
+`DEMO_HOST` and `AUTH_HOST` from the HTTPS origins. Only Caddy joins the external
+`coolify` network (`TRAEFIK_NETWORK` overrides its name). No demo service publishes
+host ports. Traefik terminates TLS and forwards to Caddy on port 8080; Caddy keeps
+its realm and internal-route restrictions and forwards the public HTTPS scheme.
+
+The overlay applies CPU/memory limits for a shared demo host. It is intended for
+interactive evaluation, not load benchmarks. Build off-host and load the runtime
+image with `docker save` / `docker load`; set `JUNGLE_IMAGE` to its immutable tag:
+
+```sh
+DEMO_ORIGIN=https://demo.example.com AUTH_ORIGIN=https://auth.example.com \
+  bun deploy/hosted/prepare.ts
+cd deploy/hosted
+JUNGLE_IMAGE=jungle-demo:<commit> docker compose \
+  -f compose.yaml -f compose.traefik.yaml up -d --no-build --wait
+```
+
+The existing proxy, its certificates and unrelated services are not recreated.
+Stop only this project with the same Compose files; preserve its PostgreSQL volume
+unless intentionally deleting the fictitious demo data. Verify HTTPS, login,
+`test:stack`, blocked administration paths and resource consumption after deployment.
