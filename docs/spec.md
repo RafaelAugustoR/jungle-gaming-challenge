@@ -218,6 +218,12 @@ Evidências de recuperação integrada da Issue #12: [harness e roteiro](evidenc
 cobrindo R02/R12/R13/R14/R16/R17/R18/R19/R24 com PostgreSQL/SQS reais,
 barreiras multiprocesso, falhas isoladas e reconciliação de todas as wallets.
 
+Evidências de carga da Issue #13: [metodologia](load-testing.md) e
+[resultados e gargalos](evidence/issue-13/README.md), cobrindo D04 com
+`bun run test:load`: três cenários, uma/três APIs, ambiente, taxa oferecida/
+concluída, p50/p95/p99, rejeições, replays e erros separados, locks, outbox lag
+e reconciliação de todas as wallets após cada execução.
+
 ### Critério de conclusão
 
 Todos os requisitos R01–R25 e diferenciais D01–D05 demonstrados, sem falha eliminatória. Testes passando, typecheck/build válidos, ambiente limpo reproduzido, matriz preenchida com evidências reais e limitações honestas. Cobertura numérica não substitui cenários. Carga inclui aquecimento, taxa oferecida e processada, rejeições separadas de erros, reconciliação e balanceamento final. Nenhum ganho linear presumido.

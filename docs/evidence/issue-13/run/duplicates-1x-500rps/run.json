@@ -1,0 +1,189 @@
+{
+  "name": "duplicates-1x-500rps",
+  "scenario": "duplicates",
+  "instances": 1,
+  "rate": 500,
+  "apiPids": [
+    5593
+  ],
+  "wallets": 100,
+  "operations": 17500,
+  "uniqueOperations": 12241,
+  "summary": {
+    "windowSeconds": 30,
+    "scheduled": 15000,
+    "issued": 14871,
+    "notIssued": 129,
+    "completed": 14871,
+    "outcomes": {
+      "processed": 10225,
+      "rejected": 224,
+      "replay": 4422,
+      "pending": 0,
+      "conflict": 0,
+      "error": 0,
+      "not_issued": 129
+    },
+    "failureCodes": {
+      "INSUFFICIENT_FUNDS": 319
+    },
+    "httpStatuses": {
+      "200": 14552,
+      "422": 319
+    },
+    "offeredRps": 500,
+    "issuedRps": 495.7,
+    "completedRps": 495.5740793178788,
+    "financialRps": 348.2115227484712,
+    "errorRate": 0,
+    "drainAfterWindowMs": 8,
+    "latencyMs": {
+      "count": 14871,
+      "p50": 25.22,
+      "p95": 540.88,
+      "p99": 598.32,
+      "max": 617.75
+    },
+    "intendedLatencyMs": {
+      "count": 14871,
+      "p50": 25.34,
+      "p95": 540.96,
+      "p99": 598.91,
+      "max": 617.16
+    },
+    "latencyByOutcomeMs": {
+      "processed": {
+        "count": 10225,
+        "p50": 27.43,
+        "p95": 547.34,
+        "p99": 602.13,
+        "max": 617.75
+      },
+      "rejected": {
+        "count": 224,
+        "p50": 23.69,
+        "p95": 538.94,
+        "p99": 597.84,
+        "max": 609.47
+      },
+      "replay": {
+        "count": 4422,
+        "p50": 18.46,
+        "p95": 525.67,
+        "p99": 588.85,
+        "max": 616.31
+      },
+      "error": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "scheduleLagMs": {
+      "count": 14871,
+      "p50": -0.25,
+      "p95": 2.05,
+      "p99": 3.08,
+      "max": 18.59
+    },
+    "perInstance": [
+      {
+        "instance": 0,
+        "issued": 14871,
+        "p95": 540.88
+      }
+    ]
+  },
+  "database": {
+    "samplesInWindow": 143,
+    "lockWaitingBackends": {
+      "mean": 0.1,
+      "count": 143,
+      "p50": 0,
+      "p95": 1,
+      "p99": 1,
+      "max": 2
+    },
+    "oldestLockWaitMs": {
+      "count": 13,
+      "p50": 5,
+      "p95": 13,
+      "p99": 13,
+      "max": 13
+    },
+    "activeBackends": {
+      "mean": 1.64,
+      "count": 143,
+      "p50": 1,
+      "p95": 4,
+      "p99": 6,
+      "max": 7
+    },
+    "outboxPending": {
+      "count": 143,
+      "p50": 12997,
+      "p95": 21842,
+      "p99": 22712,
+      "max": 22827
+    },
+    "outboxOldestAgeMs": {
+      "count": 143,
+      "p50": 18675,
+      "p95": 31449,
+      "p99": 32654,
+      "max": 32865
+    },
+    "loadEndMs": 35008
+  },
+  "outboxDrain": {
+    "eventsAtLoadEnd": 24198,
+    "pendingAtLoadEnd": 22978,
+    "drainedAfterMs": null,
+    "timeoutMs": 30000,
+    "pendingWhenStopped": 22018,
+    "publishedPerSecondWhileDraining": 31.9
+  },
+  "processMetrics": {
+    "walletLockConflicts": 0,
+    "financialRetries": 0,
+    "note": "Per-process counters scraped from each API via /internal/metrics before/after."
+  },
+  "invariants": {
+    "ok": true,
+    "checks": {
+      "reconciledWallets": true,
+      "transactionsMatchUniqueOperations": true,
+      "processedMatches": true,
+      "rejectedMatches": true,
+      "noNonTerminalTransactions": true,
+      "journalEntriesMatch": true,
+      "balancedPairs": true,
+      "oneEventSetPerTransaction": true,
+      "noDuplicateFinancialEffect": true,
+      "oversizedNeverProcessed": true
+    },
+    "finalStates": {
+      "PROCESSED": 11919,
+      "REJECTED": 260,
+      "NOT_APPLIED": 62
+    },
+    "readBackAfterUncertainResponse": 0,
+    "neverSent": 62,
+    "database": {
+      "transactions": 12179,
+      "processed": 11919,
+      "rejected": 260,
+      "non_terminal": 0,
+      "journal_entries": 12019,
+      "invalid_pairs": 0,
+      "invalid_event_sets": 0
+    },
+    "reconciliation": {
+      "wallets": 100,
+      "consistent": 100,
+      "failures": []
+    }
+  }
+}
