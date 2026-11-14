@@ -135,20 +135,42 @@ export class WagerTransaction {
   matchesPayload(hash: string): boolean {
     return this.payloadHash === hash;
   }
-  transition(status: Exclude<TransactionStatus, 'PENDING'>, failureCode?: WagerFailureCode): void {
-    if (
-      !transitions[this.state.status].includes(status) ||
-      ['REJECTED', 'FAILED'].includes(status) !== Boolean(failureCode)
-    )
+  isTerminal(): boolean {
+    return transitions[this.state.status].length === 0;
+  }
+  markPendingReference(): void {
+    this.transition({ status: 'PENDING_REFERENCE' });
+  }
+  markProcessed(referenceTransactionId: string | undefined, at: string): void {
+    this.transition({
+      status: 'PROCESSED',
+      ...(referenceTransactionId ? { referenceTransactionId } : {}),
+    });
+    this.processedAt = at;
+  }
+  reject(failureCode: WagerFailureCode, referenceTransactionId?: string): void {
+    if (!failureCode) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
+    this.transition({
+      status: 'REJECTED',
+      failureCode,
+      ...(referenceTransactionId ? { referenceTransactionId } : {}),
+    });
+  }
+  fail(failureCode: WagerFailureCode): void {
+    if (!failureCode) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
+    this.transition({ status: 'FAILED', failureCode });
+  }
+  private transition(next: TransactionState): void {
+    if (!transitions[this.state.status].includes(next.status))
       throw new DomainError('INVALID_TRANSACTION_TRANSITION');
-    this.state = Object.freeze({ status, ...(failureCode ? { failureCode } : {}) });
+    this.state = Object.freeze(next);
   }
   complete(outcome: WagerOutcome, at: string, context: EventContext): void {
     const accepting = this.state.status === 'PENDING';
     const balance = outcome.wallet.balance.toProps();
     const common = { transactionId: this.id, balance, idempotentReplay: false };
     if (outcome.status === 'REJECTED') {
-      this.transition('REJECTED', outcome.failureCode);
+      this.reject(outcome.failureCode, outcome.referenceTransactionId);
       if (accepting)
         this.receipt = {
           httpStatus: submissionHttpStatus.REJECTED,
@@ -170,7 +192,7 @@ export class WagerTransaction {
         context,
       );
     } else if (outcome.status === 'PENDING_REFERENCE') {
-      this.transition('PENDING_REFERENCE');
+      this.markPendingReference();
       if (accepting)
         this.receipt = {
           httpStatus: submissionHttpStatus.PENDING_REFERENCE,
@@ -184,8 +206,7 @@ export class WagerTransaction {
         context,
       );
     } else {
-      this.transition('PROCESSED');
-      this.processedAt = at;
+      this.markProcessed(outcome.referenceTransactionId, at);
       if (accepting)
         this.receipt = {
           httpStatus: submissionHttpStatus.PROCESSED,
@@ -193,11 +214,6 @@ export class WagerTransaction {
         };
       this.event = WagerTransactionProcessed.from(this.command, this.id, balance, at, context);
     }
-    if (outcome.status !== 'PENDING_REFERENCE' && outcome.referenceTransactionId)
-      this.state = Object.freeze({
-        ...this.state,
-        referenceTransactionId: outcome.referenceTransactionId,
-      });
   }
   getReceipt(idempotentReplay = false): SubmissionReceipt {
     const receipt = this.receipt;
