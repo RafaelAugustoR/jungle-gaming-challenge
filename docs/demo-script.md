@@ -28,9 +28,10 @@ bun run demo:mix artifacts/demo                                    # demo.mp4 + 
 - **Gravação**: `scripts/record-demo.ts` conduz o console real com Playwright (1280×800 a 1,5×,
   gravado em 1920×1200). Cada cena dura pelo menos a sua fala, com as ações acontecendo durante ela.
   Há cursor visível, terminal que digita o comando e mostra a saída real, cartelas de abertura e
-  encerramento, e nada cobre o console. Grava `demo.webm`, `timeline.json`, `cuts.json` e
-  `demo-run.json` (IDs, recibos, estados e respostas daquela execução). Sem `voice/manifest.json`,
-  grava um rascunho mudo com o mesmo roteiro.
+  encerramento, e nada cobre o console. Captura pelo screencast do Chrome em resolução de
+  dispositivo e grava `demo-video.mp4`, `timeline.json`, `cuts.json` e `demo-run.json` (IDs,
+  recibos, estados e respostas daquela execução). Sem `voice/manifest.json`, grava um rascunho mudo
+  com o mesmo roteiro.
 - **Mixagem**: `demo:mix` posiciona cada fala no instante registrado, remove as esperas mudas do stack
   (`cuts.json`), comprime e normaliza a voz em −16 LUFS e exporta H.264 + AAC com a faixa de legenda
   pt-BR. `DEMO_AV_OFFSET_MS` ajusta a sincronia, se necessário.

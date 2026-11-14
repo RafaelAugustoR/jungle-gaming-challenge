@@ -35,7 +35,8 @@ export function demoPaths(outDir: string) {
     timeline: resolve(dir, 'timeline.json'),
     cuts: resolve(dir, 'cuts.json'),
     run: resolve(dir, 'demo-run.json'),
-    webm: resolve(dir, 'demo.webm'),
+    /** The screen recording at device resolution, before narration and cuts. */
+    video: resolve(dir, 'demo-video.mp4'),
     mp4: resolve(dir, 'demo.mp4'),
     srt: resolve(dir, 'demo.srt'),
   };

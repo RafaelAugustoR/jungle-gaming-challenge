@@ -3,11 +3,11 @@
 //
 // Pipeline (see docs/demo-script.md):
 //   bun scripts/demo/voice.ts <outDir>     narration clips + voice/manifest.json (edge-tts)
-//   bun scripts/record-demo.ts <outDir>    drives the console, paced by the clips -> demo.webm, timeline.json
+//   bun scripts/record-demo.ts <outDir>    drives the console, paced by the clips -> demo-video.mp4, timeline.json
 //   bun scripts/demo/mix.ts <outDir>       voice + video -> demo.mp4 with subtitles
 // Without voice/manifest.json the recorder still runs, pacing each line by its length (silent draft).
 import { existsSync } from 'node:fs';
-import { mkdir, rename } from 'node:fs/promises';
+import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import {
   GetQueueAttributesCommand,
@@ -33,6 +33,7 @@ import {
   type VoiceManifest,
 } from './demo/artifacts';
 import { createOverlay, showTitleCard } from './demo/overlay';
+import { startScreencast } from './demo/screencast';
 
 type WalletBody = ReturnType<typeof walletResponse>;
 type ReconciliationBody = Awaited<ReturnType<Wallets['reconcile']>>;
@@ -189,10 +190,11 @@ const browser = await chromium.launch({ executablePath: process.env.CHROME_PATH 
 const context = await browser.newContext({
   viewport: { width: 1280, height: 800 },
   deviceScaleFactor: 1.5,
-  recordVideo: { dir: outDir, size: { width: 1920, height: 1200 } },
 });
 const page = await context.newPage();
-t0 = Date.now();
+// 1280×800 CSS at 1.5x: the screencast captures the real 1920×1200 device pixels.
+const screencast = await startScreencast(page, outDir, { width: 1920, height: 1200 });
+t0 = screencast.startedAt;
 const ui = await createOverlay(page);
 try {
   await showTitleCard(page, base);
@@ -414,11 +416,10 @@ try {
   // Never leave the local stack degraded, even when a scene fails midway.
   await exec('docker', 'compose', 'start', 'reference-worker', 'command-consumer').catch(() => {});
   run.finishedAt = new Date().toISOString();
-  const video = page.video();
+  await screencast.stop(paths.video);
   await context.close();
   await browser.close();
   sqs.destroy();
-  if (video) await rename(await video.path(), paths.webm);
   await Bun.write(paths.run, JSON.stringify(run, null, 2) + '\n');
   await Bun.write(paths.timeline, JSON.stringify(timeline, null, 2) + '\n');
   await Bun.write(paths.cuts, JSON.stringify(cuts, null, 2) + '\n');
