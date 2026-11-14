@@ -70,8 +70,9 @@ async function caption(page: Page, text: string, hold = pace) {
       bar = document.createElement('div');
       bar.id = 'demo-caption';
       bar.style.cssText =
-        'position:fixed;left:24px;right:24px;bottom:20px;z-index:9999;padding:14px 18px;border-radius:10px;' +
-        'background:rgba(17,24,39,.92);color:#f9fafb;font:600 17px/1.45 system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.25)';
+        'position:fixed;left:324px;right:24px;bottom:20px;z-index:9999;padding:14px 18px;' +
+        'background:rgba(25,14,58,.95);color:#f3f0ff;border-top:3px solid #ffd23f;' +
+        'font:600 17px/1.45 Archivo,system-ui,sans-serif;box-shadow:0 8px 24px rgba(0,0,0,.25)';
       document.body.append(bar);
     }
     bar.textContent = value;
@@ -86,7 +87,7 @@ async function terminal(page: Page, command: string, output: string, hold = pace
       box.id = 'demo-terminal';
       box.style.cssText =
         'position:fixed;top:90px;right:24px;width:560px;max-height:60vh;overflow:hidden;z-index:9999;margin:0;padding:16px;' +
-        'border-radius:10px;background:#0b1020;color:#d1fae5;font:13px/1.5 ui-monospace,monospace;white-space:pre-wrap;' +
+        "background:#14121c;color:#e0f3e8;font:13px/1.5 'JetBrains Mono',ui-monospace,monospace;white-space:pre-wrap;" +
         'box-shadow:0 10px 30px rgba(0,0,0,.35)';
       box.textContent = `$ ${cmd}\n${out}`;
       document.body.append(box);
@@ -97,16 +98,20 @@ async function terminal(page: Page, command: string, output: string, hold = pace
   await page.evaluate(() => document.getElementById('demo-terminal')?.remove());
 }
 
-async function scenario(page: Page, kind: string, amount?: string) {
-  await page.getByLabel('Comportamento').selectOption(kind);
-  if (amount) await page.getByLabel('Valor (BRL)').last().fill(amount);
-  const response = page.waitForResponse((r) => r.url().endsWith('/demo/scenarios'));
-  await page.getByRole('button', { name: 'Executar cenário' }).click();
-  const body = (await (await response).json()) as DemoScenarioResult;
+async function openProof(page: Page, name: RegExp) {
   await page
-    .locator('#demo-results-state')
-    .filter({ hasText: /Todas as operações|Algumas operações/ })
-    .waitFor({ timeout: 20000 });
+    .getByRole('navigation', { name: 'Provas e evidências' })
+    .getByRole('button', { name })
+    .click();
+}
+
+async function proof(page: Page, name: RegExp, amount?: string, waitStamp = true) {
+  await openProof(page, name);
+  if (amount) await page.getByLabel('Valor por operação').fill(amount.replace('.', ','));
+  const response = page.waitForResponse((r) => r.url().endsWith('/demo/scenarios'));
+  await page.getByRole('button', { name: /Executar (prova|de novo)/ }).click();
+  const body = (await (await response).json()) as DemoScenarioResult;
+  if (waitStamp) await page.locator('.result .stamp').waitFor({ timeout: 30000 });
   return body;
 }
 
@@ -155,12 +160,19 @@ async function sendCommand(
   return { queueDepth: visible + inFlight, body };
 }
 
-async function showWallet(page: Page, walletId: string, balance: string) {
-  await page.getByLabel('ID da wallet').fill(walletId);
-  await page.getByRole('button', { name: 'Consultar', exact: true }).click();
-  await page.getByTestId('wallet-balance').filter({ hasText: balance }).waitFor();
-  await page.getByTestId('wallet-balance').scrollIntoViewIfNeeded();
+async function showEvidence(page: Page, view: 'Bilhetes' | 'Ledger', balance: string) {
+  await page
+    .getByRole('navigation', { name: 'Provas e evidências' })
+    .getByRole('button', { name: view })
+    .click();
+  await page
+    .getByTestId('wallet-balance')
+    .filter({ hasText: brl(balance) })
+    .waitFor();
 }
+
+/** "15.00" -> "15,00", as the console renders money. */
+const brl = (amount: string) => amount.replace('.', ',');
 
 await mkdir(outDir, { recursive: true });
 const viewerToken = await consoleLogin(base, 'viewer', password);
@@ -181,60 +193,78 @@ const context = await browser.newContext({
 const page = await context.newPage();
 try {
   await page.goto(base);
+  await page.getByRole('button', { name: 'Entrar' }).waitFor();
   await caption(
     page,
-    'Jungle Gaming — processador de apostas. Stack local real: API, workers, PostgreSQL, SQS (LocalStack) e Keycloak.',
+    'Lastro — console de prova do processador de apostas. Stack local real: API, workers, PostgreSQL, SQS (LocalStack) e Keycloak.',
   );
   run.health = await sh('curl', '-fsS', `${base}/health/ready`);
   await terminal(page, `curl ${base}/health/ready`, run.health, pace);
+  await page.waitForFunction(() =>
+    [...document.querySelectorAll('button')].some(
+      (b) => b.textContent?.trim() === 'Entrar' && !b.disabled,
+    ),
+  );
   await page.getByRole('button', { name: 'Entrar' }).click();
   await page.locator('#username').fill('demo-operator');
   await page.locator('#password').fill(password);
   await page.locator('#kc-login').click();
-  await page.locator('#identity').filter({ hasText: 'demo-operator' }).waitFor();
+  await page.locator('.console').waitFor();
   await caption(
     page,
-    'Login via Keycloak (Authorization Code + PKCE) como demo-operator. Criando uma wallet fictícia com 100.00 BRL.',
+    'Login via Keycloak (Authorization Code + PKCE) como demo-operator. Criando uma wallet fictícia com R$ 100,00.',
   );
 
   const playerId = `video-${crypto.randomUUID().slice(0, 8)}`;
   await page.getByLabel('Jogador').fill(playerId);
-  await page.getByLabel('Saldo inicial (BRL)').fill('100.00');
+  await page.getByLabel('Saldo inicial').fill('100,00');
   await page.getByRole('button', { name: 'Criar wallet', exact: true }).click();
-  await page.getByTestId('wallet-balance').filter({ hasText: '100.00' }).waitFor();
-  const walletId = (await page.getByTestId('wallet-id').textContent())?.trim();
+  await page.getByTestId('wallet-balance').filter({ hasText: '100,00' }).waitFor();
+  const walletId = (await page.getByTestId('wallet-id').locator('code').textContent())?.trim();
   if (!walletId) throw new Error('Console did not show the created wallet ID');
   run.wallet = { walletId, playerId, opening: '100.00' };
 
   await caption(
     page,
-    '1) Disputa de saldo: duas BET de 80.00 enviadas ao mesmo tempo pelo endpoint real do provedor.',
+    'Prova 1 — disputa de saldo: duas BETs de 80% do saldo, ao mesmo tempo, pelo endpoint real do provedor.',
   );
-  const race = await scenario(page, 'race');
+  const race = await proof(page, /Disputa pelo saldo/);
   run.race = race.transactions;
-  await page.getByTestId('wallet-balance').filter({ hasText: '20.00' }).waitFor();
+  await page.getByTestId('wallet-balance').filter({ hasText: '20,00' }).waitFor();
   await caption(
     page,
-    'Uma PROCESSED (HTTP 200) e outra REJECTED com INSUFFICIENT_FUNDS (HTTP 422). Saldo final 20.00 e um único débito no ledger.',
+    'Uma aceita (200), outra recusada por saldo insuficiente (422). Um único débito: o saldo nunca fica negativo.',
     pace * 2,
   );
 
   await caption(
     page,
-    '2) Replay idempotente: a mesma chave e o mesmo corpo enviados duas vezes em paralelo (BET 5.00).',
+    'Prova 2 — replay idempotente: a mesma aposta, com a mesma chave, enviada duas vezes em paralelo.',
   );
-  const duplicate = await scenario(page, 'duplicate', '5.00');
+  const duplicate = await proof(page, /Repetição idempotente/, '5.00');
   run.duplicate = duplicate.transactions;
-  await page.getByTestId('wallet-balance').filter({ hasText: '15.00' }).waitFor();
+  await page.getByTestId('wallet-balance').filter({ hasText: '15,00' }).waitFor();
   await caption(
     page,
-    'Mesmo transactionId; um recibo com idempotentReplay=true. Saldo 15.00: o débito aconteceu uma vez.',
+    'Mesmo transactionId; o segundo recibo é um replay (idempotentReplay: true). Um débito só.',
     pace * 2,
   );
 
   await caption(
     page,
-    '3) Falha + referência fora de ordem: derrubamos o reference-worker com SIGKILL no ambiente local.',
+    'Prova 3 — referência fora de ordem: o REFUND chega antes da BET que ele estorna.',
+  );
+  await proof(page, /Referência fora de ordem/, '5.00');
+  await caption(
+    page,
+    'Canhoto: 202 PENDING_REFERENCE. Validação: PROCESSED, resolvido quando a BET chegou. Saldo inalterado.',
+    pace * 2,
+  );
+
+  await openProof(page, /Recuperação após falha/);
+  await caption(
+    page,
+    'Prova 4 — falha: derrubamos o reference-worker com SIGKILL, só no ambiente local.',
   );
   run.killReferenceWorker = await sh('docker', 'compose', 'kill', 'reference-worker');
   await terminal(
@@ -242,54 +272,38 @@ try {
     'docker compose kill reference-worker',
     run.killReferenceWorker || 'Container reference-worker Killed',
   );
-  await caption(
-    page,
-    'REFUND de 5.00 chega antes da BET referenciada: aceite 202 PENDING_REFERENCE, sem mover saldo.',
-  );
-  const outOfOrder = await scenario(page, 'out-of-order', '5.00');
+  const outOfOrder = await proof(page, /Recuperação após falha/, '5.00', false);
   run.outOfOrder = outOfOrder.transactions;
   const refund = outOfOrder.transactions.find((t) => t.httpStatus === 202);
-  if (!refund) throw new Error('Out-of-order scenario returned no 202 PENDING_REFERENCE receipt');
+  if (!refund) throw new Error('Recovery proof returned no 202 PENDING_REFERENCE receipt');
   const refundId = refund.originalReceipt.body.transactionId;
-  const refundWhileWorkerDown = await transaction(refundId);
-  run.refundWhileWorkerDown = refundWhileWorkerDown;
   await caption(
     page,
-    `Com o worker fora do ar o REFUND segue ${refundWhileWorkerDown.status}: a agenda de retry está persistida no PostgreSQL, não na memória.`,
-    pace * 1.5,
+    'Com o worker fora do ar, o REFUND segue pendente: a agenda de retry está no PostgreSQL, não na memória do processo.',
+    Math.max(pace * 2, 7000),
   );
+  run.refundWhileWorkerDown = await transaction(refundId);
   run.startReferenceWorker = await sh('docker', 'compose', 'start', 'reference-worker');
   await terminal(
     page,
     'docker compose start reference-worker',
     run.startReferenceWorker || 'Container reference-worker Started',
   );
-  let refundAfterRestart = await transaction(refundId);
-  for (const until = Date.now() + 60000; ; await Bun.sleep(500)) {
-    refundAfterRestart = await transaction(refundId);
-    if (refundAfterRestart.status !== 'PENDING_REFERENCE' || Date.now() > until) break;
-  }
-  run.refundAfterRestart = refundAfterRestart;
-  await page.getByRole('button', { name: `Detalhes da transação ${refundId}` }).click();
-  await page.locator('#current-fields').getByText('PROCESSED').waitFor();
-  await page.locator('#transaction-detail').scrollIntoViewIfNeeded();
+  await page.locator('.result .stamp').waitFor({ timeout: 90000 });
+  run.refundAfterRestart = await transaction(refundId);
   await caption(
     page,
-    'Após o restart o worker conclui o REFUND. Recibo original (202 PENDING_REFERENCE) ao lado do estado atual (PROCESSED).',
-    pace * 2.5,
+    'O worker voltou e retomou o REFUND. O recibo original (202) segue no canhoto, imutável.',
+    pace * 2,
   );
 
   await caption(
     page,
-    '4) Falha do consumidor SQS: derrubamos o command-consumer e enviamos uma BET de 10.00 pela fila.',
+    'Falha do consumidor SQS: derrubamos o command-consumer e enviamos uma BET de 10,00 pela fila.',
   );
   run.killCommandConsumer = await sh('docker', 'compose', 'kill', 'command-consumer');
   const externalId = `sqs-${crypto.randomUUID().slice(0, 8)}`;
-  await page
-    .locator('#close-detail')
-    .click()
-    .catch(() => {});
-  await showWallet(page, walletId, '15.00');
+  await showEvidence(page, 'Bilhetes', '15.00');
   const first = await sendCommand(
     walletId,
     playerId,
@@ -308,7 +322,9 @@ try {
   for (const until = Date.now() + 60000; Date.now() < until; await Bun.sleep(500)) {
     const response = await fetch(
       `${base}/providers/provider-a/wagering/transactions/${externalId}`,
-      { headers: { Authorization: `Bearer ${viewerToken}` } },
+      {
+        headers: { Authorization: `Bearer ${viewerToken}` },
+      },
     );
     if (response.status === 404) continue;
     if (!response.ok) throw new Error(`SQS transaction lookup failed (${response.status})`);
@@ -318,7 +334,11 @@ try {
   if (!processed) throw new Error(`SQS command ${externalId} was not processed within 60 s`);
   run.sqsProcessed = processed;
   const afterFirst = await wallet(walletId);
-  await showWallet(page, walletId, afterFirst.balance.amount);
+  await page.getByRole('button', { name: 'Atualizar' }).click();
+  await page
+    .getByTestId('wallet-balance')
+    .filter({ hasText: brl(afterFirst.balance.amount) })
+    .waitFor();
   await terminal(
     page,
     'docker compose start command-consumer',
@@ -326,7 +346,7 @@ try {
   );
   await caption(
     page,
-    'Reentrega com OUTRO messageId para a mesma operação: a inbox e a idempotência persistentes não repetem o débito.',
+    'Reentrega com OUTRO messageId para a mesma operação: inbox e idempotência persistentes não repetem o débito.',
   );
   const second = await sendCommand(
     walletId,
@@ -344,29 +364,32 @@ try {
     'reenvio da mesma operação (delivery-2)',
     `saldo ${afterSecond.balance.amount} · versão ${afterSecond.version} (inalterados)`,
   );
-
-  await showWallet(page, walletId, afterSecond.balance.amount);
+  await showEvidence(page, 'Ledger', afterSecond.balance.amount);
+  await page.getByText('Fecha com o saldo da wallet').waitFor();
   await caption(
     page,
-    '5) Reconciliação final: saldo materializado comparado ao saldo reconstruído pelo ledger.',
+    'O ledger tem um débito de 10,00 só, e o saldo corrente fecha com o saldo da wallet.',
+    pace * 1.5,
   );
+
+  await caption(
+    page,
+    'Prova 5 — reconciliação: o servidor reconstrói o saldo somando o ledger imutável.',
+  );
+  await openProof(page, /Reconciliação/);
   const reconciliationResponse = page.waitForResponse((r) => r.url().endsWith('/reconciliation'));
-  await page.getByRole('button', { name: 'Reconciliar ledger' }).click();
+  await page.getByRole('button', { name: /Executar (prova|de novo)/ }).click();
   const reconciliation = (await (await reconciliationResponse).json()) as ReconciliationBody;
   run.reconciliation = reconciliation;
-  await page.locator('#reconciliation').scrollIntoViewIfNeeded();
+  await page.locator('.result .stamp').waitFor();
   await caption(
     page,
-    `consistent=${reconciliation.consistent}: registrado ${reconciliation.storedBalance.amount} = reconstruído ${reconciliation.calculatedBalance.amount}, ${reconciliation.checkedEntries} lançamentos. Nada é corrigido silenciosamente.`,
+    `Registrado ${brl(reconciliation.storedBalance.amount)} = reconstruído ${brl(reconciliation.calculatedBalance.amount)}, ${reconciliation.checkedEntries} lançamentos. Nada é corrigido em silêncio.`,
     pace * 2.5,
   );
-  await page
-    .locator('#ledger-content')
-    .scrollIntoViewIfNeeded()
-    .catch(() => {});
   await caption(
     page,
-    'Morte após commit e antes do ack, publishers concorrentes e outages isolados são provados pelo harness: bun run test:recovery.',
+    'Morte após commit e antes do ack, publishers concorrentes e quedas isoladas são provados pelo harness: bun run test:recovery.',
     pace * 2,
   );
 } finally {
