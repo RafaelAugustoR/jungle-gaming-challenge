@@ -4,9 +4,9 @@
   "instances": 3,
   "rate": 500,
   "apiPids": [
-    5018,
-    5042,
-    5064
+    15561,
+    15585,
+    15608
   ],
   "wallets": 1,
   "operations": 17500,
@@ -14,59 +14,60 @@
   "summary": {
     "windowSeconds": 30,
     "scheduled": 15000,
-    "issued": 3877,
-    "notIssued": 11123,
-    "completed": 3877,
+    "issued": 3528,
+    "notIssued": 11472,
+    "completed": 3528,
     "outcomes": {
-      "processed": 3797,
-      "rejected": 80,
+      "processed": 3457,
+      "rejected": 71,
       "replay": 0,
       "pending": 0,
       "conflict": 0,
       "error": 0,
-      "not_issued": 11123
+      "not_issued": 11472
     },
-    "failureCodes": {
-      "INSUFFICIENT_FUNDS": 80
+    "codes": {
+      "INSUFFICIENT_FUNDS": 71
     },
     "httpStatuses": {
-      "200": 3797,
-      "422": 80
+      "200": 3457,
+      "422": 71
     },
     "offeredRps": 500,
-    "issuedRps": 129.23333333333332,
-    "completedRps": 121.539966898379,
-    "financialRps": 121.539966898379,
+    "issuedRps": 117.6,
+    "completedRps": 110.1750544521,
+    "financialRps": 110.1750544521,
+    "errors": 0,
     "errorRate": 0,
-    "drainAfterWindowMs": 1899,
+    "drainAfterWindowMs": 2022,
     "latencyMs": {
-      "count": 3877,
-      "p50": 1824.89,
-      "p95": 2862.78,
-      "p99": 2983.05,
-      "max": 3075.67
+      "count": 3528,
+      "p50": 2140.13,
+      "p95": 3038.95,
+      "p99": 3132.63,
+      "max": 3205.59
     },
     "intendedLatencyMs": {
-      "count": 3877,
-      "p50": 1825.16,
-      "p95": 2862.86,
-      "p99": 2982.47,
-      "max": 3075.51
+      "count": 3528,
+      "p50": 2139.64,
+      "p95": 3038.54,
+      "p99": 3132.33,
+      "max": 3207.87
     },
     "latencyByOutcomeMs": {
       "processed": {
-        "count": 3797,
-        "p50": 1824.68,
-        "p95": 2863.22,
-        "p99": 2983.29,
-        "max": 3075.67
+        "count": 3457,
+        "p50": 2140.41,
+        "p95": 3038.74,
+        "p99": 3131.72,
+        "max": 3205.59
       },
       "rejected": {
-        "count": 80,
-        "p50": 1832.32,
-        "p95": 2796.11,
-        "p99": 2962.05,
-        "max": 2962.05
+        "count": 71,
+        "p50": 2105.48,
+        "p95": 3132.63,
+        "p99": 3187.28,
+        "max": 3187.28
       },
       "replay": {
         "count": 0,
@@ -84,112 +85,114 @@
       }
     },
     "scheduleLagMs": {
-      "count": 3877,
-      "p50": -0.29,
-      "p95": 1.62,
-      "p99": 2.26,
-      "max": 3.74
+      "count": 3528,
+      "p50": -0.31,
+      "p95": 1.79,
+      "p99": 2.51,
+      "max": 4.29
     },
     "perInstance": [
       {
         "instance": 0,
-        "issued": 1267,
-        "p95": 2563.8
+        "issued": 1139,
+        "p95": 2432.37
       },
       {
         "instance": 1,
-        "issued": 1347,
-        "p95": 2948.1
+        "issued": 1181,
+        "p95": 2177.36
       },
       {
         "instance": 2,
-        "issued": 1263,
-        "p95": 1934.6
+        "issued": 1208,
+        "p95": 3117.82
       }
     ]
   },
   "database": {
-    "samplesInWindow": 146,
+    "samplesInWindow": 148,
     "lockWaitingBackends": {
-      "mean": 13.73,
-      "count": 146,
+      "mean": 13.69,
+      "count": 148,
       "p50": 14,
       "p95": 14,
       "p99": 14,
       "max": 14
     },
     "oldestLockWaitMs": {
-      "count": 146,
-      "p50": 108,
-      "p95": 123,
-      "p99": 145,
-      "max": 164
+      "count": 148,
+      "p50": 120,
+      "p95": 147,
+      "p99": 160,
+      "max": 163
     },
     "activeBackends": {
-      "mean": 14.59,
-      "count": 146,
+      "mean": 15.51,
+      "count": 148,
       "p50": 15,
-      "p95": 16,
-      "p99": 16,
-      "max": 17
+      "p95": 18,
+      "p99": 18,
+      "max": 18
     },
     "outboxPending": {
-      "count": 146,
-      "p50": 4747,
-      "p95": 8249,
-      "p99": 8575,
-      "max": 8625
+      "count": 148,
+      "p50": 4328,
+      "p95": 7501,
+      "p99": 7799,
+      "max": 7850
     },
     "outboxOldestAgeMs": {
-      "count": 146,
-      "p50": 19417,
-      "p95": 32893,
-      "p99": 34130,
-      "max": 34339
+      "count": 148,
+      "p50": 19304,
+      "p95": 32799,
+      "p99": 34010,
+      "max": 34212
     },
-    "loadEndMs": 36899
+    "loadEndMs": 37022
   },
   "outboxDrain": {
-    "eventsAtLoadEnd": 9200,
-    "pendingAtLoadEnd": 9143,
+    "eventsAtLoadEnd": 8445,
+    "pendingAtLoadEnd": 8390,
     "drainedAfterMs": null,
     "timeoutMs": 30000,
-    "pendingWhenStopped": 9093,
+    "pendingWhenStopped": 8339,
     "publishedPerSecondWhileDraining": 1.7
   },
   "processMetrics": {
     "walletLockConflicts": 0,
-    "financialRetries": 0,
-    "note": "Per-process counters scraped from each API via /internal/metrics before/after."
+    "financialRetries": 0
   },
-  "invariants": {
+  "verification": {
+    "completed": true,
     "ok": true,
     "checks": {
       "reconciledWallets": true,
       "transactionsMatchUniqueOperations": true,
       "processedMatches": true,
       "rejectedMatches": true,
-      "noNonTerminalTransactions": true,
       "journalEntriesMatch": true,
-      "balancedPairs": true,
-      "oneEventSetPerTransaction": true,
+      "ledgerAudit": true,
       "noDuplicateFinancialEffect": true,
       "oversizedNeverProcessed": true
     },
     "finalStates": {
-      "PROCESSED": 4550,
-      "REJECTED": 99,
-      "NOT_APPLIED": 12851
+      "PROCESSED": 4180,
+      "REJECTED": 84,
+      "NOT_APPLIED": 13236
     },
     "readBackAfterUncertainResponse": 0,
-    "neverSent": 12851,
+    "neverSent": 13236,
     "database": {
-      "transactions": 4649,
-      "processed": 4550,
-      "rejected": 99,
-      "non_terminal": 0,
-      "journal_entries": 4551,
+      "processed": 4180,
+      "rejected": 84,
+      "transactions": 4264,
+      "journal_entries": 4181
+    },
+    "audit": {
       "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
       "invalid_event_sets": 0
     },
     "reconciliation": {

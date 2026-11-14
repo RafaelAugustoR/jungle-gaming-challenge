@@ -4,7 +4,7 @@
   "instances": 1,
   "rate": 500,
   "apiPids": [
-    5593
+    16205
   ],
   "wallets": 100,
   "operations": 17500,
@@ -12,66 +12,67 @@
   "summary": {
     "windowSeconds": 30,
     "scheduled": 15000,
-    "issued": 14871,
-    "notIssued": 129,
-    "completed": 14871,
+    "issued": 12448,
+    "notIssued": 2552,
+    "completed": 12448,
     "outcomes": {
-      "processed": 10225,
-      "rejected": 224,
-      "replay": 4422,
+      "processed": 8998,
+      "rejected": 198,
+      "replay": 3252,
       "pending": 0,
       "conflict": 0,
       "error": 0,
-      "not_issued": 129
+      "not_issued": 2552
     },
-    "failureCodes": {
-      "INSUFFICIENT_FUNDS": 319
+    "codes": {
+      "INSUFFICIENT_FUNDS": 263
     },
     "httpStatuses": {
-      "200": 14552,
-      "422": 319
+      "200": 12185,
+      "422": 263
     },
     "offeredRps": 500,
-    "issuedRps": 495.7,
-    "completedRps": 495.5740793178788,
-    "financialRps": 348.2115227484712,
+    "issuedRps": 414.93333333333334,
+    "completedRps": 407.2456420703059,
+    "financialRps": 300.85402670939374,
+    "errors": 0,
     "errorRate": 0,
-    "drainAfterWindowMs": 8,
+    "drainAfterWindowMs": 566,
     "latencyMs": {
-      "count": 14871,
-      "p50": 25.22,
-      "p95": 540.88,
-      "p99": 598.32,
-      "max": 617.75
+      "count": 12448,
+      "p50": 594.6,
+      "p95": 764.24,
+      "p99": 803.09,
+      "max": 824.93
     },
     "intendedLatencyMs": {
-      "count": 14871,
-      "p50": 25.34,
-      "p95": 540.96,
-      "p99": 598.91,
-      "max": 617.16
+      "count": 12448,
+      "p50": 594.47,
+      "p95": 764.5,
+      "p99": 803.03,
+      "max": 824.43
     },
     "latencyByOutcomeMs": {
       "processed": {
-        "count": 10225,
-        "p50": 27.43,
-        "p95": 547.34,
-        "p99": 602.13,
-        "max": 617.75
+        "count": 8998,
+        "p50": 597.42,
+        "p95": 768.73,
+        "p99": 804.91,
+        "max": 824.93
       },
       "rejected": {
-        "count": 224,
-        "p50": 23.69,
-        "p95": 538.94,
-        "p99": 597.84,
-        "max": 609.47
+        "count": 198,
+        "p50": 593.42,
+        "p95": 771.44,
+        "p99": 809.78,
+        "max": 811.69
       },
       "replay": {
-        "count": 4422,
-        "p50": 18.46,
-        "p95": 525.67,
-        "p99": 588.85,
-        "max": 616.31
+        "count": 3252,
+        "p50": 585.51,
+        "p95": 752.31,
+        "p99": 794.96,
+        "max": 817.53
       },
       "error": {
         "count": 0,
@@ -82,102 +83,104 @@
       }
     },
     "scheduleLagMs": {
-      "count": 14871,
-      "p50": -0.25,
-      "p95": 2.05,
-      "p99": 3.08,
-      "max": 18.59
+      "count": 12448,
+      "p50": -0.23,
+      "p95": 2.04,
+      "p99": 2.98,
+      "max": 20.59
     },
     "perInstance": [
       {
         "instance": 0,
-        "issued": 14871,
-        "p95": 540.88
+        "issued": 12448,
+        "p95": 764.24
       }
     ]
   },
   "database": {
-    "samplesInWindow": 143,
+    "samplesInWindow": 147,
     "lockWaitingBackends": {
-      "mean": 0.1,
-      "count": 143,
+      "mean": 0.14,
+      "count": 147,
       "p50": 0,
       "p95": 1,
       "p99": 1,
-      "max": 2
+      "max": 1
     },
     "oldestLockWaitMs": {
-      "count": 13,
-      "p50": 5,
-      "p95": 13,
-      "p99": 13,
-      "max": 13
+      "count": 21,
+      "p50": 3,
+      "p95": 6,
+      "p99": 8,
+      "max": 8
     },
     "activeBackends": {
-      "mean": 1.64,
-      "count": 143,
-      "p50": 1,
-      "p95": 4,
+      "mean": 2.77,
+      "count": 147,
+      "p50": 3,
+      "p95": 5,
       "p99": 6,
-      "max": 7
+      "max": 6
     },
     "outboxPending": {
-      "count": 143,
-      "p50": 12997,
-      "p95": 21842,
-      "p99": 22712,
-      "max": 22827
+      "count": 147,
+      "p50": 11127,
+      "p95": 19017,
+      "p99": 19760,
+      "max": 19884
     },
     "outboxOldestAgeMs": {
-      "count": 143,
-      "p50": 18675,
-      "p95": 31449,
-      "p99": 32654,
-      "max": 32865
+      "count": 147,
+      "p50": 18730,
+      "p95": 31495,
+      "p99": 32689,
+      "max": 32897
     },
-    "loadEndMs": 35008
+    "loadEndMs": 35566
   },
   "outboxDrain": {
-    "eventsAtLoadEnd": 24198,
-    "pendingAtLoadEnd": 22978,
+    "eventsAtLoadEnd": 21517,
+    "pendingAtLoadEnd": 20277,
     "drainedAfterMs": null,
     "timeoutMs": 30000,
-    "pendingWhenStopped": 22018,
-    "publishedPerSecondWhileDraining": 31.9
+    "pendingWhenStopped": 19297,
+    "publishedPerSecondWhileDraining": 32.6
   },
   "processMetrics": {
     "walletLockConflicts": 0,
-    "financialRetries": 0,
-    "note": "Per-process counters scraped from each API via /internal/metrics before/after."
+    "financialRetries": 0
   },
-  "invariants": {
+  "verification": {
+    "completed": true,
     "ok": true,
     "checks": {
       "reconciledWallets": true,
       "transactionsMatchUniqueOperations": true,
       "processedMatches": true,
       "rejectedMatches": true,
-      "noNonTerminalTransactions": true,
       "journalEntriesMatch": true,
-      "balancedPairs": true,
-      "oneEventSetPerTransaction": true,
+      "ledgerAudit": true,
       "noDuplicateFinancialEffect": true,
       "oversizedNeverProcessed": true
     },
     "finalStates": {
-      "PROCESSED": 11919,
-      "REJECTED": 260,
-      "NOT_APPLIED": 62
+      "PROCESSED": 10592,
+      "REJECTED": 233,
+      "NOT_APPLIED": 1416
     },
     "readBackAfterUncertainResponse": 0,
-    "neverSent": 62,
+    "neverSent": 1416,
     "database": {
-      "transactions": 12179,
-      "processed": 11919,
-      "rejected": 260,
-      "non_terminal": 0,
-      "journal_entries": 12019,
+      "processed": 10592,
+      "rejected": 233,
+      "transactions": 10825,
+      "journal_entries": 10692
+    },
+    "audit": {
       "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
       "invalid_event_sets": 0
     },
     "reconciliation": {

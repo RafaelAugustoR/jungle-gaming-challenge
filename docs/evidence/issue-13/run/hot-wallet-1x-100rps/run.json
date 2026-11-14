@@ -4,7 +4,7 @@
   "instances": 1,
   "rate": 100,
   "apiPids": [
-    3386
+    14184
   ],
   "wallets": 1,
   "operations": 3500,
@@ -24,7 +24,7 @@
       "error": 0,
       "not_issued": 0
     },
-    "failureCodes": {
+    "codes": {
       "INSUFFICIENT_FUNDS": 52
     },
     "httpStatuses": {
@@ -35,36 +35,37 @@
     "issuedRps": 100,
     "completedRps": 100,
     "financialRps": 100,
+    "errors": 0,
     "errorRate": 0,
     "drainAfterWindowMs": 0,
     "latencyMs": {
       "count": 3000,
-      "p50": 10.47,
-      "p95": 13.62,
-      "p99": 19.72,
-      "max": 64.68
+      "p50": 10.01,
+      "p95": 13.06,
+      "p99": 17.79,
+      "max": 38.43
     },
     "intendedLatencyMs": {
       "count": 3000,
-      "p50": 10.45,
-      "p95": 14.2,
-      "p99": 19.49,
-      "max": 64.07
+      "p50": 10.08,
+      "p95": 13.45,
+      "p99": 17.99,
+      "max": 40.78
     },
     "latencyByOutcomeMs": {
       "processed": {
         "count": 2948,
-        "p50": 10.51,
-        "p95": 13.66,
-        "p99": 19.75,
-        "max": 64.68
+        "p50": 10.03,
+        "p95": 13.08,
+        "p99": 17.79,
+        "max": 38.43
       },
       "rejected": {
         "count": 52,
-        "p50": 7.93,
-        "p95": 10.1,
-        "p99": 12.23,
-        "max": 12.23
+        "p50": 8.35,
+        "p95": 10.98,
+        "p99": 19.72,
+        "max": 19.72
       },
       "replay": {
         "count": 0,
@@ -83,84 +84,82 @@
     },
     "scheduleLagMs": {
       "count": 3000,
-      "p50": -0.1,
-      "p95": 1.77,
-      "p99": 2.3,
-      "max": 4.03
+      "p50": -0.11,
+      "p95": 1.74,
+      "p99": 2.29,
+      "max": 3.98
     },
     "perInstance": [
       {
         "instance": 0,
         "issued": 3000,
-        "p95": 13.62
+        "p95": 13.06
       }
     ]
   },
   "database": {
-    "samplesInWindow": 146,
+    "samplesInWindow": 148,
     "lockWaitingBackends": {
-      "mean": 0.04,
-      "count": 146,
+      "mean": 0.01,
+      "count": 148,
       "p50": 0,
       "p95": 0,
       "p99": 1,
-      "max": 3
+      "max": 1
     },
     "oldestLockWaitMs": {
-      "count": 4,
-      "p50": 1,
-      "p95": 41,
-      "p99": 41,
-      "max": 41
+      "count": 2,
+      "p50": 0,
+      "p95": 1,
+      "p99": 1,
+      "max": 1
     },
     "activeBackends": {
-      "mean": 0.71,
-      "count": 146,
+      "mean": 1.07,
+      "count": 148,
       "p50": 1,
       "p95": 2,
       "p99": 3,
       "max": 3
     },
     "outboxPending": {
-      "count": 146,
-      "p50": 3900,
-      "p95": 6582,
-      "p99": 6827,
-      "max": 6869
+      "count": 148,
+      "p50": 3896,
+      "p95": 6571,
+      "p99": 6811,
+      "max": 6850
     },
     "outboxOldestAgeMs": {
-      "count": 146,
-      "p50": 19551,
-      "p95": 33036,
-      "p99": 34262,
-      "max": 34469
+      "count": 148,
+      "p50": 19555,
+      "p95": 32994,
+      "p99": 34201,
+      "max": 34404
     },
     "loadEndMs": 35000
   },
   "outboxDrain": {
     "eventsAtLoadEnd": 6939,
-    "pendingAtLoadEnd": 6889,
+    "pendingAtLoadEnd": 6876,
     "drainedAfterMs": null,
     "timeoutMs": 30000,
-    "pendingWhenStopped": 6850,
-    "publishedPerSecondWhileDraining": 1.3
+    "pendingWhenStopped": 6825,
+    "publishedPerSecondWhileDraining": 1.7
   },
   "processMetrics": {
     "walletLockConflicts": 0,
-    "financialRetries": 0,
-    "note": "Per-process counters scraped from each API via /internal/metrics before/after."
+    "financialRetries": 0
   },
-  "invariants": {
+  "verification": {
+    "completed": true,
     "ok": true,
     "checks": {
       "reconciledWallets": true,
       "transactionsMatchUniqueOperations": true,
       "processedMatches": true,
       "rejectedMatches": true,
-      "noNonTerminalTransactions": true,
       "journalEntriesMatch": true,
-      "balancedPairs": true,
-      "oneEventSetPerTransaction": true,
+      "ledgerAudit": true,
       "noDuplicateFinancialEffect": true,
       "oversizedNeverProcessed": true
     },
@@ -172,12 +171,16 @@
     "readBackAfterUncertainResponse": 0,
     "neverSent": 0,
     "database": {
-      "transactions": 3500,
       "processed": 3438,
       "rejected": 62,
-      "non_terminal": 0,
-      "journal_entries": 3439,
+      "transactions": 3500,
+      "journal_entries": 3439
+    },
+    "audit": {
       "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
       "invalid_event_sets": 0
     },
     "reconciliation": {
