@@ -6,7 +6,13 @@ async function main() {
   const direction = process.argv[2];
   if (direction !== 'up' && direction !== 'down') throw new Error('Expected up or down');
   const orm = await openDatabase(loadMigrationConfig());
-  try { await orm.getMigrator()[direction](); }
-  finally { await orm.close(true); }
+  try {
+    await orm.getMigrator()[direction]();
+  } finally {
+    await orm.close(true);
+  }
 }
-main().catch((error: unknown) => { new JsonLogger().error(error); process.exitCode = 1; });
+main().catch((error: unknown) => {
+  new JsonLogger().error(error);
+  process.exitCode = 1;
+});

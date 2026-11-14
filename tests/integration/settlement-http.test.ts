@@ -93,7 +93,7 @@ integration(
       `select event_type,count(*)::int n from wagering.outbox where aggregate_id=? group by event_type`,
       [w.id],
     );
-    expect(events).toContainEqual({ event_type: 'WagerTransactionProcessed', n: 5 });
+    expect(events).toContainEqual({ event_type: 'WagerTransactionProcessed', n: 6 }); // + OPENING
     expect(events).toContainEqual({ event_type: 'WalletBalanceChanged', n: 2 });
   },
 );

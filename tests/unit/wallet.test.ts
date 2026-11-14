@@ -74,7 +74,7 @@ test('wallet factory validates opening while rehydrate preserves persisted state
   expect(() => Wallet.open({ ...input, playerId: ' ' })).toThrow('INVALID_PAYLOAD');
 });
 
-test('Wallet.open produces one financial fact shared by journal and event, or none for zero', () => {
+test('Wallet.open produces one financial fact shared by journal and both events, or none for zero', () => {
   const result = Wallet.open({
     playerId: 'player-open',
     initialBalance: Money.create('123.45', 'BRL'),
@@ -91,7 +91,8 @@ test('Wallet.open produces one financial fact shared by journal and event, or no
     balanceAfter: '123.45',
     walletVersion: 1,
   });
-  expect(result.opening!.event.toJSON()).toMatchObject({
+  const [balanceChanged, processed] = result.opening!.events;
+  expect(balanceChanged.toJSON()).toMatchObject({
     aggregateId: result.wallet.id,
     correlationId: 'opening-correlation',
     data: {
@@ -102,6 +103,22 @@ test('Wallet.open produces one financial fact shared by journal and event, or no
       walletVersion: 1,
     },
   });
+  // §11: the OPENING is an applied transaction, so it also has its processed result.
+  expect(processed.toJSON()).toMatchObject({
+    eventType: 'WagerTransactionProcessed',
+    version: 1,
+    aggregateId: result.wallet.id,
+    correlationId: 'opening-correlation',
+    data: {
+      transactionId: result.opening!.transaction.id,
+      walletId: result.wallet.id,
+      playerId: 'player-open',
+      kind: 'OPENING',
+      money: { amount: '123.45', currency: 'BRL' },
+      balance: { amount: '123.45', currency: 'BRL' },
+    },
+  });
+  expect(processed.toJSON().data).not.toHaveProperty('providerId');
   const zero = Wallet.open({
     playerId: 'zero',
     initialBalance: Money.create('0.00', 'BRL'),

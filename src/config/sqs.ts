@@ -5,7 +5,9 @@ export function createSqsClient(config: AppConfig) {
   return new SQSClient({
     region: config.awsRegion,
     endpoint: config.sqsEndpoint,
-    credentials: config.awsAccessKeyId && config.awsSecretAccessKey
-      ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey } : undefined,
+    credentials:
+      config.awsAccessKeyId && config.awsSecretAccessKey
+        ? { accessKeyId: config.awsAccessKeyId, secretAccessKey: config.awsSecretAccessKey }
+        : undefined,
   });
 }

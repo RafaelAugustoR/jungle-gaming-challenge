@@ -1,4 +1,13 @@
-import { Body, Controller, HttpException, Inject, Module, Post, Req, UseGuards } from '@nestjs/common';
+import {
+  Body,
+  Controller,
+  HttpException,
+  Inject,
+  Module,
+  Post,
+  Req,
+  UseGuards,
+} from '@nestjs/common';
 import { APP_CONFIG } from '../../config/infrastructure.module';
 import type { AppConfig } from '../../config/config';
 import { HumanRole, Identity, IdentityModule, type Principal } from '../identity/identity.module';
@@ -116,13 +125,16 @@ class DemoController {
     if (!provider) throw apiError(503, 'INFRASTRUCTURE_UNAVAILABLE');
     const operationAmount =
       selected.scenario === 'race'
-        ? Money.create(disputeAmount(wallet.balance.toProps().amount), wallet.balance.currency).toProps()
+        ? Money.create(
+            disputeAmount(wallet.balance.toProps().amount),
+            wallet.balance.currency,
+          ).toProps()
         : amount.toProps();
     const auditId = crypto.randomUUID();
     const plan = scenarioPlan(selected.scenario, auditId);
-    const externalTransactionIds = [...new Set(
-      plan.steps.map(({ externalTransactionId }) => externalTransactionId),
-    )];
+    const externalTransactionIds = [
+      ...new Set(plan.steps.map(({ externalTransactionId }) => externalTransactionId)),
+    ];
     const started = new Date().toISOString();
     let submissions: DemoSubmission[] = [];
     await this.audit.start({
@@ -137,7 +149,9 @@ class DemoController {
     try {
       const token = await this.provider.accessToken(provider);
       const command = ({
-        kind, externalTransactionId, referenceExternalTransactionId,
+        kind,
+        externalTransactionId,
+        referenceExternalTransactionId,
       }: ScenarioStep): DemoCommand => ({
         providerId: provider.providerId,
         externalTransactionId,
@@ -169,13 +183,7 @@ class DemoController {
       };
     } catch (error) {
       try {
-        await this.audit.finish(
-          auditId,
-          started,
-          'FAILED',
-          submissions,
-          failureCode(error),
-        );
+        await this.audit.finish(auditId, started, 'FAILED', submissions, failureCode(error));
       } catch {
         // Keep the original failure; the audit intent still links the external transaction IDs.
       }

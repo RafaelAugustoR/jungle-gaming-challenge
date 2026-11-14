@@ -135,10 +135,7 @@ integration(
             currentTransaction(originalReceipt.body.transactionId),
           ),
         );
-        expect(current.map(({ status }) => status)).toEqual([
-          'PROCESSED',
-          'PROCESSED',
-        ]);
+        expect(current.map(({ status }) => status)).toEqual(['PROCESSED', 'PROCESSED']);
       } else {
         expect(value.amount).toEqual({ amount: '80.00', currency: 'BRL' });
         expect(value.transactions.map(({ httpStatus }) => httpStatus).sort()).toEqual([200, 422]);

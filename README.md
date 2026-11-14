@@ -114,7 +114,9 @@ bun run worker:events
   recusam rollback que apagaria fatos financeiros.
 - `worker:commands`, `worker:outbox` e `worker:events` aceitam `--once` para uma única iteração.
 - `bun run typecheck` (TypeScript `strict`) e `bun run build` (typecheck + bundle do console em
-  `frontend/dist`). Formatação: `bunx prettier --write <arquivo>`.
+  `frontend/dist`). Formatação: `bun run format` aplica e `bun run format:check` verifica (roda na
+  CI) `src`, `migrations`, `tests` e `scripts`. Não há ESLint: o `strict` do TypeScript é a análise
+  estática adotada.
 
 ## Testes
 
@@ -134,7 +136,7 @@ Para rodar a infraestrutura dos testes fora do Docker, use os três primeiros co
 [Desenvolvimento local](#desenvolvimento-local-fora-do-docker) mais `docker compose run --rm provision`.
 Os testes criam um banco descartável por suíte via `MIGRATION_DATABASE_URL` (precisa de `CREATEDB`),
 filas SQS com UUID e portas efêmeras; não apagam dados do banco de demonstração. A CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda typecheck, unidade, `test:integration`,
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda typecheck, `format:check`, unidade, `test:integration`,
 a API do Compose com healthcheck, `test:stack` e `test:browser`. Estratégia completa em
 [docs/testing-strategy.md](docs/testing-strategy.md).
 
@@ -201,9 +203,9 @@ curl -s http://localhost:3000/wagering/transactions \
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 200                   | `PROCESSED`; repetir a mesma requisição devolve o mesmo recibo com `idempotentReplay: true`                                           |
 | 202                   | `PENDING_REFERENCE`: referência ainda ausente; o `reference-worker` conclui ou expira (TTL 15 min)                                    |
-| 422                   | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`)                                                         |
+| 422                   | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `REVERSAL_INSUFFICIENT_FUNDS`)                                               |
 | 409                   | `IDEMPOTENCY_CONFLICT` (mesma chave, corpo diferente) ou `EXTERNAL_TRANSACTION_CONFLICT` (outra chave, mesmo `externalTransactionId`) |
-| 400 / 401 / 403 / 404 | Payload inválido / sem token válido / sem permissão ou provedor errado / recurso inexistente                                          |
+| 400 / 401 / 403 / 404 | Payload inválido (inclui `CURRENCY_MISMATCH`; nada é gravado e a chave não é consumida) / sem token / sem permissão / inexistente   |
 | 503                   | `INFRASTRUCTURE_UNAVAILABLE`: nada foi gravado e a chave não foi consumida; repita com a mesma chave                                  |
 
 Os `failureCode` estáveis e o mapeamento completo para HTTP estão em [ARCHITECTURE.md](ARCHITECTURE.md)

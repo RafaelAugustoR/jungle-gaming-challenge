@@ -25,6 +25,7 @@ import {
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
+  PendingReferenceCandidate,
   TransactionFilter,
   TransactionView,
   WageringSession,
@@ -192,8 +193,10 @@ export class WageringRepository implements WageringStore {
   }
   dueReferences(limit: number) {
     return databaseOperation(() =>
-      this.orm.em.fork().execute<{ transactionId: string; walletId: string }[]>(
-        `select r.transaction_id as "transactionId",t.wallet_id as "walletId" from wagering.reference_retries r join wagering.transactions t on t.id=r.transaction_id
+      this.orm.em.fork().execute<PendingReferenceCandidate[]>(
+        `select r.transaction_id as "transactionId",t.wallet_id as "walletId",t.provider_id as "providerId",
+         coalesce((select o.payload->>'correlationId' from wagering.outbox o where o.transaction_id=t.id and o.event_type='WagerTransactionPendingReference'),t.id::text) as "correlationId"
+       from wagering.reference_retries r join wagering.transactions t on t.id=r.transaction_id
        where r.completed_at is null and r.next_attempt_at<=clock_timestamp() and t.status='PENDING_REFERENCE'
        order by r.next_attempt_at,r.transaction_id limit ?`,
         [limit],

@@ -25,7 +25,10 @@ function validPosition(value: unknown): value is TransactionCursorPosition {
   const instant = new Date(milliseconds);
   return Number.isFinite(instant.getTime()) && instant.toISOString() === milliseconds;
 }
-export function encodeTransactionCursor(filter: TransactionFilter, position: TransactionCursorPosition) {
+export function encodeTransactionCursor(
+  filter: TransactionFilter,
+  position: TransactionCursorPosition,
+) {
   return encodeCursor('t2', filterScope(filter), position);
 }
 export function decodeTransactionCursor(

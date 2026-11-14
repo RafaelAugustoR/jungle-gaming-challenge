@@ -1,4 +1,11 @@
-import { DynamicModule, Global, Inject, Injectable, Module, OnApplicationShutdown } from '@nestjs/common';
+import {
+  DynamicModule,
+  Global,
+  Inject,
+  Injectable,
+  Module,
+  OnApplicationShutdown,
+} from '@nestjs/common';
 import { MikroORM } from '@mikro-orm/postgresql';
 import { SQSClient } from '@aws-sdk/client-sqs';
 import type { AppConfig } from './config';
@@ -9,7 +16,10 @@ export const APP_CONFIG = Symbol('APP_CONFIG');
 
 @Injectable()
 class InfrastructureLifecycle implements OnApplicationShutdown {
-  constructor(@Inject(MikroORM) private readonly orm: MikroORM, @Inject(SQSClient) private readonly sqs: SQSClient) {}
+  constructor(
+    @Inject(MikroORM) private readonly orm: MikroORM,
+    @Inject(SQSClient) private readonly sqs: SQSClient,
+  ) {}
   async onApplicationShutdown() {
     this.sqs.destroy();
     await this.orm.close(true);
