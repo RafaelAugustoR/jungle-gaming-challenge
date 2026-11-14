@@ -101,13 +101,14 @@ externamente**; as decisões pendentes estão em [submission.md](../../submissio
 
 ## Vídeo
 
-[`demo.mp4`](demo.mp4) tem 3 min 52 s, 1280×800, **narração em pt-BR** e legendas pt-BR como faixa
-selecionável ([`demo.srt`](demo.srt)). A gravação original em 1920×1200 fica fora do Git
-(`artifacts/demo/`). Foi produzido pelo pipeline do [roteiro](../../demo-script.md): narração
-sintetizada (`edge-tts`, voz `pt-BR-AntonioNeural`), console real conduzido pelo Playwright no ritmo
-de cada fala, e mixagem com ffmpeg que remove esperas mudas do stack (nesta execução o consumidor
-SQS voltou sem espera, então nada foi cortado) e normaliza o áudio em −16 LUFS.
-[`demo-run.json`](demo-run.json) guarda os dados reais da execução (2026-11-14 20:42–20:46 UTC, wallet `4cdf1c6a-de60-493a-9555-03a279aa3753`):
+[`demo.mp4`](demo.mp4) tem 4 min 10 s, 1280×800, **narração em pt-BR** e legendas pt-BR como faixa
+selecionável ([`demo.srt`](demo.srt)). A gravação original em 1920×1200, capturada em resolução de
+dispositivo pelo screencast do Chrome, fica fora do Git (`artifacts/demo/`). Foi produzido pelo
+pipeline do [roteiro](../../demo-script.md): narração sintetizada (`edge-tts`, voz
+`pt-BR-AntonioNeural`), console real conduzido pelo Playwright no ritmo de cada fala, e mixagem com
+ffmpeg que remove esperas mudas do stack (nesta execução, 15,8 s de espera pelo consumidor SQS) e
+normaliza o áudio em −16 LUFS. [`demo-run.json`](demo-run.json) guarda os dados reais da execução
+(2026-11-14 21:13–21:17 UTC, wallet `dd51ef87-21e3-4a5f-8368-3dd8e68916a9`):
 
 | Cena                                                                    | Resultado registrado                                                                            |
 | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
@@ -115,7 +116,7 @@ SQS voltou sem espera, então nada foi cortado) e normaliza o áudio em −16 LU
 | Prova 2 · Replay (BET 5,00 duas vezes, mesma chave)                     | Mesmo `transactionId`; `idempotentReplay` false/true; saldo 15,00                               |
 | Prova 3 · Fora de ordem (worker ativo)                                  | REFUND `202 PENDING_REFERENCE` no aceite, `PROCESSED` no estado atual; saldo 15,00              |
 | Prova 4 · `docker compose kill reference-worker` + REFUND fora de ordem | O REFUND segue `PENDING_REFERENCE` com o worker morto                                           |
-| `docker compose start reference-worker`                                 | REFUND `PROCESSED` após a retomada, 17,4 s depois do aceite; carimbo "Garantia mantida"         |
+| `docker compose start reference-worker`                                 | REFUND `PROCESSED` após a retomada, 16,7 s depois do aceite; carimbo "Garantia mantida"         |
 | `docker compose kill command-consumer` + BET 10,00 via SQS              | 1 mensagem na fila; depois do `start`, `PROCESSED`, saldo 5,00, versão 8                        |
 | Reentrega com outro `messageId`                                         | Saldo 5,00 e versão 8 inalterados                                                               |
 | Prova 5 · Reconciliação                                                 | `consistent: true`; registrado = reconstruído = 5,00; diferença 0,00; 8 lançamentos; placar 5/5 |

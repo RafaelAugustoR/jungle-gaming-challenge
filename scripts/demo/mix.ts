@@ -24,7 +24,7 @@ const cutLength = (cut: Cut) => cut.endMs - cut.startMs;
 const edited = (ms: number) =>
   ms - cuts.filter((cut) => cut.endMs <= ms).reduce((sum, cut) => sum + cutLength(cut), 0) + offset;
 const removedSeconds = cuts.reduce((sum, cut) => sum + cutLength(cut), 0) / 1000;
-const duration = (await probeDuration(paths.webm)) - removedSeconds;
+const duration = (await probeDuration(paths.video)) - removedSeconds;
 
 const srtTime = (ms: number) => {
   const total = Math.max(0, Math.round(ms));
@@ -69,7 +69,7 @@ await exec(
   '-v',
   'error',
   '-i',
-  paths.webm,
+  paths.video,
   ...voiceInputs,
   '-i',
   paths.srt,
