@@ -24,7 +24,8 @@
     "provision:commands": "bun scripts/provision-commands.ts",
     "test:recovery": "bun scripts/test-recovery.ts",
     "test:load": "bun scripts/test-load.ts",
-    "test:stack": "bun test tests/stack"
+    "test:stack": "bun test tests/stack",
+    "demo:record": "bun scripts/record-demo.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",
