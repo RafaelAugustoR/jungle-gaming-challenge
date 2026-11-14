@@ -63,7 +63,7 @@
       "requestTimeoutMs": 20000,
       "sampleMs": 200,
       "outboxDrainTimeoutMs": 10000,
-      "outDir": "/tmp/claude-1000/-home-rafael-projects-jungle-gaming-challenge/b08ab289-d0c5-4a9b-a123-19a8573546f4/scratchpad/ab2/main-3"
+      "outDir": "ab/main-3"
     }
   },
   "note": "Everything (generator, APIs, PostgreSQL, LocalStack, Keycloak) shares one host."
