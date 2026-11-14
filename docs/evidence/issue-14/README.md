@@ -52,10 +52,9 @@ com o Keycloak escutando em 18080 também dentro da rede. O container `tests` pa
 namespace de rede do Keycloak para resolver o issuer público. A regressão é coberta por
 `tests/stack/demo-stack.test.ts` (`bun run test:stack`), que roda contra qualquer stack em execução.
 
-O passo correspondente na CI (`STACK_URL=http://localhost:3000 bun run test:stack`, com
-`reference-worker` no `up`) está pronto, mas **não foi enviado**. O token do `gh` usado nesta sessão
-não tem o escopo `workflow`, e o GitHub recusou o push de `.github/workflows/ci.yml`. A alteração tem
-três linhas e está descrita no PR.
+A CI executa esse smoke contra a API do Compose (`STACK_URL=http://localhost:3000 bun run
+test:stack`, com `reference-worker` no `up`). Dessa forma, o defeito não volta sem aviso, mesmo que
+o teste de navegador continue usando uma API em processo.
 
 ## Revisão final
 
