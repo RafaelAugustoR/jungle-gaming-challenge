@@ -4,10 +4,11 @@ Esta configuração é reproduzível e serve para publicar o console e a API em 
 autenticação e dados fictícios. É um diferencial escolhido por nós ([delivery.md](../../docs/delivery.md)),
 não um requisito do README do desafio. A avaliação continua sendo o ambiente local.
 
-> **Situação:** a configuração foi testada localmente com TLS interno (evidência em
-> [issue-14](../../docs/evidence/issue-14/README.md#demonstração-hospedada)). **Nada foi publicado.**
-> Destino, domínio, custo e forma de entregar as credenciais aos avaliadores ainda precisam de
-> decisão; ver [docs/submission.md](../../docs/submission.md).
+> **Situação:** publicada na VPS existente, com o perfil Traefik, em
+> https://jungle.178-18-253-17.sslip.io. Login em
+> https://jungle-auth.178-18-253-17.sslip.io. HTTPS, navegador e smoke financeiro
+> passaram; ver [evidência pública](../../docs/evidence/issue-14/public-deployment.md).
+> Senhas são geradas e entregues por canal privado, nunca pelo repositório.
 
 ## Topologia
 
@@ -111,7 +112,7 @@ DEMO_ORIGIN=https://demo.example.com AUTH_ORIGIN=https://auth.example.com \
   bun deploy/hosted/prepare.ts
 cd deploy/hosted
 JUNGLE_IMAGE=jungle-demo:<commit> docker compose \
-  -f compose.yaml -f compose.traefik.yaml up -d --no-build --wait
+  -f compose.yaml -f compose.traefik.yaml up -d --no-build --wait --wait-timeout 420
 ```
 
 The existing proxy, its certificates and unrelated services are not recreated.

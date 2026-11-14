@@ -14,8 +14,14 @@ O ambiente local é a referência de avaliação e não depende da disponibilida
 - Banco, filas e interfaces administrativas de infraestrutura sem exposição pública.
 - Vídeo curto demonstrando disputa de saldo, replay idempotente e recuperação após falha, acompanhado da reconciliação final.
 
-Destino da hospedagem, custos, credenciais de acesso e forma de disponibilizar o vídeo ainda serão definidos antes da publicação. A aprovação deste escopo não seleciona um serviço pago nem autoriza gastos específicos.
+Publicação autorizada em 2026-11-14 na VPS já existente, com o Traefik do servidor e dois
+hostnames sslip.io escolhidos pelo autor. Nenhum serviço pago novo foi contratado.
+Credenciais da demo são geradas e permanecem fora do repositório.
 
-Situação na Issue #14: configuração hospedada reproduzível em [deploy/hosted](../deploy/hosted/README.md), testada localmente com HTTPS; roteiro e gravação em [demo-script.md](demo-script.md). Destino, custo, acesso e canal do vídeo continuam pendentes de decisão, listados em [submission.md](submission.md).
+Situação na Issue #14: [demo pública](https://jungle.178-18-253-17.sslip.io), com
+[evidência de HTTPS, login e reconciliação](evidence/issue-14/public-deployment.md).
+Configuração reproduzível em [deploy/hosted](../deploy/hosted/README.md); roteiro e
+gravação em [demo-script.md](demo-script.md). Acesso ao repositório, distribuição das
+senhas, canal do vídeo e submissão continuam listados em [submission.md](submission.md).
 
 Referências: [README do desafio](https://github.com/junglegaming/backend-challenge), seções 4 e 14. Hospedagem e vídeo são diferenciais escolhidos por nós, não requisitos do README.

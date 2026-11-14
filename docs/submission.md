@@ -1,15 +1,16 @@
 # Pacote de entrega
 
-Este é o material para a submissão ao processo da Jungle Gaming. **Nada foi enviado.** O
-repositório continua privado, ninguém foi convidado e o portal não recebeu submissão. Cada ação
-externa abaixo depende de autorização explícita.
+Este é o material para a submissão ao processo da Jungle Gaming. **Nada foi enviado aos
+avaliadores ou ao portal.** A demo foi publicada com autorização do autor. O repositório
+continua privado e ninguém foi convidado; convites, mudança de visibilidade e submissão
+continuam dependendo de autorização explícita.
 
 ## Situação do acesso (verificada em 2026-11-14)
 
 | Item | Situação | Pendência |
 | --- | --- | --- |
 | Repositório `RafaelAugustoR/jungle-gaming-challenge` | **Privado**; único colaborador é o dono | Decidir entre convidar os avaliadores (usuários do GitHub informados pela Jungle) ou tornar o repositório público na data da entrega |
-| Demonstração hospedada | Configuração pronta e testada localmente com HTTPS; **não publicada** | Escolher o provedor/VM, o domínio (dois hostnames), o orçamento e o canal privado das senhas; depois publicar seguindo [deploy/hosted](../deploy/hosted/README.md) |
+| Demonstração hospedada | **Publicada** na VPS existente, com HTTPS, login e smoke financeiro aprovados | Entregar as senhas dos perfis aos avaliadores por canal privado; [evidência](evidence/issue-14/public-deployment.md) |
 | Vídeo | Gravado a partir do roteiro, com dados reais ([evidence/issue-14](evidence/issue-14/README.md#vídeo)); versionado só no repositório privado | Decidir a forma de disponibilizar (YouTube não listado, Drive com link ou anexo no portal) e se haverá narração em áudio |
 | Portal da Jungle | Não submetido | Submeter quando os itens acima estiverem decididos |
 
@@ -21,7 +22,8 @@ externa abaixo depende de autorização explícita.
 - Matriz requisito → implementação → teste/evidência: [requirements-matrix.md](requirements-matrix.md)
 - Evidências de carga: [issue-13](evidence/issue-13/README.md)
 - Vídeo: _link a definir_
-- Demonstração hospedada: _URL a definir_. Usuários `viewer`, `operator` e `demo-operator`, com
+- Demonstração hospedada: https://jungle.178-18-253-17.sslip.io. Login:
+  https://jungle-auth.178-18-253-17.sslip.io. Usuários `viewer`, `operator` e `demo-operator`, com
   senhas entregues por canal privado
 
 ## Texto sugerido para o portal
@@ -51,8 +53,9 @@ externa abaixo depende de autorização explícita.
 ## Checklist antes de submeter
 
 - [ ] Autorizar e executar o acesso dos avaliadores ao repositório.
-- [ ] (Opcional) Aprovar o destino e o custo da demo; publicar; rodar `test:stack` contra a URL
-      pública; preencher a URL acima.
+- [x] Demo publicada na VPS existente; HTTPS, navegador e `test:stack` público aprovados;
+      URL preenchida. Nenhum serviço pago novo foi contratado.
+- [ ] Entregar as credenciais da demo aos avaliadores por canal privado.
 - [ ] Escolher onde hospedar o vídeo e preencher o link acima.
 - [ ] Conferir se o CI do commit final está verde e se o PR da #14 foi mergeado.
 - [ ] Submeter no portal (ação do autor).

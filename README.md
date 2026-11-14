@@ -221,10 +221,13 @@ um balanceador. O diagnóstico está em [docs/observability.md](docs/observabili
 
 ## Demonstração hospedada e vídeo
 
+- Demo pública: https://jungle.178-18-253-17.sslip.io. Login:
+  https://jungle-auth.178-18-253-17.sslip.io. Perfis `viewer`, `operator` e
+  `demo-operator`, com senhas entregues por canal privado.
 - A configuração reproduzível com HTTPS (Caddy), Keycloak em modo produção e segredos gerados está
-  em [deploy/hosted/](deploy/hosted/README.md). Ela foi testada localmente com TLS interno. Destino,
-  custo e forma de acesso ainda dependem de decisão; a situação atual está em
-  [docs/submission.md](docs/submission.md).
+  em [deploy/hosted/](deploy/hosted/README.md). A publicação usa o perfil do Traefik
+  existente na VPS; [HTTPS, login e smoke financeiro foram validados](docs/evidence/issue-14/public-deployment.md).
+  As pendências de acesso ao repositório e de submissão estão em [docs/submission.md](docs/submission.md).
 - Roteiro do vídeo: [docs/demo-script.md](docs/demo-script.md).
 
 ## Documentação

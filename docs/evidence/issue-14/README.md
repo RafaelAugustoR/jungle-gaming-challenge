@@ -96,8 +96,10 @@ projeto `jungle-issue14-hosted`, com `DEMO_ORIGIN=https://demo.localhost:8443`,
 | Mesma senha local `demo-only` | recusada pelo Keycloak |
 | Navegador | Login redirecionado para `https://auth.localhost:8443/realms/jungle/…` e console autenticado como `demo-operator` ([captura](hosted-console-https.png)) |
 
-O `.env` gerado e o realm renderizado foram apagados depois do teste. **Nada foi publicado
-externamente**; as decisões pendentes estão em [submission.md](../../submission.md).
+O `.env` gerado e o realm renderizado foram apagados depois desse teste local.
+Posteriormente a demo foi publicada na VPS autorizada, usando o perfil Traefik:
+[validação pública](public-deployment.md). As pendências restantes estão em
+[submission.md](../../submission.md).
 
 ## Vídeo
 

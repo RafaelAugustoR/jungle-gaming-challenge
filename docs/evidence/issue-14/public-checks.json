@@ -1,0 +1,53 @@
+{
+  "at": "2026-11-14T18:48:24.578Z",
+  "applicationImage": "jungle-demo:1b7355c",
+  "proxyProfileRevision": "f7cd73c",
+  "tlsCertificateVerified": true,
+  "issuer": "https://jungle-auth.178-18-253-17.sslip.io/realms/jungle",
+  "checks": [
+    {
+      "url": "https://jungle.178-18-253-17.sslip.io/",
+      "status": 200
+    },
+    {
+      "url": "https://jungle.178-18-253-17.sslip.io/health/live",
+      "status": 200
+    },
+    {
+      "url": "https://jungle.178-18-253-17.sslip.io/health/ready",
+      "status": 200
+    },
+    {
+      "url": "https://jungle.178-18-253-17.sslip.io/internal/metrics",
+      "status": 404
+    },
+    {
+      "url": "https://jungle.178-18-253-17.sslip.io/wagering/transactions",
+      "status": 401
+    },
+    {
+      "url": "https://jungle-auth.178-18-253-17.sslip.io/realms/jungle/.well-known/openid-configuration",
+      "status": 200
+    },
+    {
+      "url": "https://jungle-auth.178-18-253-17.sslip.io/admin/",
+      "status": 404
+    },
+    {
+      "url": "https://jungle-auth.178-18-253-17.sslip.io/realms/master/",
+      "status": 404
+    },
+    {
+      "url": "https://jungle-auth.178-18-253-17.sslip.io/metrics",
+      "status": 404
+    },
+    {
+      "url": "https://jungle-auth.178-18-253-17.sslip.io/health",
+      "status": 404
+    },
+    {
+      "url": "http://jungle.178-18-253-17.sslip.io",
+      "status": 301
+    }
+  ]
+}
