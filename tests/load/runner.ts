@@ -1,6 +1,6 @@
 import { cpus, release, totalmem } from 'node:os';
 import { mkdir } from 'node:fs/promises';
-import { resolve } from 'node:path';
+import { relative, resolve } from 'node:path';
 import { loadConfig, loadMigrationConfig } from '../../src/config/config';
 import { DATABASE_POOL, openDatabase } from '../../src/config/orm';
 import { runOpenLoop } from './generator';
@@ -83,7 +83,12 @@ export async function collectEnvironment(options: LoadOptions) {
       generator: {
         model: 'open (constant arrival rate), single Bun process on the same host as the SUT',
         distribution: 'client-side round-robin by operation index; no load balancer',
-        options: { ...options, openingCents: centsToAmount(options.openingCents) },
+        // Relative path: environment.json is committed as evidence and must not leak local paths.
+        options: {
+          ...options,
+          openingCents: centsToAmount(options.openingCents),
+          outDir: relative(process.cwd(), options.outDir) || '.',
+        },
       },
       note: 'Everything (generator, APIs, PostgreSQL, LocalStack, Keycloak) shares one host.',
     };

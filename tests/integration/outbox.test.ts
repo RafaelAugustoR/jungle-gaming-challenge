@@ -619,6 +619,63 @@ integration(
 );
 
 integration(
+  'claiming a head does not rescan the published history of a deep single-wallet backlog',
+  async () => {
+    const wallet = await opening();
+    const { SubmitWagerTransaction } =
+      await import('../../src/modules/wagering/application/submit-wager-transaction');
+    const { WageringRepository } =
+      await import('../../src/modules/wagering/infrastructure/persistence/wagering-repository');
+    const { PUBLISHABLE_HEADS } = await import('../../src/messaging/outbox/outbox-repository');
+    const submit = new SubmitWagerTransaction(
+      new WageringRepository(runtime, database.config),
+      new Set(['provider-a']),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+    );
+    for (let i = 0; i < 300; i++) {
+      const id = crypto.randomUUID();
+      await submit.execute(
+        {
+          providerId: 'provider-a',
+          externalTransactionId: id,
+          playerId: wallet.playerId,
+          walletId: wallet.id,
+          roundId: 'r',
+          gameId: 'g',
+          kind: 'BET',
+          money: Money.create('1.00', 'BRL'),
+        },
+        id,
+        { correlationId: crypto.randomUUID() },
+        { channel: 'http' },
+      );
+    }
+    // Half of this wallet's 601 events already published: the shape of a hot wallet under load.
+    await database.owner.em.execute(
+      'update wagering.outbox set published_at=clock_timestamp() where aggregate_id=? and sequence<=300',
+      [wallet.id],
+    );
+    await database.owner.em.execute('analyze wagering.outbox');
+    const [
+      {
+        'QUERY PLAN': [plan],
+      },
+    ] = await database.owner.em.fork().execute(
+      `explain (analyze, buffers, format json) ${PUBLISHABLE_HEADS}`,
+      // The same bound limit the repository passes; EXPLAIN accepts it as a parameter.
+      [20],
+    );
+    // Quadratic plans touch pending × published index entries (~90 000 here); bounded ones ~1 000s.
+    expect(plan['Plan']['Shared Hit Blocks'] + plan['Plan']['Shared Read Blocks']).toBeLessThan(
+      20000,
+    );
+    const [head] = await new OutboxRepository(runtime).claim(20, 30000);
+    expect(head).toMatchObject({ aggregateId: wallet.id, sequence: 301 });
+  },
+  60000,
+);
+
+integration(
   'only poison reaches DLQ while a valid event in the same FIFO group is acknowledged',
   async () => {
     const wallet = await opening();

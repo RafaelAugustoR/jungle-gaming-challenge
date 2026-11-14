@@ -135,12 +135,12 @@ depende do gerador:
 1. **Sleep fixo após lote cheio.** `runWorker` dorme `OUTBOX_POLL_MS` (500 ms)
    depois de toda iteração, mesmo quando o lote veio cheio. Isso limita o total a
    `OUTBOX_BATCH_SIZE`/0,5 s = 40 eventos/s. É ajuste no loop do worker: a ADR 0013
-   não trata de poll. Será corrigido num PR pequeno separado, antes da entrega.
+   não trata de poll. Corrigido no [PR #28](https://github.com/RafaelAugustoR/jungle-gaming-challenge/pull/28).
 2. **Uma cabeça por agregado por iteração.** `OutboxRepository.claim` reserva apenas
    o evento cabeça de cada wallet, para preservar a ordem por agregado. Com o sleep
    atual, uma wallet publica no máximo ~2 eventos/s; sem ele, continua limitada a um
    evento por ciclo de reserva, envio e confirmação. Reservar cadeias por agregado
-   muda a ADR 0013 e está na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27).
+   muda a ADR 0013 e foi avaliado na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27): o custo real era a consulta de reserva (corrigido por índice parcial) e a reserva de cadeias ficou registrada como decisão adiada na ADR 0013 ([evidência](../issue-27/README.md)).
 
 O caminho financeiro não é afetado (respostas não esperam a publicação e as
 invariantes passaram), mas consumidores de eventos veem atraso crescente sob carga

@@ -66,7 +66,7 @@
       "requestTimeoutMs": 20000,
       "sampleMs": 200,
       "outboxDrainTimeoutMs": 30000,
-      "outDir": "/home/rafael/projects/jungle-gaming-challenge/artifacts/load/evidence"
+      "outDir": "artifacts/load/evidence"
     }
   },
   "note": "Everything (generator, APIs, PostgreSQL, LocalStack, Keycloak) shares one host."
