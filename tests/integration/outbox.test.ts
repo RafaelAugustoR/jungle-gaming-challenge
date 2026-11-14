@@ -811,9 +811,10 @@ integration(
       expect(await publisher.runOnce()).toBe(1);
       const [recovered] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence', [
-          wallet.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [wallet.id],
+        );
       expect(recovered.published_at).not.toBeNull();
       expect(recovered.blocked_at).toBeNull();
     } finally {
@@ -969,9 +970,10 @@ integration(
       expect(bad.last_error_code).toBe('MessageTooLarge');
       const [good] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence', [
-          small.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [small.id],
+        );
       expect(good.published_at).not.toBeNull();
       expect(good.blocked_at).toBeNull();
     } finally {

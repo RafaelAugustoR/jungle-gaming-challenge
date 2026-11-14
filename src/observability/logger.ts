@@ -2,9 +2,13 @@ import type { LoggerService } from '@nestjs/common';
 
 export function safeMessage(value: unknown): string {
   const text = value instanceof Error ? `${value.name}: ${value.message}` : String(value);
-  return text.replace(/(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
+  return text
+    .replace(/(?:postgres(?:ql)?|https?):\/\/[^\s]+/gi, '[redacted-url]')
     .replace(/(password|secret|token|authorization)([=:]\s*)[^\s,;]+/gi, '$1$2[redacted]')
-    .replace(/("?(?:money|amount|balance|payload|body|originalBody)"?\s*[:=]\s*)("(?:\\.|[^"\\])*"|\{[^}]*\}|\[[^\]]*\]|[^\s,;]+)/gi, '$1[redacted]');
+    .replace(
+      /("?(?:money|amount|balance|payload|body|originalBody)"?\s*[:=]\s*)("(?:\\.|[^"\\])*"|\{[^}]*\}|\[[^\]]*\]|[^\s,;]+)/gi,
+      '$1[redacted]',
+    );
 }
 
 const sensitiveField = /password|secret|token|authorization|payload|body|money|amount|balance/i;
@@ -31,7 +35,10 @@ function isDatabaseError(error: Error): boolean {
 
 /** Keeps the call frames of a stack; its header line repeats the (possibly unsafe) message. */
 function stackFrames(stack: string, header: string): string {
-  const frames = stack.split('\n').filter((line) => /^\s+at\s/.test(line)).map(safeMessage);
+  const frames = stack
+    .split('\n')
+    .filter((line) => /^\s+at\s/.test(line))
+    .map(safeMessage);
   return [header, ...frames].join('\n');
 }
 
@@ -47,9 +54,15 @@ export function serializeError(error: Error): Record<string, unknown> {
     const fields = error as Error & { code?: unknown; constraint?: unknown; table?: unknown };
     return {
       name: error.name,
-      ...(typeof fields.code === 'string' && sqlState.test(fields.code) ? { sqlState: fields.code } : {}),
-      ...(typeof fields.constraint === 'string' && identifier.test(fields.constraint) ? { constraint: fields.constraint } : {}),
-      ...(typeof fields.table === 'string' && identifier.test(fields.table) ? { table: fields.table } : {}),
+      ...(typeof fields.code === 'string' && sqlState.test(fields.code)
+        ? { sqlState: fields.code }
+        : {}),
+      ...(typeof fields.constraint === 'string' && identifier.test(fields.constraint)
+        ? { constraint: fields.constraint }
+        : {}),
+      ...(typeof fields.table === 'string' && identifier.test(fields.table)
+        ? { table: fields.table }
+        : {}),
       stack: stackFrames(error.stack ?? '', error.name),
     };
   }
@@ -71,23 +84,41 @@ function sanitize(value: unknown, seen = new WeakSet<object>(), key?: string): u
   if (value && typeof value === 'object') {
     if (seen.has(value)) return '[circular]';
     seen.add(value);
-    if (Array.isArray(value)) return value.map(item => sanitize(item, seen));
-    return Object.fromEntries(Object.entries(value).map(([key, item]) => [key,
-      sensitiveField.test(key) ? '[redacted]' : sanitize(item, seen, key)]));
+    if (Array.isArray(value)) return value.map((item) => sanitize(item, seen));
+    return Object.fromEntries(
+      Object.entries(value).map(([key, item]) => [
+        key,
+        sensitiveField.test(key) ? '[redacted]' : sanitize(item, seen, key),
+      ]),
+    );
   }
   return typeof value === 'bigint' ? value.toString() : value;
 }
 
 export class JsonLogger implements LoggerService {
-  log(message: unknown, ...optionalParams: unknown[]) { this.nest('info', message, optionalParams); }
-  error(message: unknown, ...optionalParams: unknown[]) { this.nest('error', message, optionalParams); }
-  warn(message: unknown, ...optionalParams: unknown[]) { this.nest('warn', message, optionalParams); }
-  debug(message: unknown, ...optionalParams: unknown[]) { this.nest('debug', message, optionalParams); }
-  verbose(message: unknown, ...optionalParams: unknown[]) { this.nest('debug', message, optionalParams); }
+  log(message: unknown, ...optionalParams: unknown[]) {
+    this.nest('info', message, optionalParams);
+  }
+  error(message: unknown, ...optionalParams: unknown[]) {
+    this.nest('error', message, optionalParams);
+  }
+  warn(message: unknown, ...optionalParams: unknown[]) {
+    this.nest('warn', message, optionalParams);
+  }
+  debug(message: unknown, ...optionalParams: unknown[]) {
+    this.nest('debug', message, optionalParams);
+  }
+  verbose(message: unknown, ...optionalParams: unknown[]) {
+    this.nest('debug', message, optionalParams);
+  }
 
   write(level: string, message: unknown, fields: Record<string, unknown> = {}) {
-    const data = message instanceof Error ? { error: message } :
-      message !== null && typeof message === 'object' ? message : { message };
+    const data =
+      message instanceof Error
+        ? { error: message }
+        : message !== null && typeof message === 'object'
+          ? message
+          : { message };
     console.log(JSON.stringify(sanitize({ ...data, ...fields, level })));
   }
 
@@ -98,7 +129,8 @@ export class JsonLogger implements LoggerService {
       fields.context = params[1];
     } else if (params.length) {
       const last = params[params.length - 1];
-      if (level === 'error' && typeof last === 'string' && /\n|^\w*Error:/.test(last)) fields.stack = last;
+      if (level === 'error' && typeof last === 'string' && /\n|^\w*Error:/.test(last))
+        fields.stack = last;
       else fields.context = last;
     }
     this.write(level, message, fields);

@@ -104,7 +104,9 @@ bun run worker:events
   recusam rollback que apagaria fatos financeiros.
 - `worker:commands`, `worker:outbox` e `worker:events` aceitam `--once` para uma única iteração.
 - `bun run typecheck` (TypeScript `strict`) e `bun run build` (typecheck + bundle do console em
-  `frontend/dist`). Formatação: `bunx prettier --write <arquivo>`.
+  `frontend/dist`). Formatação: `bun run format` aplica e `bun run format:check` verifica (roda na
+  CI) `src`, `migrations`, `tests` e `scripts`. Não há ESLint: o `strict` do TypeScript é a análise
+  estática adotada.
 
 ## Testes
 
@@ -124,7 +126,7 @@ Para rodar a infraestrutura dos testes fora do Docker, use os três primeiros co
 [Desenvolvimento local](#desenvolvimento-local-fora-do-docker) mais `docker compose run --rm provision`.
 Os testes criam um banco descartável por suíte via `MIGRATION_DATABASE_URL` (precisa de `CREATEDB`),
 filas SQS com UUID e portas efêmeras; não apagam dados do banco de demonstração. A CI
-([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda typecheck, unidade, `test:integration`,
+([`.github/workflows/ci.yml`](.github/workflows/ci.yml)) roda typecheck, `format:check`, unidade, `test:integration`,
 a API do Compose com healthcheck, `test:stack` e `test:browser`. Estratégia completa em
 [docs/testing-strategy.md](docs/testing-strategy.md).
 

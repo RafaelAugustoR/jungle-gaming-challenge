@@ -6,6 +6,8 @@
   "scripts": {
     "build": "bun run typecheck && bun run build:frontend",
     "typecheck": "tsc --noEmit",
+    "format": "prettier --write src migrations tests scripts",
+    "format:check": "prettier --check src migrations tests scripts",
     "start": "bun src/bootstrap/main.ts",
     "dev": "bun --watch src/bootstrap/main.ts",
     "test": "bun test",

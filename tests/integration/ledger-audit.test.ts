@@ -121,9 +121,10 @@ integration(
       await fixture.owner.getMigrator().up();
       const rows = await fixture.owner.em.execute<
         { event_type: string; sequence: number; payload: Record<string, unknown> }[]
-      >('select event_type,sequence,payload from wagering.outbox where aggregate_id=? order by sequence', [
-        wallet.id,
-      ]);
+      >(
+        'select event_type,sequence,payload from wagering.outbox where aggregate_id=? order by sequence',
+        [wallet.id],
+      );
       expect(rows.map((row) => [row.event_type, row.sequence])).toEqual([
         ['WalletBalanceChanged', 1],
         ['WagerTransactionProcessed', 2],
@@ -142,9 +143,8 @@ integration(
         },
       });
       expect(
-        (
-          await ledgerAudit((query, params) => fixture.owner.em.fork().execute(query, params ?? []))
-        ).invalid_event_sets,
+        (await ledgerAudit((query, params) => fixture.owner.em.fork().execute(query, params ?? [])))
+          .invalid_event_sets,
       ).toBe(0);
     } finally {
       await fixture.close();

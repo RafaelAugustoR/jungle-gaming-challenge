@@ -41,7 +41,8 @@ test('demo provider preserves business 4xx and maps dependency authentication/se
         code: dependencyFailure ? 'INFRASTRUCTURE_UNAVAILABLE' : 'UPSTREAM_REJECTION',
       });
     }
-    globalThis.fetch = (async () => new Response('unavailable', { status: 500 })) as unknown as typeof fetch;
+    globalThis.fetch = (async () =>
+      new Response('unavailable', { status: 500 })) as unknown as typeof fetch;
     let serverFailure: unknown;
     try {
       await client.submit(3000, 'provider-token', command, 'demo-key');

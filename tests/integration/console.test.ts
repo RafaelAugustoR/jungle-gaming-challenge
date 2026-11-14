@@ -162,7 +162,10 @@ browserTest(
       await page.getByLabel('Comportamento').selectOption('duplicate');
       await page.getByLabel('Valor (BRL)').last().fill('4.00');
       await page.getByRole('button', { name: 'Executar cenário' }).click();
-      await page.locator('#demo-results-list').getByText(/replay true/).waitFor();
+      await page
+        .locator('#demo-results-list')
+        .getByText(/replay true/)
+        .waitFor();
       await page.getByText('Todas as operações têm estado terminal confirmado por GET.').waitFor();
       const duplicateRows = await page.locator('#demo-results-list li').allTextContents();
       expect(duplicateRows).toHaveLength(2);
@@ -171,7 +174,10 @@ browserTest(
       await page.getByLabel('Comportamento').selectOption('race');
       expect(await page.getByLabel('Valor (BRL)').last().isDisabled()).toBe(true);
       await page.getByRole('button', { name: 'Executar cenário' }).click();
-      await page.locator('#demo-results-list').getByText(/estado atual REJECTED/).waitFor();
+      await page
+        .locator('#demo-results-list')
+        .getByText(/estado atual REJECTED/)
+        .waitFor();
       await page.getByText('Todas as operações têm estado terminal confirmado por GET.').waitFor();
       const raceRows = await page.locator('#demo-results-list li').allTextContents();
       expect(raceRows).toHaveLength(2);

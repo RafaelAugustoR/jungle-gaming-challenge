@@ -5,8 +5,22 @@ test('Nest logger preserves stack/context and structured fields while redacting 
   const output = spyOn(console, 'log').mockImplementation(() => {});
   try {
     const logger = new JsonLogger();
-    logger.error('failed', 'Error: failure\n at https://user:secret@host/path', 'ExceptionsHandler');
-    logger.log({ event: 'readiness_failed', dependency: 'postgres', correlationId: 'request-1', details: { password: 'sensitive' }, payload: { money: { amount: '100.00' } }, balance: '42.00' }, 'Health');
+    logger.error(
+      'failed',
+      'Error: failure\n at https://user:secret@host/path',
+      'ExceptionsHandler',
+    );
+    logger.log(
+      {
+        event: 'readiness_failed',
+        dependency: 'postgres',
+        correlationId: 'request-1',
+        details: { password: 'sensitive' },
+        payload: { money: { amount: '100.00' } },
+        balance: '42.00',
+      },
+      'Health',
+    );
     const first = JSON.parse(String(output.mock.calls[0]![0]));
     expect(first.context).toBe('ExceptionsHandler');
     expect(first.stack).toStartWith('Error\n');
@@ -20,7 +34,9 @@ test('Nest logger preserves stack/context and structured fields while redacting 
     expect(second.payload).toBe('[redacted]');
     expect(second.balance).toBe('[redacted]');
     expect(second.context).toBe('Health');
-  } finally { output.mockRestore(); }
+  } finally {
+    output.mockRestore();
+  }
 });
 
 test('database driver errors are reduced to an allowlist without SQL, bound values or detail', async () => {
@@ -41,7 +57,12 @@ test('database driver errors are reduced to an allowlist without SQL, bound valu
   const output = spyOn(console, 'log').mockImplementation(() => {});
   try {
     const logger = new JsonLogger();
-    logger.error({ event: 'reference_retry_failed', transactionId: 't-1', correlationId: 'c-1', error: wrapped });
+    logger.error({
+      event: 'reference_retry_failed',
+      transactionId: 't-1',
+      correlationId: 'c-1',
+      error: wrapped,
+    });
     logger.error({ event: 'raw_pg_error', error: driverError });
     logger.error('request failed', wrapped.stack, 'ExceptionsHandler');
     for (const [line] of output.mock.calls) {
@@ -54,14 +75,27 @@ test('database driver errors are reduced to an allowlist without SQL, bound valu
       event: 'reference_retry_failed',
       transactionId: 't-1',
       correlationId: 'c-1',
-      error: { name: 'CheckConstraintViolationException', sqlState: '23514', constraint: 'journal_amount', table: 'journal' },
+      error: {
+        name: 'CheckConstraintViolationException',
+        sqlState: '23514',
+        constraint: 'journal_amount',
+        table: 'journal',
+      },
     });
     expect(first.error.stack).toStartWith('CheckConstraintViolationException\n');
     expect(first.error.stack).toContain(' at ');
     const second = JSON.parse(String(output.mock.calls[1]![0]));
-    expect(second.error).toMatchObject({ name: 'Error', sqlState: '23514', constraint: 'journal_amount' });
-    expect(JSON.parse(String(output.mock.calls[2]![0])).stack).toStartWith('CheckConstraintViolationException\n');
-  } finally { output.mockRestore(); }
+    expect(second.error).toMatchObject({
+      name: 'Error',
+      sqlState: '23514',
+      constraint: 'journal_amount',
+    });
+    expect(JSON.parse(String(output.mock.calls[2]![0])).stack).toStartWith(
+      'CheckConstraintViolationException\n',
+    );
+  } finally {
+    output.mockRestore();
+  }
 });
 
 test('application errors keep code-shaped messages and redact free-text ones', () => {
@@ -69,7 +103,11 @@ test('application errors keep code-shaped messages and redact free-text ones', (
   try {
     new JsonLogger().error({ event: 'x', error: new Error('INVALID_INTEGRATION_EVENT') });
     new JsonLogger().error({ event: 'y', error: new Error('failed with amount=17.23') });
-    expect(JSON.parse(String(output.mock.calls[0]![0])).error.message).toBe('INVALID_INTEGRATION_EVENT');
+    expect(JSON.parse(String(output.mock.calls[0]![0])).error.message).toBe(
+      'INVALID_INTEGRATION_EVENT',
+    );
     expect(String(output.mock.calls[1]![0])).not.toContain('17.23');
-  } finally { output.mockRestore(); }
+  } finally {
+    output.mockRestore();
+  }
 });

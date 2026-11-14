@@ -257,7 +257,10 @@ integration(
                 [crypto.randomUUID(), owner.id, kind],
               );
             }),
-          ).rejects.toMatchObject({ code: '23514', message: expect.stringContaining('external_identity_complete') });
+          ).rejects.toMatchObject({
+            code: '23514',
+            message: expect.stringContaining('external_identity_complete'),
+          });
     } finally {
       await runtime.close(true);
     }
@@ -285,7 +288,10 @@ integration(
         await appendEvent(em, owner.id, transaction, 'WalletBalanceChanged');
         await em.execute('update wagering.wallets set balance=100 where id=?', [owner.id]);
       }),
-    ).rejects.toMatchObject({ code: '23514', message: expect.stringContaining('RESULT_EVENT_REQUIRED') });
+    ).rejects.toMatchObject({
+      code: '23514',
+      message: expect.stringContaining('RESULT_EVENT_REQUIRED'),
+    });
   },
 );
 
@@ -335,7 +341,7 @@ integration('SQL and domain policy allow only the documented state transition ed
           resultEvent: false,
         });
         await em.execute(
-          'update wagering.transactions set status=?,failure_code=?,processed_at=case when ?=\'PROCESSED\' then clock_timestamp() end where id=?',
+          "update wagering.transactions set status=?,failure_code=?,processed_at=case when ?='PROCESSED' then clock_timestamp() end where id=?",
           [to, ['REJECTED', 'FAILED'].includes(to) ? 'INSUFFICIENT_FUNDS' : null, to, id],
         );
         await appendResultEvent(em, w.id, id, to as 'PENDING');

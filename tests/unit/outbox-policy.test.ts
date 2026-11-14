@@ -138,5 +138,7 @@ test('consumer accepts the internal OPENING result and rejects it with provider 
     { ...envelope, data: { ...envelope.data, money: { amount: '0.00', currency: 'BRL' } } },
     { ...envelope, data: { ...envelope.data, playerId: '' } },
   ])
-    expect(() => parseIntegrationEvent(JSON.stringify(invalid))).toThrow('INVALID_INTEGRATION_EVENT');
+    expect(() => parseIntegrationEvent(JSON.stringify(invalid))).toThrow(
+      'INVALID_INTEGRATION_EVENT',
+    );
 });

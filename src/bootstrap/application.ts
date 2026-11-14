@@ -39,14 +39,20 @@ export async function createApplication(config: AppConfig = loadConfig()) {
   app.use(
     (
       request: { correlationId?: string; method?: string; route?: { path?: string } },
-      response: { setHeader: (name: string, value: string) => void; statusCode?: number; on: (event: string, listener: () => void) => void },
+      response: {
+        setHeader: (name: string, value: string) => void;
+        statusCode?: number;
+        on: (event: string, listener: () => void) => void;
+      },
       next: () => void,
     ) => {
       request.correlationId = crypto.randomUUID();
       response.setHeader('X-Correlation-Id', request.correlationId);
       const started = performance.now();
       response.on('finish', () => {
-        const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'].includes(request.method ?? '')
+        const method = ['GET', 'POST', 'PUT', 'PATCH', 'DELETE', 'OPTIONS', 'HEAD'].includes(
+          request.method ?? '',
+        )
           ? request.method!
           : 'OTHER';
         const route = request.route?.path ?? 'unmatched';
