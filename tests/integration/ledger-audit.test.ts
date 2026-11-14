@@ -100,25 +100,49 @@ integration(
 );
 
 integration(
-  'upgrading to 0011 backfills a parseable processed event for openings committed before it',
+  'upgrading to 0011 backfills one distinct, parseable processed event per earlier opening',
   async () => {
     const fixture = await disposableDatabase();
+    const sql = (query: string, params: unknown[] = []) =>
+      fixture.owner.em.fork().execute(query, params);
     try {
       await fixture.owner.getMigrator().down({ to: 'Migration202611140010' });
-      // Opening as persisted before 0011: OPENING, journal and only WalletBalanceChanged.
+      // Openings as persisted before 0011: OPENING, journal and only WalletBalanceChanged.
       // Before 0011 nothing requires the processed event, so dropping it reproduces that state.
-      const opened = await fixture.owner.em.fork().transactional((em) => open(em, '42.50'));
-      const wallet = await fixture.owner.em.fork().transactional(async (em) => {
-        const wallet = opened;
+      // A populated table with fresh statistics is what led the planner to evaluate an
+      // uncorrelated uuid subquery once and reuse it for every row (outbox_pkey violation).
+      const wallets = await fixture.owner.em.fork().transactional(async (em) => {
+        const opened = [];
+        for (let i = 0; i < 100; i++) opened.push(await open(em, i === 0 ? '42.50' : '10.00'));
+        return opened;
+      });
+      const wallet = wallets[0]!;
+      await fixture.owner.em.fork().transactional(async (em) => {
         await em.execute('alter table wagering.outbox disable trigger outbox_no_delete');
         await em.execute(
-          "delete from wagering.outbox where aggregate_id=? and event_type='WagerTransactionProcessed'",
-          [wallet.id],
+          "delete from wagering.outbox where event_type='WagerTransactionProcessed'",
         );
         await em.execute('alter table wagering.outbox enable trigger outbox_no_delete');
-        return wallet;
       });
+      await sql('analyze');
+      const snapshot = async () => ({
+        wallets: await sql('select id,balance::text,version from wagering.wallets order by id'),
+        journal: await sql(
+          'select id,transaction_id,amount::text,balance_after::text,wallet_version from wagering.journal order by id',
+        ),
+        balanceEvents: await sql(
+          "select event_id,aggregate_id,sequence,payload from wagering.outbox where event_type='WalletBalanceChanged' order by event_id",
+        ),
+      });
+      const before = await snapshot();
       await fixture.owner.getMigrator().up();
+      expect(await snapshot()).toEqual(before);
+      const [backfill] = await sql(
+        `select count(*)::int as events, count(distinct event_id)::int as ids,
+           count(*) filter (where (payload->>'eventId')::uuid = event_id and sequence = 2)::int as consistent
+         from wagering.outbox where event_type='WagerTransactionProcessed'`,
+      );
+      expect(backfill).toEqual({ events: 100, ids: 100, consistent: 100 });
       const rows = await fixture.owner.em.execute<
         { event_type: string; sequence: number; payload: Record<string, unknown> }[]
       >(
