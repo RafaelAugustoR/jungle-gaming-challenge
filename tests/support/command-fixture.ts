@@ -24,7 +24,7 @@ export interface CommandEnvelope {
 }
 export function commandEnvelope(
   data: CommandData,
-  messageId = crypto.randomUUID(),
+  messageId: string = crypto.randomUUID(),
 ): CommandEnvelope {
   return {
     messageId,

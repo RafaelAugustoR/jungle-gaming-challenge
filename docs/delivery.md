@@ -16,4 +16,6 @@ O ambiente local é a referência de avaliação e não depende da disponibilida
 
 Destino da hospedagem, custos, credenciais de acesso e forma de disponibilizar o vídeo ainda serão definidos antes da publicação. A aprovação deste escopo não seleciona um serviço pago nem autoriza gastos específicos.
 
+Situação na Issue #14: configuração hospedada reproduzível em [deploy/hosted](../deploy/hosted/README.md), testada localmente com HTTPS; roteiro e gravação em [demo-script.md](demo-script.md). Destino, custo, acesso e canal do vídeo continuam pendentes de decisão, listados em [submission.md](submission.md).
+
 Referências: [README do desafio](https://github.com/junglegaming/backend-challenge), seções 4 e 14. Hospedagem e vídeo são diferenciais escolhidos por nós, não requisitos do README.

@@ -1,0 +1,169 @@
+# Hosted demonstration on a single host. Only Caddy publishes ports (80/443).
+# Prepare first: bun deploy/hosted/prepare.ts (writes .env and generated/jungle-realm.json).
+name: jungle-demo
+x-backend-env: &backend-env
+  DATABASE_URL: postgresql://jungle_runtime:${RUNTIME_DB_PASSWORD:?run prepare.ts}@postgres:5432/jungle
+  PROVIDER_CLIENTS: '{"provider-a":"provider-a","provider-b":"provider-b"}'
+  KEYCLOAK_ISSUER: ${AUTH_ORIGIN:?run prepare.ts}/realms/jungle
+  KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
+  SQS_ENDPOINT: http://sqs:4566
+  AWS_REGION: us-east-1
+  AWS_ACCESS_KEY_ID: test
+  AWS_SECRET_ACCESS_KEY: test
+x-backend: &backend
+  build: { context: ../.., target: runtime }
+  restart: unless-stopped
+  networks: [internal]
+services:
+  caddy:
+    image: caddy:2.10.2-alpine
+    restart: unless-stopped
+    ports: ['80:80', '443:443']
+    environment:
+      DEMO_ORIGIN: ${DEMO_ORIGIN:?run prepare.ts}
+      AUTH_ORIGIN: ${AUTH_ORIGIN:?run prepare.ts}
+      CADDY_GLOBAL_OPTIONS: ${CADDY_GLOBAL_OPTIONS:-}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy-data:/data
+    networks: [internal, edge]
+    depends_on:
+      api: { condition: service_healthy }
+      keycloak: { condition: service_healthy }
+  postgres:
+    image: postgres:16.6-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: jungle
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?run prepare.ts}
+      POSTGRES_DB: jungle
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U jungle -d jungle']
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes: ['postgres-data:/var/lib/postgresql/data']
+    networks: [internal]
+  sqs:
+    image: localstack/localstack:4.0.3
+    restart: unless-stopped
+    environment: { SERVICES: sqs, SQS_ENDPOINT_STRATEGY: dynamic }
+    healthcheck:
+      test: ['CMD', 'awslocal', 'sqs', 'list-queues']
+      interval: 3s
+      timeout: 5s
+      retries: 30
+    networks: [internal]
+  keycloak:
+    image: quay.io/keycloak/keycloak:26.0.7
+    restart: unless-stopped
+    command: ['start', '--import-realm']
+    environment:
+      KC_BOOTSTRAP_ADMIN_USERNAME: admin
+      KC_BOOTSTRAP_ADMIN_PASSWORD: ${KEYCLOAK_ADMIN_PASSWORD:?run prepare.ts}
+      KC_HOSTNAME: ${AUTH_ORIGIN}
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: 'true'
+      KC_HTTP_ENABLED: 'true'
+      KC_PROXY_HEADERS: xforwarded
+      KC_HEALTH_ENABLED: 'true'
+    volumes: ['./generated/jungle-realm.json:/opt/keycloak/data/import/jungle-realm.json:ro']
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bash',
+          '-ec',
+          "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3",
+        ]
+      interval: 3s
+      timeout: 3s
+      retries: 60
+    networks: [internal]
+  provision:
+    image: postgres:16.6-alpine
+    environment:
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      RUNTIME_DB_PASSWORD: ${RUNTIME_DB_PASSWORD}
+    entrypoint:
+      [
+        'sh',
+        '-ec',
+        'psql -h postgres -U jungle -d jungle -v ON_ERROR_STOP=1 -v runtime_password="$$RUNTIME_DB_PASSWORD" -f /runtime-role.sql',
+      ]
+    volumes: ['./runtime-role.sql:/runtime-role.sql:ro']
+    networks: [internal]
+    depends_on:
+      postgres: { condition: service_healthy }
+  migrate:
+    <<: *backend
+    restart: 'no'
+    command: ['bun', 'scripts/migrate.ts', 'up']
+    environment:
+      <<: *backend-env
+      DATABASE_URL: postgresql://jungle:${POSTGRES_PASSWORD}@postgres:5432/jungle
+    depends_on:
+      provision: { condition: service_completed_successfully }
+  provision-queues:
+    <<: *backend
+    restart: 'no'
+    command: ['sh', '-ec', 'bun run provision:commands && bun run provision:events']
+    environment: *backend-env
+    depends_on:
+      sqs: { condition: service_healthy }
+  api:
+    <<: *backend
+    environment:
+      <<: *backend-env
+      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/token
+      DEMO_PROVIDER_CLIENT_SECRETS: '{"provider-a":"${PROVIDER_A_SECRET:?run prepare.ts}","provider-b":"${PROVIDER_B_SECRET:?run prepare.ts}"}'
+    healthcheck:
+      test:
+        [
+          'CMD',
+          'bun',
+          '-e',
+          "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))",
+        ]
+      interval: 2s
+      timeout: 5s
+      retries: 30
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      provision-queues: { condition: service_completed_successfully }
+      keycloak: { condition: service_healthy }
+  reference-worker:
+    <<: *backend
+    command: ['bun', 'src/bootstrap/reference-worker.ts']
+    environment: *backend-env
+    stop_grace_period: 25s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+  command-consumer:
+    <<: *backend
+    command: ['bun', 'run', 'worker:commands']
+    environment: *backend-env
+    stop_grace_period: 30s
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      provision-queues: { condition: service_completed_successfully }
+  outbox-publisher:
+    <<: *backend
+    command: ['bun', 'run', 'worker:outbox']
+    environment: *backend-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      provision-queues: { condition: service_completed_successfully }
+  event-consumer:
+    <<: *backend
+    command: ['bun', 'run', 'worker:events']
+    environment: *backend-env
+    depends_on:
+      migrate: { condition: service_completed_successfully }
+      provision-queues: { condition: service_completed_successfully }
+volumes:
+  postgres-data:
+  caddy-data:
+networks:
+  # No published ports and no route to the internet for databases, queues and workers.
+  internal: { internal: true }
+  edge: {}

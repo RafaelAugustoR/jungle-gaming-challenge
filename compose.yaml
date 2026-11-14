@@ -10,7 +10,7 @@ x-backend-env: &backend-env
   REFERENCE_BASE_MS: ${REFERENCE_BASE_MS:-1000}
   REFERENCE_MAX_MS: ${REFERENCE_MAX_MS:-30000}
   KEYCLOAK_ISSUER: http://localhost:18080/realms/jungle
-  KEYCLOAK_JWKS_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/certs
+  KEYCLOAK_JWKS_URL: http://keycloak:18080/realms/jungle/protocol/openid-connect/certs
   SQS_ENDPOINT: http://sqs:4566
   AWS_REGION: us-east-1
   AWS_ACCESS_KEY_ID: test
@@ -48,7 +48,11 @@ services:
       KC_BOOTSTRAP_ADMIN_USERNAME: admin
       KC_BOOTSTRAP_ADMIN_PASSWORD: local-demo-only
       KC_HEALTH_ENABLED: "true"
-    ports: ["127.0.0.1:18080:8080"]
+      # Fixed public issuer; containers still reach token/JWKS endpoints through keycloak:18080.
+      KC_HTTP_PORT: "18080"
+      KC_HOSTNAME: http://localhost:18080
+      KC_HOSTNAME_BACKCHANNEL_DYNAMIC: "true"
+    ports: ["127.0.0.1:18080:18080"]
     healthcheck:
       test: ["CMD", "bash", "-ec", "exec 3<>/dev/tcp/127.0.0.1/9000; printf 'GET /health/ready HTTP/1.0\\r\\nHost: localhost\\r\\n\\r\\n' >&3; grep -q '200 OK' <&3"]
       interval: 3s
@@ -64,7 +68,7 @@ services:
       <<: *backend-env
       METRICS_PORT: 9464
       DEMO_PROVIDER_CLIENT_SECRETS: ${DEMO_PROVIDER_CLIENT_SECRETS:-}
-      KEYCLOAK_TOKEN_URL: http://keycloak:8080/realms/jungle/protocol/openid-connect/token
+      KEYCLOAK_TOKEN_URL: http://keycloak:18080/realms/jungle/protocol/openid-connect/token
     healthcheck:
       test: ["CMD", "bun", "-e", "fetch('http://127.0.0.1:3000/health/ready').then(r => process.exit(r.ok ? 0 : 1)).catch(() => process.exit(1))"]
       interval: 2s
@@ -197,8 +201,10 @@ services:
       <<: *backend-env
       METRICS_PORT: 0
       DATABASE_URL: postgresql://jungle:local-demo-only@postgres:5432/jungle
-      KEYCLOAK_ISSUER: http://keycloak:8080/realms/jungle
+      KEYCLOAK_ISSUER: http://localhost:18080/realms/jungle
       INTEGRATION: "1"
+    # Shares Keycloak's network namespace so the public issuer (localhost:18080) resolves inside the test container.
+    network_mode: service:keycloak
     depends_on:
       postgres: { condition: service_healthy }
       sqs: { condition: service_healthy }
