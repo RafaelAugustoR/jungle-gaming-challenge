@@ -1,6 +1,12 @@
 import { afterAll, beforeAll, expect, test } from 'bun:test';
 import type { EntityManager } from '@mikro-orm/postgresql';
 import { disposableDatabase } from '../support/database';
+import { openDatabase } from '../../src/config/orm';
+import {
+  appendEvent,
+  appendResultEvent,
+  insertExternalTransaction,
+} from '../support/transaction-fixture';
 const integration = process.env.INTEGRATION === '1' ? test : test.skip;
 let database: Awaited<ReturnType<typeof disposableDatabase>>;
 beforeAll(async () => {
@@ -12,19 +18,20 @@ afterAll(async () => {
 
 async function wallet(em: EntityManager) {
   const id = crypto.randomUUID(),
-    account = crypto.randomUUID();
+    account = crypto.randomUUID(),
+    player = crypto.randomUUID();
   await em.execute(`insert into wagering.accounts(id,currency,kind) values(?,'BRL','PLAYER')`, [
     account,
   ]);
   await em.execute(
     `insert into wagering.wallets(id,player_id,currency,balance,version,account_id) values(?,?,'BRL',0,1,?)`,
-    [id, crypto.randomUUID(), account],
+    [id, player, account],
   );
-  return { id, account };
+  return { id, account, player };
 }
 async function movement(
   em: EntityManager,
-  owner: { id: string; account: string },
+  owner: { id: string; account: string; player: string },
   kind: string,
   before: string,
   after: string,
@@ -39,10 +46,20 @@ async function movement(
     `select id from wagering.accounts where currency='BRL' and kind=?`,
     [kind === 'OPENING' ? 'OPENING' : 'GAMING'],
   );
-  await em.execute(
-    `insert into wagering.transactions(id,wallet_id,currency,kind,status,amount) values(?,?,'BRL',?,'PROCESSED',?)`,
-    [transaction, owner.id, kind, amount],
-  );
+  if (kind === 'OPENING') {
+    await em.execute(
+      `insert into wagering.transactions(id,wallet_id,currency,kind,status,amount) values(?,?,'BRL',?,'PROCESSED',?)`,
+      [transaction, owner.id, kind, amount],
+    );
+    await appendResultEvent(em, owner.id, transaction, 'PROCESSED');
+  } else
+    await insertExternalTransaction(em, {
+      id: transaction,
+      walletId: owner.id,
+      playerId: owner.player,
+      kind,
+      amount,
+    });
   await em.execute(
     `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version) values(?,?,?,'BRL',?,?,?,?,?,?)`,
     [
@@ -57,12 +74,7 @@ async function movement(
       version,
     ],
   );
-  const eventId = crypto.randomUUID();
-  if (!omitEvent)
-    await em.execute(
-      `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload) values(?,?,?,?,'WalletBalanceChanged',?::jsonb)`,
-      [eventId, owner.id, transaction, version, '{}'],
-    );
+  if (!omitEvent) await appendEvent(em, owner.id, transaction, 'WalletBalanceChanged');
   await em.execute(`update wagering.wallets set balance=?,version=? where id=?`, [
     after,
     version,
@@ -140,10 +152,12 @@ integration(
     await expect(
       database.owner.em.fork().transactional(async (em) => {
         const owner = await wallet(em);
-        await em.execute(
-          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status) values(?,?,'BRL',10,'WIN','PROCESSED')`,
-          [crypto.randomUUID(), owner.id],
-        );
+        await insertExternalTransaction(em, {
+          walletId: owner.id,
+          playerId: owner.player,
+          kind: 'WIN',
+          amount: '10.00',
+        });
       }),
     ).rejects.toMatchObject({ code: '23514' });
     await database.owner.em.fork().transactional(async (em) => {
@@ -152,10 +166,12 @@ integration(
         ['LOSS', '100.00'],
         ['WIN', '0.00'],
       ])
-        await em.execute(
-          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status) values(?,?,'BRL',?,?,'PROCESSED')`,
-          [crypto.randomUUID(), owner.id, amount, kind],
-        );
+        await insertExternalTransaction(em, {
+          walletId: owner.id,
+          playerId: owner.player,
+          kind: kind!,
+          amount: amount!,
+        });
     });
   },
 );
@@ -227,16 +243,69 @@ integration('transaction kinds cannot reverse their defined debit or credit effe
 });
 
 integration(
-  'internal records default to processed and terminal transitions remain protected after T03',
+  'only OPENING may omit the external identity, for every role and every other kind',
+  async () => {
+    const runtime = await openDatabase(database.config);
+    try {
+      for (const kind of ['BET', 'WIN', 'LOSS', 'REFUND', 'ROLLBACK'])
+        for (const db of [database.owner, runtime])
+          await expect(
+            db.em.fork().transactional(async (em) => {
+              const owner = await database.owner.em.fork().transactional((setup) => wallet(setup));
+              await em.execute(
+                `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status) values(?,?,'BRL',0,?,'PROCESSED')`,
+                [crypto.randomUUID(), owner.id, kind],
+              );
+            }),
+          ).rejects.toMatchObject({
+            code: '23514',
+            message: expect.stringContaining('external_identity_complete'),
+          });
+    } finally {
+      await runtime.close(true);
+    }
+  },
+);
+
+integration(
+  'opening without its WagerTransactionProcessed event is refused at commit',
+  async () => {
+    await expect(
+      database.owner.em.fork().transactional(async (em) => {
+        const owner = await wallet(em);
+        const transaction = crypto.randomUUID();
+        const [counter] = await em.execute<{ id: string }[]>(
+          `select id from wagering.accounts where currency='BRL' and kind='OPENING'`,
+        );
+        await em.execute(
+          `insert into wagering.transactions(id,wallet_id,currency,kind,status,amount) values(?,?,'BRL','OPENING','PROCESSED',100)`,
+          [transaction, owner.id],
+        );
+        await em.execute(
+          `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version) values(?,?,?,'BRL',100,?,?,0,100,1)`,
+          [crypto.randomUUID(), transaction, owner.id, counter!.id, owner.account],
+        );
+        await appendEvent(em, owner.id, transaction, 'WalletBalanceChanged');
+        await em.execute('update wagering.wallets set balance=100 where id=?', [owner.id]);
+      }),
+    ).rejects.toMatchObject({
+      code: '23514',
+      message: expect.stringContaining('RESULT_EVENT_REQUIRED'),
+    });
+  },
+);
+
+integration(
+  'external records default to processed and terminal transitions remain protected after T03',
   async () => {
     const id = await database.owner.em.fork().transactional(async (em) => {
       const owner = await wallet(em);
-      const id = crypto.randomUUID();
-      await em.execute(
-        `insert into wagering.transactions(id,wallet_id,currency,amount,kind) values(?,?,'BRL',0,'WIN')`,
-        [id, owner.id],
-      );
-      return id;
+      return insertExternalTransaction(em, {
+        walletId: owner.id,
+        playerId: owner.player,
+        kind: 'WIN',
+        amount: '0.00',
+      });
     });
     expect(
       (
@@ -261,17 +330,21 @@ integration('SQL and domain policy allow only the documented state transition ed
           ['PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'].includes(to)) ||
         (from === 'PENDING_REFERENCE' && ['PROCESSED', 'REJECTED', 'FAILED'].includes(to));
       const write = database.owner.em.fork().transactional(async (em) => {
-        const w = await wallet(em),
-          id = crypto.randomUUID();
+        const w = await wallet(em);
+        const id = await insertExternalTransaction(em, {
+          walletId: w.id,
+          playerId: w.player,
+          kind: 'WIN',
+          amount: '0.00',
+          status: from as 'PENDING',
+          failureCode: ['REJECTED', 'FAILED'].includes(from) ? 'INSUFFICIENT_FUNDS' : null,
+          resultEvent: false,
+        });
         await em.execute(
-          `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,failure_code) values(?,?,'BRL',0,'WIN',?,?)`,
-          [id, w.id, from, ['REJECTED', 'FAILED'].includes(from) ? 'INSUFFICIENT_FUNDS' : null],
+          "update wagering.transactions set status=?,failure_code=?,processed_at=case when ?='PROCESSED' then clock_timestamp() end where id=?",
+          [to, ['REJECTED', 'FAILED'].includes(to) ? 'INSUFFICIENT_FUNDS' : null, to, id],
         );
-        await em.execute('update wagering.transactions set status=?,failure_code=? where id=?', [
-          to,
-          ['REJECTED', 'FAILED'].includes(to) ? 'INSUFFICIENT_FUNDS' : null,
-          id,
-        ]);
+        await appendResultEvent(em, w.id, id, to as 'PENDING');
       });
       if (allowed) await write;
       else await expect(write).rejects.toMatchObject({ code: '23514' });

@@ -31,7 +31,7 @@ export class PostgresWalletSession implements WalletSession {
       ],
     );
     if (result.opening) {
-      const { transaction, entry: journalEntry, event: balanceEvent } = result.opening;
+      const { transaction, entry: journalEntry, events } = result.opening;
       const entry = journalEntry.toProps();
       await this.em.execute(
         `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,created_at) values(?,?,?,?,?,?,?)`,
@@ -61,19 +61,22 @@ export class PostgresWalletSession implements WalletSession {
           transaction.createdAt,
         ],
       );
-      const event = balanceEvent.toJSON();
-      await this.em.execute(
-        `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at) values(?,?,?,?,?,?::jsonb,?)`,
-        [
-          event.eventId,
-          event.aggregateId,
-          entry.transactionId,
-          1,
-          event.eventType,
-          JSON.stringify({ ...event, actorId: context.actorId }),
-          event.occurredAt,
-        ],
-      );
+      let sequence = 0;
+      for (const opened of events) {
+        const event = opened.toJSON();
+        await this.em.execute(
+          `insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at) values(?,?,?,?,?,?::jsonb,?)`,
+          [
+            event.eventId,
+            event.aggregateId,
+            entry.transactionId,
+            ++sequence,
+            event.eventType,
+            JSON.stringify({ ...event, actorId: context.actorId }),
+            event.occurredAt,
+          ],
+        );
+      }
     }
   }
 }

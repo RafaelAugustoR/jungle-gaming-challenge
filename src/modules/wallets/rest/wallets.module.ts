@@ -33,9 +33,7 @@ import { PrometheusWalletReconciliationObserver } from '../infrastructure/observ
 @UseGuards(Identity)
 @HumanRole('viewer')
 class WalletsController {
-  constructor(
-    @Inject(Wallets) private readonly wallets: Wallets,
-  ) {}
+  constructor(@Inject(Wallets) private readonly wallets: Wallets) {}
   @Post()
   @HumanRole('demo-operator')
   async create(

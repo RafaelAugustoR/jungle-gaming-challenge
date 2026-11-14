@@ -1,5 +1,6 @@
 import { SendMessageCommand, GetQueueAttributesCommand, SQSClient } from '@aws-sdk/client-sqs';
-import { publicationFailure, retryDelay, MessageTooLarge } from './publication-policy';
+import { publicationFailure, MessageTooLarge } from './publication-policy';
+import { retryDelay } from '../domain/retry-backoff';
 import { WorkerBackoff } from '../worker-backoff';
 import { OutboxRepository, outboxLogContext, type ReservedEvent } from './outbox-repository';
 import { JsonLogger } from '../../observability/logger';
@@ -46,32 +47,33 @@ export class OutboxPublisher {
     return events.length;
   }
   private async publish(event: ReservedEvent): Promise<boolean> {
+    const { message } = event;
     const logContext = outboxLogContext(event);
     await this.observer.reserved?.(event);
-    const body = JSON.stringify({ ...event.payload, sequence: event.sequence });
+    const body = JSON.stringify({ ...message.payload, sequence: event.sequence });
     try {
       const sent = await this.sqs.send(
         new SendMessageCommand({
           QueueUrl: this.options.queueUrl,
           MessageBody: body,
-          MessageGroupId: event.aggregateId,
-          MessageDeduplicationId: event.eventId,
+          MessageGroupId: message.aggregateId,
+          MessageDeduplicationId: message.eventId,
         }),
         { abortSignal: AbortSignal.timeout(this.options.sendTimeoutMs) },
       );
       await this.observer.sent?.(event);
-      const confirmed = await this.repository.confirm(event.eventId, event.token);
+      const confirmed = await this.repository.confirm(message.eventId, event.token);
       if (!confirmed)
         this.logger.warn({
           event: 'outbox_confirmation_stale',
           ...logContext,
-          messageId: sent.MessageId ?? event.eventId,
+          messageId: sent.MessageId ?? message.eventId,
         });
       else
         this.logger.log({
           event: 'outbox_published',
           ...logContext,
-          messageId: sent.MessageId ?? event.eventId,
+          messageId: sent.MessageId ?? message.eventId,
         });
     } catch (error) {
       let failure = error;
@@ -96,19 +98,16 @@ export class OutboxPublisher {
           /* Ambiguous diagnosis remains retryable; never block on configuration failure. */
         }
       }
-      const { code, blocked, delayMs, pauseWorker } = publicationFailure(
-        failure,
-        event.attempts,
-        this.options,
-      );
+      const { code, blocked, pauseWorker } = publicationFailure(failure);
+      const delayMs = message.retryDelay(this.options);
       this.observer.retryScheduled?.(blocked ? 'blocked' : 'retryable');
-      await this.repository.fail(event.eventId, event.token, code, delayMs, blocked);
+      await this.repository.fail(message.eventId, event.token, code, delayMs, blocked);
       this.logger.warn({
         event: blocked ? 'outbox_blocked' : 'outbox_retry',
         ...logContext,
-        messageId: event.eventId,
+        messageId: message.eventId,
         code,
-        attempt: event.attempts,
+        attempt: message.attempts,
       });
       return pauseWorker;
     }

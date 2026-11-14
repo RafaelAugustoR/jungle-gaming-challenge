@@ -1,9 +1,9 @@
 # Roteiro do vídeo de demonstração
 
-Este vídeo curto (~2 min) é um diferencial escolhido por nós ([delivery.md](delivery.md)). Ele
+Este vídeo narrado (~4 min) é um diferencial escolhido por nós ([delivery.md](delivery.md)). Ele
 mostra disputa de saldo, replay idempotente, referência fora de ordem, falha e recuperação de
 processos e a reconciliação final, sempre com dados reais da execução. O console mostra o recibo
-original e o estado atual lado a lado.
+original e o estado atual lado a lado, e cada prova termina com um carimbo de veredito.
 
 As falhas são provocadas **somente** no stack local com `docker compose kill`. A aplicação não tem
 endpoint para matar processos nem para executar comandos. A morte depois do commit e antes do ack,
@@ -15,35 +15,42 @@ precisa no harness `bun run test:recovery` ([issue-12](evidence/issue-12/README.
 ```sh
 docker compose --profile events up -d --build      # stack local
 cp .env.example .env && bun install --frozen-lockfile
-CONSOLE_URL=http://localhost:3000 bun run demo:record artifacts/demo
-# Chrome do sistema, se o Chromium do Playwright não estiver instalado:
-CHROME_PATH=/usr/bin/google-chrome bun run demo:record artifacts/demo
-ffmpeg -i artifacts/demo/demo.webm -c:v libx264 -crf 30 -preset slow -pix_fmt yuv420p artifacts/demo/demo.mp4
+python3 -m venv .venv-tts && .venv-tts/bin/pip install edge-tts   # uma vez
+EDGE_TTS=.venv-tts/bin/edge-tts bun run demo:voice artifacts/demo  # narração + voice/manifest.json
+CONSOLE_URL=http://localhost:3000 CHROME_PATH=/usr/bin/google-chrome bun run demo:record artifacts/demo
+bun run demo:mix artifacts/demo                                    # demo.mp4 + demo.srt
 ```
 
-`scripts/record-demo.ts` conduz o console real com Playwright (1280×800), sobrepõe legendas e um
-painel com os comandos e as saídas reais, e grava `demo.webm` e `demo-run.json`. Esse JSON guarda
-os IDs, os recibos, os estados e as respostas daquela execução. O script usa as variáveis do `.env`
-e do Compose do shell atual (`COMPOSE_PROJECT_NAME`/`COMPOSE_FILE`). `DEMO_PACE_MS` ajusta o tempo
-de leitura das legendas.
+- **Narração**: o texto está em `scripts/demo/narration.ts` (`caption` vira legenda; `speech` é a
+  grafia falada). `demo:voice` sintetiza cada fala com `edge-tts` (`DEMO_VOICE`, padrão
+  `pt-BR-AntonioNeural`; `DEMO_VOICE_RATE`, padrão `-4%`). Só o texto do roteiro vai para o serviço de
+  voz; nenhum dado da execução sai da máquina.
+- **Gravação**: `scripts/record-demo.ts` conduz o console real com Playwright (1280×800 a 1,5×,
+  gravado em 1920×1200). Cada cena dura pelo menos a sua fala, com as ações acontecendo durante ela.
+  Há cursor visível, terminal que digita o comando e mostra a saída real, cartelas de abertura e
+  encerramento, e nada cobre o console. Grava `demo.webm`, `timeline.json`, `cuts.json` e
+  `demo-run.json` (IDs, recibos, estados e respostas daquela execução). Sem `voice/manifest.json`,
+  grava um rascunho mudo com o mesmo roteiro.
+- **Mixagem**: `demo:mix` posiciona cada fala no instante registrado, remove as esperas mudas do stack
+  (`cuts.json`), comprime e normaliza a voz em −16 LUFS e exporta H.264 + AAC com a faixa de legenda
+  pt-BR. `DEMO_AV_OFFSET_MS` ajusta a sincronia, se necessário.
+
+O script usa as variáveis do `.env` e do Compose do shell atual (`COMPOSE_PROJECT_NAME`/`COMPOSE_FILE`).
 
 ## Cenas
 
-| # | Cena | Ação | O que deve aparecer |
-| --- | --- | --- | --- |
-| 0 | Abertura | `GET /health/ready` | `{"status":"ok","checks":{"postgres":true,"sqs":true}}` |
-| 1 | Login e wallet | Keycloak PKCE como `demo-operator`; criar a wallet com 100.00 | Saldo 100.00, versão 1, OPENING no ledger |
-| 2 | Disputa de saldo | Cenário **Disputa pelo saldo** (2 × BET 80.00 em paralelo) | Uma `200 PROCESSED` e uma `422 REJECTED INSUFFICIENT_FUNDS`; saldo 20.00; um débito |
-| 3 | Replay idempotente | **Repetição idempotente** com 5.00 (mesma chave em paralelo) | Um `transactionId`, um recibo com `idempotentReplay: true`; saldo 15.00 |
-| 4 | Falha e referência fora de ordem | `docker compose kill reference-worker`; **Referência fora de ordem** com 5.00 | REFUND `202 PENDING_REFERENCE` continua pendente com o worker morto |
-| 5 | Recuperação | `docker compose start reference-worker` | REFUND `PROCESSED`; o detalhe mostra o recibo 202 original ao lado do estado atual |
-| 6 | Consumidor SQS | `docker compose kill command-consumer`; BET 10.00 pela fila; `start` | A mensagem espera na fila; depois do restart a transação fica `PROCESSED` e o saldo 5.00 |
-| 7 | Reentrega | Mesma operação com outro `messageId` | Saldo e versão inalterados |
-| 8 | Reconciliação | **Reconciliar ledger** | `consistent=true`; registrado = reconstruído; diferença 0.00 |
-| 9 | Encerramento | — | Referência às provas automatizadas (`test:recovery`) |
-
-Na cena 4, a BET referenciada é processada na hora (débito de 5.00) e o REFUND só credita depois
-da recuperação. Por isso o saldo volta a 15.00 antes da cena 6.
+| #   | Cena                          | Ação                                                                                      | O que deve aparecer                                                                                             |
+| --- | ----------------------------- | ----------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------- |
+| 0   | Abertura                      | `GET /health/ready`                                                                       | `{"status":"ok","checks":{"postgres":true,"sqs":true}}`                                                         |
+| 1   | Login e wallet                | Keycloak PKCE como `demo-operator`; criar a wallet com R$ 100,00                          | Saldo R$ 100,00 no trilho, versão 1                                                                             |
+| 2   | Prova 1 · Disputa             | 2 × BET de 80% do saldo em paralelo                                                       | Um bilhete `200 PROCESSED`, outro `422 REJECTED INSUFFICIENT_FUNDS`; carimbo "Garantia mantida"; saldo R$ 20,00 |
+| 3   | Prova 2 · Replay              | Mesma chave em paralelo, R$ 5,00                                                          | Um `transactionId`, segundo recibo com replay; saldo R$ 15,00                                                   |
+| 4   | Prova 3 · Fora de ordem       | REFUND antes da BET, R$ 5,00                                                              | Canhoto `202 PENDING_REFERENCE`, validação `PROCESSED` com "mudou desde o aceite"; saldo inalterado             |
+| 5   | Prova 4 · Falha e recuperação | `docker compose kill reference-worker`; executar; `docker compose start reference-worker` | Validação "Aguardando referência" com o cronômetro; depois `PROCESSED` e carimbo com o tempo de pendência       |
+| 6   | Consumidor SQS                | `docker compose kill command-consumer`; BET 10,00 pela fila; `start`                      | A mensagem espera na fila; depois do restart a transação fica `PROCESSED` e o saldo R$ 5,00                     |
+| 7   | Reentrega                     | Mesma operação com outro `messageId`                                                      | Saldo e versão inalterados; o Ledger fecha com o saldo da wallet                                                |
+| 8   | Prova 5 · Reconciliação       | Executar a prova                                                                          | Bilhete de conferência: reconstruído = registrado, diferença R$ 0,00; placar 5/5                                |
+| 9   | Encerramento                  | —                                                                                         | Referência às provas automatizadas (`test:recovery`)                                                            |
 
 ## Execução registrada
 

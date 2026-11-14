@@ -103,11 +103,24 @@ async function opening(em: EntityManager, walletId: string, fault?: string) {
     ],
   );
   await checkpoint('outbox');
+  if (fault === 'missing-processed-event') return;
+  await em.execute(
+    `insert into wagering.outbox(event_id, aggregate_id, transaction_id, sequence, event_type, payload) values (?, ?, ?, 2, 'WagerTransactionProcessed', '{}'::jsonb)`,
+    [crypto.randomUUID(), walletId, transaction],
+  );
 }
 integration(
   'opening, journal, wallet and applicable outbox roll back together at every write boundary',
   async () => {
-    for (const step of ['account', 'wallet', 'opening', 'journal', 'outbox', 'missing-outbox']) {
+    for (const step of [
+      'account',
+      'wallet',
+      'opening',
+      'journal',
+      'outbox',
+      'missing-outbox',
+      'missing-processed-event',
+    ]) {
       const id = crypto.randomUUID();
       await expect(orm.em.fork().transactional((em) => opening(em, id, step))).rejects.toThrow();
       for (const [table, field] of [
@@ -183,7 +196,7 @@ integration(
       `select w.balance::text, w.version, (select sum(case when credit_account_id = w.account_id then amount else -amount end) from wagering.journal where wallet_id = w.id)::text as reconstructed, (select count(*)::int from wagering.outbox where aggregate_id = w.id) as events from wagering.wallets w where id = ?`,
       [id],
     );
-    expect(summary).toEqual({ balance: '100.00', version: 1, reconstructed: '100.00', events: 1 });
+    expect(summary).toEqual({ balance: '100.00', version: 1, reconstructed: '100.00', events: 2 });
     for (const statement of [
       'update wagering.journal set amount = amount',
       'delete from wagering.journal',

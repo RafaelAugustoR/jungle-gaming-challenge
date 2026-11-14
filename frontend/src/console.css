@@ -1,0 +1,29 @@
+/* Console layout: rail beside the stage. */
+.console {
+  display: grid;
+  grid-template-columns: 300px minmax(0, 1fr);
+  min-height: calc(100vh - var(--topbar));
+  background: linear-gradient(to right, var(--rail) 300px, transparent 300px);
+}
+.booting {
+  padding: 48px;
+  color: var(--ink-2);
+}
+.stage {
+  min-width: 0;
+  padding: 36px clamp(20px, 3.6vw, 56px) 72px;
+}
+.stage > * {
+  max-width: 1040px;
+}
+@media (max-width: 960px) {
+  .console {
+    grid-template-columns: 1fr;
+    background: none;
+  }
+}
+@media (max-width: 640px) {
+  .stage {
+    padding: 24px 16px 56px;
+  }
+}

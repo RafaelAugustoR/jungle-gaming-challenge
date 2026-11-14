@@ -11,7 +11,9 @@
     "outDir": "dist",
     "types": [
       "bun"
-    ]
+    ],
+    "jsx": "react-jsx",
+    "jsxImportSource": "preact"
   },
   "include": [
     "src/**/*.ts",
@@ -19,6 +21,7 @@
     "migrations/**/*.ts",
     "deploy/**/*.ts",
     "tests/**/*.ts",
-    "frontend/**/*.ts"
+    "frontend/src/**/*.ts",
+    "frontend/src/**/*.tsx"
   ]
 }

@@ -1,5 +1,7 @@
 import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
 import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
+import type { InboxMessage } from '../../../../messaging/domain/inbox-message';
+import { OutboxMessage } from '../../../../messaging/domain/outbox-message';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
@@ -23,6 +25,7 @@ import {
 import { Money } from '../../../../shared/domain/money';
 import { Wallet } from '../../../wallets/domain/wallet';
 import type {
+  PendingReferenceCandidate,
   TransactionFilter,
   TransactionView,
   WageringSession,
@@ -190,8 +193,10 @@ export class WageringRepository implements WageringStore {
   }
   dueReferences(limit: number) {
     return databaseOperation(() =>
-      this.orm.em.fork().execute<{ transactionId: string; walletId: string }[]>(
-        `select r.transaction_id as "transactionId",t.wallet_id as "walletId" from wagering.reference_retries r join wagering.transactions t on t.id=r.transaction_id
+      this.orm.em.fork().execute<PendingReferenceCandidate[]>(
+        `select r.transaction_id as "transactionId",t.wallet_id as "walletId",t.provider_id as "providerId",
+         coalesce((select o.payload->>'correlationId' from wagering.outbox o where o.transaction_id=t.id and o.event_type='WagerTransactionPendingReference'),t.id::text) as "correlationId"
+       from wagering.reference_retries r join wagering.transactions t on t.id=r.transaction_id
        where r.completed_at is null and r.next_attempt_at<=clock_timestamp() and t.status='PENDING_REFERENCE'
        order by r.next_attempt_at,r.transaction_id limit ?`,
         [limit],
@@ -235,12 +240,13 @@ export class WageringRepository implements WageringStore {
       const last = pageRows.at(-1);
       return {
         transactions: pageRows.map(transactionView),
-        next: hasMore && first && last
-          ? {
-              createdAt: last.cursor_created_at,
-              id: last.id,
-            }
-          : null,
+        next:
+          hasMore && first && last
+            ? {
+                createdAt: last.cursor_created_at,
+                id: last.id,
+              }
+            : null,
       };
     });
   }
@@ -248,9 +254,7 @@ export class WageringRepository implements WageringStore {
     return databaseOperation(async () => {
       const [row] = await this.orm.em
         .fork()
-        .execute<
-          TransactionRow[]
-        >(`${transactionViewSelect} where ${where}`, params);
+        .execute<TransactionRow[]>(`${transactionViewSelect} where ${where}`, params);
       return row && transactionView(row);
     });
   }
@@ -289,17 +293,17 @@ class PostgresWageringSession implements WageringSession {
     await this.budget();
     return this.em.execute<T>(sql, params);
   }
-  async recordInbox(inbox: Parameters<WageringSession['recordInbox']>[0], transactionId: string) {
+  async recordInbox(message: InboxMessage) {
     const inserted = await this.execute(
       `insert into messaging.command_inbox(consumer_name,message_id,request_hash,transaction_id) values(?,?,?,?) on conflict do nothing returning 1`,
-      [inbox.consumerName, inbox.messageId, inbox.hash, transactionId],
+      [message.consumerName, message.messageId, message.payloadHash, message.transactionId],
     );
     if (inserted.length) return;
     const [row] = await this.execute<{ request_hash: string }[]>(
       'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
-      [inbox.consumerName, inbox.messageId],
+      [message.consumerName, message.messageId],
     );
-    if (row?.request_hash !== inbox.hash) throw new InboxConflict();
+    if (row?.request_hash !== message.payloadHash) throw new InboxConflict();
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<
@@ -518,17 +522,19 @@ class PostgresWageringSession implements WageringSession {
     let sequence = last!.sequence;
     for (const event of [input.change?.event, transaction.resultEvent]) {
       if (!event) continue;
-      const envelope = event.toJSON();
+      const message = OutboxMessage.enqueue(event);
+      // Wallet events are partitioned by wallet; a mismatch would break per-aggregate order.
+      if (message.aggregateId !== wallet.id) throw new Error('Outbox aggregate mismatch');
       await this.execute(
         'insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at) values(?,?,?,?,?,?::jsonb,?)',
         [
-          envelope.eventId,
-          wallet.id,
+          message.eventId,
+          message.aggregateId,
           transaction.id,
           ++sequence,
-          envelope.eventType,
-          JSON.stringify(envelope),
-          occurredAt,
+          message.eventType,
+          JSON.stringify(message.payload),
+          message.occurredAt,
         ],
       );
     }

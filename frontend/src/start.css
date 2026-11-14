@@ -1,0 +1,23 @@
+/* Create or open a wallet. */
+.start-forms {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(300px, 1fr));
+  gap: 20px;
+  align-items: start;
+}
+.sheet {
+  display: grid;
+  gap: 16px;
+  padding: 24px;
+  background: var(--sheet);
+  border: 1px solid var(--rule);
+}
+.sheet h2 {
+  font-size: 20px;
+}
+.sheet > p {
+  margin-top: -8px;
+}
+.sheet button {
+  justify-self: start;
+}

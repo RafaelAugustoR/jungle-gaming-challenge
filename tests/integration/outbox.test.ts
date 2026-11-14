@@ -35,19 +35,21 @@ integration('publishers reserve disjoint heads and stale owners cannot confirm',
     repository.claim(1, 30_000),
     repository.claim(1, 30_000),
   ]);
-  expect([...first, ...second].filter((x) => x.aggregateId === wallet.id)).toHaveLength(1);
-  const event = [...first, ...second].find((x) => x.aggregateId === wallet.id)!;
-  expect(await repository.confirm(event.eventId, crypto.randomUUID())).toBe(false);
+  expect([...first, ...second].filter((x) => x.message.aggregateId === wallet.id)).toHaveLength(1);
+  const event = [...first, ...second].find((x) => x.message.aggregateId === wallet.id)!;
+  expect(await repository.confirm(event.message.eventId, crypto.randomUUID())).toBe(false);
   await database.owner.em.execute(
     "update wagering.outbox set lease_until=clock_timestamp()-interval '1 second' where event_id=?",
-    [event.eventId],
+    [event.message.eventId],
   );
   const [replacement] = await repository.claim(1, 30000);
-  expect(replacement!.eventId).toBe(event.eventId);
+  expect(replacement!.message.eventId).toBe(event.message.eventId);
   expect(replacement!.token).not.toBe(event.token);
-  expect(await repository.confirm(event.eventId, event.token)).toBe(false);
-  expect(await repository.fail(event.eventId, event.token, 'StaleWorker', 0, true)).toBe(false);
-  expect(await repository.confirm(replacement!.eventId, replacement!.token)).toBe(true);
+  expect(await repository.confirm(event.message.eventId, event.token)).toBe(false);
+  expect(await repository.fail(event.message.eventId, event.token, 'StaleWorker', 0, true)).toBe(
+    false,
+  );
+  expect(await repository.confirm(replacement!.message.eventId, replacement!.token)).toBe(true);
 });
 
 integration(
@@ -230,8 +232,9 @@ integration(
           retryMaxMs: 10,
         });
         expect(await publisher.runOnce()).toBe(1);
+        // The opening has two events; the crashed publisher held the head.
         const [state] = await database.owner.em.execute(
-          'select event_id,published_at,attempts from wagering.outbox where aggregate_id=?',
+          'select event_id,published_at,attempts from wagering.outbox where aggregate_id=? order by sequence',
           [wallet.id],
         );
         expect(state.event_id).toBe(reached.eventId);
@@ -247,6 +250,8 @@ integration(
         expect(
           delivery.Messages?.some((m) => JSON.parse(m.Body!).eventId === reached.eventId),
         ).toBe(true);
+        // Publish the opening's second event so the next stage's child claims its own wallet.
+        expect(await publisher.runOnce()).toBe(1);
       }
     } finally {
       await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
@@ -264,23 +269,31 @@ integration(
     const [event] = await repository.claim(10, 30000);
     expect(event).toBeDefined();
     expect(
-      await repository.fail(event!.eventId, event!.token, 'TransportFailure', 60000, false),
+      await repository.fail(event!.message.eventId, event!.token, 'TransportFailure', 60000, false),
     ).toBe(true);
     expect(await repository.claim(10, 30000)).toHaveLength(0);
     const other = await opening();
-    expect((await repository.claim(10, 30000)).map((x) => x.aggregateId)).toEqual([other.id]);
+    expect((await repository.claim(10, 30000)).map((x) => x.message.aggregateId)).toEqual([
+      other.id,
+    ]);
     await database.owner.em.execute(
       'update wagering.outbox set next_attempt_at=clock_timestamp() where event_id=?',
-      [event!.eventId],
+      [event!.message.eventId],
     );
     const [retry] = await repository.claim(10, 30000);
-    expect(retry!.eventId).toBe(event!.eventId);
+    expect(retry!.message.eventId).toBe(event!.message.eventId);
     expect(
-      await repository.fail(retry!.eventId, retry!.token, 'InvalidMessageContents', 0, true),
+      await repository.fail(
+        retry!.message.eventId,
+        retry!.token,
+        'InvalidMessageContents',
+        0,
+        true,
+      ),
     ).toBe(true);
     expect(await repository.claim(10, 30000)).toHaveLength(0);
-    expect(await repository.retryBlocked(retry!.eventId)).toBe(true);
-    expect((await repository.claim(10, 30000))[0]!.eventId).toBe(event!.eventId);
+    expect(await repository.retryBlocked(retry!.message.eventId)).toBe(true);
+    expect((await repository.claim(10, 30000))[0]!.message.eventId).toBe(event!.message.eventId);
     await expect(
       runtime.em
         .fork()
@@ -324,11 +337,11 @@ integration('later wallet events remain blocked behind an unpublished head', asy
   const [head] = await repository.claim(10, 30000);
   expect(head!.sequence).toBe(1);
   expect(await repository.claim(10, 30000)).toHaveLength(0);
-  expect(await repository.confirm(head!.eventId, head!.token)).toBe(true);
+  expect(await repository.confirm(head!.message.eventId, head!.token)).toBe(true);
   const [next] = await repository.claim(10, 30000);
   expect(next!.sequence).toBe(2);
   expect(await repository.claim(10, 30000)).toHaveLength(0);
-  await repository.confirm(next!.eventId, next!.token);
+  await repository.confirm(next!.message.eventId, next!.token);
   expect((await repository.claim(10, 30000))[0]!.sequence).toBe(3);
 });
 
@@ -418,7 +431,7 @@ integration(
       });
       await expect(publisher.runOnce()).rejects.toThrow('WORKER_BACKOFF');
       const [state] = await database.owner.em.execute(
-        'select published_at,lease_token,blocked_at,attempts,last_error_code,next_attempt_at>clock_timestamp() as waiting from wagering.outbox where aggregate_id=?',
+        'select published_at,lease_token,blocked_at,attempts,last_error_code,next_attempt_at>clock_timestamp() as waiting from wagering.outbox where aggregate_id=? order by sequence',
         [wallet.id],
       );
       expect(state).toMatchObject({
@@ -443,7 +456,7 @@ integration('consumer commits inbox and projection atomically', async () => {
   const sqs = createSqsClient(database.config);
   try {
     const [event] = await new OutboxRepository(runtime).claim(1, 30000);
-    const body = JSON.stringify({ ...event!.payload, sequence: event!.sequence });
+    const body = JSON.stringify({ ...event!.message.payload, sequence: event!.sequence });
     await database.owner.em
       .execute(`create function wagering.fail_projection() returns trigger language plpgsql as $$ begin raise exception 'injected projection failure'; end $$;
       create trigger fail_projection before insert on demo_consumer.event_projection for each row execute function wagering.fail_projection();`);
@@ -566,8 +579,9 @@ integration(
             [wallet.id],
           )
       )[0].n as number;
-    // Opening + (processed + balance changed) per BET, all heads of the same aggregate.
-    expect(await pending()).toBe(17);
+    // Opening (balance changed + processed) + (processed + balance changed) per BET, all
+    // heads of the same aggregate.
+    expect(await pending()).toBe(18);
     const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
     const { createSqsClient } = await import('../../src/config/sqs');
     const sqs = createSqsClient(database.config);
@@ -603,7 +617,7 @@ integration(
           [wallet.id],
         );
       expect((order as { sequence: number }[]).map((row) => row.sequence)).toEqual(
-        Array.from({ length: 17 }, (_, i) => i + 1),
+        Array.from({ length: 18 }, (_, i) => i + 1),
       );
     } finally {
       child.kill('SIGTERM');
@@ -670,7 +684,7 @@ integration(
       20000,
     );
     const [head] = await new OutboxRepository(runtime).claim(20, 30000);
-    expect(head).toMatchObject({ aggregateId: wallet.id, sequence: 301 });
+    expect(head).toMatchObject({ message: { aggregateId: wallet.id }, sequence: 301 });
   },
   60000,
 );
@@ -714,9 +728,9 @@ integration(
       await sqs.send(
         new SendMessageCommand({
           QueueUrl: queue,
-          MessageBody: JSON.stringify({ ...event!.payload, sequence: event!.sequence }),
+          MessageBody: JSON.stringify({ ...event!.message.payload, sequence: event!.sequence }),
           MessageGroupId: wallet.id,
-          MessageDeduplicationId: event!.eventId,
+          MessageDeduplicationId: event!.message.eventId,
         }),
       );
       const consumer = new EventConsumer(runtime, sqs, queue, { visibilityTimeoutSeconds: 0 });
@@ -780,7 +794,7 @@ integration(
       const [state] = await runtime.em
         .fork()
         .execute(
-          'select blocked_at,lease_token,published_at,last_error_code from wagering.outbox where aggregate_id=?',
+          'select blocked_at,lease_token,published_at,last_error_code from wagering.outbox where aggregate_id=? order by sequence',
           [wallet.id],
         );
       expect(state).toEqual({
@@ -797,9 +811,10 @@ integration(
       expect(await publisher.runOnce()).toBe(1);
       const [recovered] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
-          wallet.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [wallet.id],
+        );
       expect(recovered.published_at).not.toBeNull();
       expect(recovered.blocked_at).toBeNull();
     } finally {
@@ -878,7 +893,8 @@ integration(
         retryMaxMs: 60000,
       });
       const consumer = new EventConsumer(runtime, sqs, queue);
-      for (let i = 0; i < 5; i++) {
+      // Opening (2 events, the processed one with kind OPENING), BET (2), REFUND (2).
+      for (let i = 0; i < 6; i++) {
         expect(await publisher.runOnce()).toBe(1);
         expect(await consumer.runOnce()).toBe(1);
       }
@@ -889,7 +905,7 @@ integration(
           [wallet.id],
         );
       expect(state).toMatchObject({
-        sequence: 5,
+        sequence: 6,
         balance: { amount: '100.00', currency: 'BRL' },
         wallet_version: 3,
       });
@@ -946,7 +962,7 @@ integration(
       const [bad] = await runtime.em
         .fork()
         .execute(
-          'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=?',
+          'select published_at,blocked_at,last_error_code from wagering.outbox where aggregate_id=? order by sequence',
           [large.id],
         );
       expect(bad.published_at).toBeNull();
@@ -954,9 +970,10 @@ integration(
       expect(bad.last_error_code).toBe('MessageTooLarge');
       const [good] = await runtime.em
         .fork()
-        .execute('select published_at,blocked_at from wagering.outbox where aggregate_id=?', [
-          small.id,
-        ]);
+        .execute(
+          'select published_at,blocked_at from wagering.outbox where aggregate_id=? order by sequence',
+          [small.id],
+        );
       expect(good.published_at).not.toBeNull();
       expect(good.blocked_at).toBeNull();
     } finally {

@@ -1,5 +1,6 @@
 {
   "realm": "jungle",
+  "displayName": "Lastro",
   "enabled": true,
   "sslRequired": "none",
   "registrationAllowed": false,

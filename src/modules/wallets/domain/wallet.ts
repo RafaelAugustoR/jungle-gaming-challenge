@@ -3,6 +3,7 @@ import { DomainError } from '../../../shared/domain/errors/domain-error';
 import type { EventContext } from '../../../shared/domain/events/integration-event';
 import { JournalEntry } from './journal-entry';
 import { WalletBalanceChanged } from './events/wallet-balance-changed';
+import { OpeningTransactionProcessed } from './events/opening-processed';
 
 export interface WalletProps {
   id: string;
@@ -32,7 +33,8 @@ export interface OpeningTransaction {
 export interface WalletOpening {
   readonly transaction: OpeningTransaction;
   readonly entry: JournalEntry;
-  readonly event: WalletBalanceChanged;
+  /** Outbox order: the balance change, then the transaction result (as for provider moves). */
+  readonly events: readonly [WalletBalanceChanged, OpeningTransactionProcessed];
 }
 export interface WalletOpenResult {
   readonly wallet: Wallet;
@@ -103,7 +105,21 @@ export class Wallet {
       opening: Object.freeze({
         transaction,
         entry,
-        event: WalletBalanceChanged.from(entry, input.occurredAt, input.context),
+        events: [
+          WalletBalanceChanged.from(entry, input.occurredAt, input.context),
+          OpeningTransactionProcessed.from(
+            {
+              transactionId: transaction.id,
+              walletId: wallet.id,
+              playerId: wallet.playerId,
+              kind: 'OPENING',
+              money: wallet.balance.toProps(),
+              balance: wallet.balance.toProps(),
+            },
+            input.occurredAt,
+            input.context,
+          ),
+        ] as const,
       }),
     };
   }

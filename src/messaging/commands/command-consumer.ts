@@ -11,7 +11,7 @@ import {
 import type { SubmitWagerTransaction } from '../../modules/wagering/application/submit-wager-transaction';
 import { DomainError } from '../../shared/domain/errors/domain-error';
 import { JsonLogger } from '../../observability/logger';
-import { retryDelay } from '../outbox/publication-policy';
+import { retryDelay } from '../domain/retry-backoff';
 import { commandInboxHash, diagnosticMessageId, parseCommandEnvelope } from './command-envelope';
 import { classify, type CommandLogContext, type Disposition } from './disposition';
 export interface CommandConsumerOptions {
@@ -168,7 +168,7 @@ export class CommandConsumer {
           inbox: {
             consumerName: 'wager-commands',
             messageId,
-            hash: commandInboxHash(envelope.command, envelope.key),
+            payloadHash: commandInboxHash(envelope.command, envelope.key),
           },
           signal,
           channel: 'sqs',

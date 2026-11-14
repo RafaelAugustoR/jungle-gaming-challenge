@@ -6,6 +6,8 @@
   "scripts": {
     "build": "bun run typecheck && bun run build:frontend",
     "typecheck": "tsc --noEmit",
+    "format": "prettier --write src migrations tests scripts",
+    "format:check": "prettier --check src migrations tests scripts",
     "start": "bun src/bootstrap/main.ts",
     "dev": "bun --watch src/bootstrap/main.ts",
     "test": "bun test",
@@ -25,7 +27,9 @@
     "test:recovery": "bun scripts/test-recovery.ts",
     "test:load": "bun scripts/test-load.ts",
     "test:stack": "bun test tests/stack",
-    "demo:record": "bun scripts/record-demo.ts"
+    "demo:record": "bun scripts/record-demo.ts",
+    "demo:voice": "bun scripts/demo/voice.ts",
+    "demo:mix": "bun scripts/demo/mix.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",
@@ -38,6 +42,7 @@
     "decimal.js": "10.6.0",
     "jose": "6.1.3",
     "keycloak-js": "26.2.2",
+    "preact": "10.27.2",
     "prom-client": "15.1.3",
     "reflect-metadata": "0.2.2",
     "rxjs": "7.8.2"

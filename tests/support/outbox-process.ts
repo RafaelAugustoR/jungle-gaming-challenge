@@ -8,7 +8,7 @@ const orm = await openDatabase(config),
   sqs = createSqsClient(config);
 const mode = process.env.OUTBOX_TEST_PAUSE;
 const pause = async (stage: string, event: ReservedEvent) => {
-  process.send?.({ stage, eventId: event.eventId, token: event.token, pid: process.pid });
+  process.send?.({ stage, eventId: event.message.eventId, token: event.token, pid: process.pid });
   if (mode === stage)
     await new Promise<void>((resolve) => process.once('message', () => resolve()));
 };
