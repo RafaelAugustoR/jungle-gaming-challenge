@@ -45,8 +45,8 @@ DEMO_ORIGIN=https://demo.example.com AUTH_ORIGIN=https://auth.example.com \
   bun deploy/hosted/prepare.ts            # gera deploy/hosted/.env (0600) e generated/jungle-realm.json
 cd deploy/hosted
 docker compose up -d --build --wait
-STACK_URL=https://demo.example.com STACK_PASSWORD="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)" \
-  bun --cwd ../.. run test:stack          # smoke: login, cenários, worker e reconciliação
+PW="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)"
+(cd ../.. && STACK_URL=https://demo.example.com STACK_PASSWORD="$PW" bun run test:stack)   # smoke
 ```
 
 `deploy/hosted/.env` e `generated/` estão no `.gitignore`. Entregue as senhas dos usuários aos
@@ -67,8 +67,9 @@ services:
 EOF
 cd deploy/hosted && docker compose -p jungle-demo-local -f compose.yaml -f /tmp/hosted-local.yaml up -d --build --wait
 docker compose -p jungle-demo-local cp caddy:/data/caddy/pki/authorities/local/root.crt /tmp/caddy-root.crt
-NODE_EXTRA_CA_CERTS=/tmp/caddy-root.crt STACK_URL=https://demo.localhost:8443 \
-  STACK_PASSWORD="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)" bun --cwd ../.. run test:stack
+PW="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)"
+(cd ../.. && NODE_EXTRA_CA_CERTS=/tmp/caddy-root.crt STACK_URL=https://demo.localhost:8443 \
+  STACK_PASSWORD="$PW" bun run test:stack)
 ```
 
 ## Operação e encerramento
