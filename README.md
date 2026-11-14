@@ -291,3 +291,22 @@ infraestrutura compartilhada. Evidências JSON e logs ficam em `artifacts/recove
 (ou `RECOVERY_ARTIFACT_DIR`); execução interrompida retorna erro e não reaproveita
 um JSON de sucesso anterior. O cenário integrado também roda em `test:integration`
 na CI. [Roteiro, cobertura e limites](docs/evidence/issue-12/README.md).
+
+### Carga e limites — Issue #13
+
+Com a mesma infraestrutura local de `test:recovery`:
+
+```sh
+bun run test:load
+# Exemplo: só a wallet quente, 60 s medidos, comparando uma e três APIs
+bun run test:load --scenarios hot-wallet --rate 200 --duration 60 --instances 1,3
+```
+
+Executa `hot-wallet`, `distributed` e `duplicates` com uma e três APIs reais, cada
+combinação em banco descartável e filas exclusivas, com gerador de taxa constante,
+aquecimento, duração e seed configuráveis. Registra ambiente, taxa oferecida/emitida/
+concluída, p50/p95/p99, rejeições, replays e erros separados, esperas de lock,
+outbox lag e reconciliação de todas as wallets; falha se alguma invariante quebrar.
+Resultados brutos e `report.md` ficam em `artifacts/load/<timestamp>/`.
+[Metodologia e opções](docs/load-testing.md) ·
+[resultados e gargalos](docs/evidence/issue-13/README.md).

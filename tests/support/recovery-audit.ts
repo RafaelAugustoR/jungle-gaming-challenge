@@ -1,4 +1,5 @@
 import { expect } from 'bun:test';
+import { ledgerAudit } from './ledger-audit';
 import { authHeaders, type RecoveryHarness } from './recovery-harness';
 
 export async function assertRecovery(h: RecoveryHarness) {
@@ -32,15 +33,18 @@ export async function assertRecovery(h: RecoveryHarness) {
     });
     reconciled.push({ walletId: w.id, balance: w.balance, version: w.version, ...result });
   }
-  const [invariants] = await sql(`select
-      (select count(*)::int from wagering.journal j join wagering.accounts d on d.id=j.debit_account_id join wagering.accounts c on c.id=j.credit_account_id where j.amount<=0 or d.id=c.id or d.currency<>j.currency or c.currency<>j.currency) invalid_pairs,
-      (select count(*)::int from wagering.transactions t where (t.status='PROCESSED' and t.kind<>'LOSS' and t.amount>0 and (select count(*) from wagering.journal j where j.transaction_id=t.id)<>1) or (t.status<>'PROCESSED' and exists(select from wagering.journal j where j.transaction_id=t.id))) partial_financial_effects,
-      (select count(*)::int from wagering.transactions t where t.kind<>'OPENING' and (select count(*) from wagering.submission_receipts r where r.transaction_id=t.id)<>1) missing_receipts,
-      (select count(*)::int from wagering.transactions t where t.status in ('PENDING','PENDING_REFERENCE')) pending_transactions,
+  const [delivery] = await sql(`select
       (select count(*)::int from wagering.outbox where published_at is null or blocked_at is not null or lease_token is not null) pending_events,
       (select count(*)::int from wagering.outbox o left join demo_consumer.event_inbox i on i.event_id=o.event_id where i.event_id is null) missing_deliveries,
-      (select count(*)::int from wagering.wallets w join demo_consumer.event_projection p on p.aggregate_id=w.id where p.wallet_version<>w.version or (p.balance->>'amount')::numeric<>w.balance) stale_projections,
-      (select count(*)::int from wagering.transactions t where t.kind<>'OPENING' and ((select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type=case t.status when 'PROCESSED' then 'WagerTransactionProcessed' else 'WagerTransactionRejected' end)<>1 or (select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type='WalletBalanceChanged')<>case when t.status='PROCESSED' then 1 else 0 end)) invalid_event_sets`);
+      (select count(*)::int from wagering.wallets w join demo_consumer.event_projection p on p.aggregate_id=w.id where p.wallet_version<>w.version or (p.balance->>'amount')::numeric<>w.balance) stale_projections`);
+  const invariants = {
+    ...(await ledgerAudit(sql)),
+    ...(delivery as {
+      pending_events: number;
+      missing_deliveries: number;
+      stale_projections: number;
+    }),
+  };
   expect(invariants).toEqual({
     invalid_pairs: 0,
     partial_financial_effects: 0,

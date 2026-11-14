@@ -67,17 +67,21 @@ export async function providerToken(provider: 'a' | 'b'): Promise<string> {
 
 export async function allowConsoleRedirect(baseUrl: string) {
   const issuer = new URL(loadConfig().keycloakIssuer);
-  const tokenResponse = await fetch(`${issuer.origin}/realms/master/protocol/openid-connect/token`, {
-    method: 'POST',
-    body: new URLSearchParams({
-      grant_type: 'password',
-      client_id: 'admin-cli',
-      username: 'admin',
-      password: 'local-demo-only',
-    }),
-  });
+  const tokenResponse = await fetch(
+    `${issuer.origin}/realms/master/protocol/openid-connect/token`,
+    {
+      method: 'POST',
+      body: new URLSearchParams({
+        grant_type: 'password',
+        client_id: 'admin-cli',
+        username: 'admin',
+        password: 'local-demo-only',
+      }),
+    },
+  );
   const { access_token: token } = (await tokenResponse.json()) as { access_token?: string };
-  if (!tokenResponse.ok || !token) throw new Error('Could not authorize temporary browser callback.');
+  if (!tokenResponse.ok || !token)
+    throw new Error('Could not authorize temporary browser callback.');
   const realm = issuer.pathname.split('/').at(-1);
   const admin = `${issuer.origin}/admin/realms/${realm}`;
   const headers = { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' };
@@ -102,3 +106,19 @@ export async function allowConsoleRedirect(baseUrl: string) {
   await update([...previousRedirects, baseUrl], [...previousOrigins, baseUrl]);
   return async () => update(previousRedirects, previousOrigins);
 }
+
+/**
+ * Keeps an access token fresh in the background. A failed refresh keeps the previous token and
+ * is reported, so a later 401 can be traced to the harness instead of looking like a system error.
+ */
+export async function tokenSource(
+  fetchToken: () => Promise<string>,
+  options: { refreshMs: number; onError: (error: unknown) => void },
+) {
+  let token = await fetchToken();
+  const timer = setInterval(() => {
+    fetchToken().then((next) => (token = next), options.onError);
+  }, options.refreshMs);
+  return { current: () => token, close: () => clearInterval(timer) };
+}
+export type TokenSource = Awaited<ReturnType<typeof tokenSource>>;

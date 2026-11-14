@@ -1,0 +1,192 @@
+{
+  "name": "distributed-1x-500rps",
+  "scenario": "distributed",
+  "instances": 1,
+  "rate": 500,
+  "apiPids": [
+    15795
+  ],
+  "wallets": 100,
+  "operations": 17500,
+  "uniqueOperations": 17500,
+  "summary": {
+    "windowSeconds": 30,
+    "scheduled": 15000,
+    "issued": 11869,
+    "notIssued": 3131,
+    "completed": 11869,
+    "outcomes": {
+      "processed": 11656,
+      "rejected": 213,
+      "replay": 0,
+      "pending": 0,
+      "conflict": 0,
+      "error": 0,
+      "not_issued": 3131
+    },
+    "codes": {
+      "INSUFFICIENT_FUNDS": 213
+    },
+    "httpStatuses": {
+      "200": 11656,
+      "422": 213
+    },
+    "offeredRps": 500,
+    "issuedRps": 395.6333333333333,
+    "completedRps": 387.79869273003914,
+    "financialRps": 387.79869273003914,
+    "errors": 0,
+    "errorRate": 0,
+    "drainAfterWindowMs": 606,
+    "latencyMs": {
+      "count": 11869,
+      "p50": 632.06,
+      "p95": 752.04,
+      "p99": 846.34,
+      "max": 877.73
+    },
+    "intendedLatencyMs": {
+      "count": 11869,
+      "p50": 632.08,
+      "p95": 751.83,
+      "p99": 846.5,
+      "max": 877.82
+    },
+    "latencyByOutcomeMs": {
+      "processed": {
+        "count": 11656,
+        "p50": 631.96,
+        "p95": 752.13,
+        "p99": 846.49,
+        "max": 877.73
+      },
+      "rejected": {
+        "count": 213,
+        "p50": 638.21,
+        "p95": 746.37,
+        "p99": 818.22,
+        "max": 858.38
+      },
+      "replay": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "error": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "scheduleLagMs": {
+      "count": 11869,
+      "p50": -0.27,
+      "p95": 1.97,
+      "p99": 2.71,
+      "max": 6.1
+    },
+    "perInstance": [
+      {
+        "instance": 0,
+        "issued": 11869,
+        "p95": 752.04
+      }
+    ]
+  },
+  "database": {
+    "samplesInWindow": 146,
+    "lockWaitingBackends": {
+      "mean": 0.05,
+      "count": 146,
+      "p50": 0,
+      "p95": 0,
+      "p99": 1,
+      "max": 1
+    },
+    "oldestLockWaitMs": {
+      "count": 7,
+      "p50": 6,
+      "p95": 11,
+      "p99": 11,
+      "max": 11
+    },
+    "activeBackends": {
+      "mean": 2.7,
+      "count": 146,
+      "p50": 3,
+      "p95": 5,
+      "p99": 6,
+      "max": 6
+    },
+    "outboxPending": {
+      "count": 146,
+      "p50": 14015,
+      "p95": 24328,
+      "p99": 25368,
+      "max": 25529
+    },
+    "outboxOldestAgeMs": {
+      "count": 146,
+      "p50": 18561,
+      "p95": 31513,
+      "p99": 32709,
+      "max": 32871
+    },
+    "loadEndMs": 35606
+  },
+  "outboxDrain": {
+    "eventsAtLoadEnd": 27408,
+    "pendingAtLoadEnd": 26208,
+    "drainedAfterMs": null,
+    "timeoutMs": 30000,
+    "pendingWhenStopped": 25288,
+    "publishedPerSecondWhileDraining": 30.6
+  },
+  "processMetrics": {
+    "walletLockConflicts": 0,
+    "financialRetries": 0
+  },
+  "verification": {
+    "completed": true,
+    "ok": true,
+    "checks": {
+      "reconciledWallets": true,
+      "transactionsMatchUniqueOperations": true,
+      "processedMatches": true,
+      "rejectedMatches": true,
+      "journalEntriesMatch": true,
+      "ledgerAudit": true,
+      "noDuplicateFinancialEffect": true,
+      "oversizedNeverProcessed": true
+    },
+    "finalStates": {
+      "PROCESSED": 13528,
+      "REJECTED": 252,
+      "NOT_APPLIED": 3720
+    },
+    "readBackAfterUncertainResponse": 0,
+    "neverSent": 3720,
+    "database": {
+      "processed": 13528,
+      "rejected": 252,
+      "transactions": 13780,
+      "journal_entries": 13628
+    },
+    "audit": {
+      "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
+      "invalid_event_sets": 0
+    },
+    "reconciliation": {
+      "wallets": 100,
+      "consistent": 100,
+      "failures": []
+    }
+  }
+}

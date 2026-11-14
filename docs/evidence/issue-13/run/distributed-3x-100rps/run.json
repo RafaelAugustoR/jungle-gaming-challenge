@@ -1,0 +1,204 @@
+{
+  "name": "distributed-3x-100rps",
+  "scenario": "distributed",
+  "instances": 3,
+  "rate": 100,
+  "apiPids": [
+    14754,
+    14777,
+    14799
+  ],
+  "wallets": 100,
+  "operations": 3500,
+  "uniqueOperations": 3500,
+  "summary": {
+    "windowSeconds": 30,
+    "scheduled": 3000,
+    "issued": 3000,
+    "notIssued": 0,
+    "completed": 3000,
+    "outcomes": {
+      "processed": 2948,
+      "rejected": 52,
+      "replay": 0,
+      "pending": 0,
+      "conflict": 0,
+      "error": 0,
+      "not_issued": 0
+    },
+    "codes": {
+      "INSUFFICIENT_FUNDS": 52
+    },
+    "httpStatuses": {
+      "200": 2948,
+      "422": 52
+    },
+    "offeredRps": 100,
+    "issuedRps": 100,
+    "completedRps": 99.98609043836154,
+    "financialRps": 99.98609043836154,
+    "errors": 0,
+    "errorRate": 0,
+    "drainAfterWindowMs": 4,
+    "latencyMs": {
+      "count": 3000,
+      "p50": 11.63,
+      "p95": 14.55,
+      "p99": 16.11,
+      "max": 23.84
+    },
+    "intendedLatencyMs": {
+      "count": 3000,
+      "p50": 11.62,
+      "p95": 15.31,
+      "p99": 17.36,
+      "max": 23.65
+    },
+    "latencyByOutcomeMs": {
+      "processed": {
+        "count": 2948,
+        "p50": 11.66,
+        "p95": 14.56,
+        "p99": 16.15,
+        "max": 23.84
+      },
+      "rejected": {
+        "count": 52,
+        "p50": 10.08,
+        "p95": 12.07,
+        "p99": 13.87,
+        "max": 13.87
+      },
+      "replay": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "error": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "scheduleLagMs": {
+      "count": 3000,
+      "p50": -0.07,
+      "p95": 2.03,
+      "p99": 2.48,
+      "max": 3.71
+    },
+    "perInstance": [
+      {
+        "instance": 0,
+        "issued": 1000,
+        "p95": 14.78
+      },
+      {
+        "instance": 1,
+        "issued": 1000,
+        "p95": 14.45
+      },
+      {
+        "instance": 2,
+        "issued": 1000,
+        "p95": 14.34
+      }
+    ]
+  },
+  "database": {
+    "samplesInWindow": 148,
+    "lockWaitingBackends": {
+      "mean": 0,
+      "count": 148,
+      "p50": 0,
+      "p95": 0,
+      "p99": 0,
+      "max": 0
+    },
+    "oldestLockWaitMs": {
+      "count": 0,
+      "p50": null,
+      "p95": null,
+      "p99": null,
+      "max": null
+    },
+    "activeBackends": {
+      "mean": 1.15,
+      "count": 148,
+      "p50": 1,
+      "p95": 2,
+      "p99": 4,
+      "max": 4
+    },
+    "outboxPending": {
+      "count": 148,
+      "p50": 3305,
+      "p95": 5504,
+      "p99": 5706,
+      "max": 5746
+    },
+    "outboxOldestAgeMs": {
+      "count": 148,
+      "p50": 16812,
+      "p95": 27798,
+      "p99": 28954,
+      "max": 29157
+    },
+    "loadEndMs": 35004
+  },
+  "outboxDrain": {
+    "eventsAtLoadEnd": 7038,
+    "pendingAtLoadEnd": 5758,
+    "drainedAfterMs": null,
+    "timeoutMs": 30000,
+    "pendingWhenStopped": 4698,
+    "publishedPerSecondWhileDraining": 35.3
+  },
+  "processMetrics": {
+    "walletLockConflicts": 0,
+    "financialRetries": 0
+  },
+  "verification": {
+    "completed": true,
+    "ok": true,
+    "checks": {
+      "reconciledWallets": true,
+      "transactionsMatchUniqueOperations": true,
+      "processedMatches": true,
+      "rejectedMatches": true,
+      "journalEntriesMatch": true,
+      "ledgerAudit": true,
+      "noDuplicateFinancialEffect": true,
+      "oversizedNeverProcessed": true
+    },
+    "finalStates": {
+      "PROCESSED": 3438,
+      "REJECTED": 62,
+      "NOT_APPLIED": 0
+    },
+    "readBackAfterUncertainResponse": 0,
+    "neverSent": 0,
+    "database": {
+      "processed": 3438,
+      "rejected": 62,
+      "transactions": 3500,
+      "journal_entries": 3538
+    },
+    "audit": {
+      "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
+      "invalid_event_sets": 0
+    },
+    "reconciliation": {
+      "wallets": 100,
+      "consistent": 100,
+      "failures": []
+    }
+  }
+}

@@ -1,0 +1,192 @@
+{
+  "name": "duplicates-1x-500rps",
+  "scenario": "duplicates",
+  "instances": 1,
+  "rate": 500,
+  "apiPids": [
+    16205
+  ],
+  "wallets": 100,
+  "operations": 17500,
+  "uniqueOperations": 12241,
+  "summary": {
+    "windowSeconds": 30,
+    "scheduled": 15000,
+    "issued": 12448,
+    "notIssued": 2552,
+    "completed": 12448,
+    "outcomes": {
+      "processed": 8998,
+      "rejected": 198,
+      "replay": 3252,
+      "pending": 0,
+      "conflict": 0,
+      "error": 0,
+      "not_issued": 2552
+    },
+    "codes": {
+      "INSUFFICIENT_FUNDS": 263
+    },
+    "httpStatuses": {
+      "200": 12185,
+      "422": 263
+    },
+    "offeredRps": 500,
+    "issuedRps": 414.93333333333334,
+    "completedRps": 407.2456420703059,
+    "financialRps": 300.85402670939374,
+    "errors": 0,
+    "errorRate": 0,
+    "drainAfterWindowMs": 566,
+    "latencyMs": {
+      "count": 12448,
+      "p50": 594.6,
+      "p95": 764.24,
+      "p99": 803.09,
+      "max": 824.93
+    },
+    "intendedLatencyMs": {
+      "count": 12448,
+      "p50": 594.47,
+      "p95": 764.5,
+      "p99": 803.03,
+      "max": 824.43
+    },
+    "latencyByOutcomeMs": {
+      "processed": {
+        "count": 8998,
+        "p50": 597.42,
+        "p95": 768.73,
+        "p99": 804.91,
+        "max": 824.93
+      },
+      "rejected": {
+        "count": 198,
+        "p50": 593.42,
+        "p95": 771.44,
+        "p99": 809.78,
+        "max": 811.69
+      },
+      "replay": {
+        "count": 3252,
+        "p50": 585.51,
+        "p95": 752.31,
+        "p99": 794.96,
+        "max": 817.53
+      },
+      "error": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "scheduleLagMs": {
+      "count": 12448,
+      "p50": -0.23,
+      "p95": 2.04,
+      "p99": 2.98,
+      "max": 20.59
+    },
+    "perInstance": [
+      {
+        "instance": 0,
+        "issued": 12448,
+        "p95": 764.24
+      }
+    ]
+  },
+  "database": {
+    "samplesInWindow": 147,
+    "lockWaitingBackends": {
+      "mean": 0.14,
+      "count": 147,
+      "p50": 0,
+      "p95": 1,
+      "p99": 1,
+      "max": 1
+    },
+    "oldestLockWaitMs": {
+      "count": 21,
+      "p50": 3,
+      "p95": 6,
+      "p99": 8,
+      "max": 8
+    },
+    "activeBackends": {
+      "mean": 2.77,
+      "count": 147,
+      "p50": 3,
+      "p95": 5,
+      "p99": 6,
+      "max": 6
+    },
+    "outboxPending": {
+      "count": 147,
+      "p50": 11127,
+      "p95": 19017,
+      "p99": 19760,
+      "max": 19884
+    },
+    "outboxOldestAgeMs": {
+      "count": 147,
+      "p50": 18730,
+      "p95": 31495,
+      "p99": 32689,
+      "max": 32897
+    },
+    "loadEndMs": 35566
+  },
+  "outboxDrain": {
+    "eventsAtLoadEnd": 21517,
+    "pendingAtLoadEnd": 20277,
+    "drainedAfterMs": null,
+    "timeoutMs": 30000,
+    "pendingWhenStopped": 19297,
+    "publishedPerSecondWhileDraining": 32.6
+  },
+  "processMetrics": {
+    "walletLockConflicts": 0,
+    "financialRetries": 0
+  },
+  "verification": {
+    "completed": true,
+    "ok": true,
+    "checks": {
+      "reconciledWallets": true,
+      "transactionsMatchUniqueOperations": true,
+      "processedMatches": true,
+      "rejectedMatches": true,
+      "journalEntriesMatch": true,
+      "ledgerAudit": true,
+      "noDuplicateFinancialEffect": true,
+      "oversizedNeverProcessed": true
+    },
+    "finalStates": {
+      "PROCESSED": 10592,
+      "REJECTED": 233,
+      "NOT_APPLIED": 1416
+    },
+    "readBackAfterUncertainResponse": 0,
+    "neverSent": 1416,
+    "database": {
+      "processed": 10592,
+      "rejected": 233,
+      "transactions": 10825,
+      "journal_entries": 10692
+    },
+    "audit": {
+      "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
+      "invalid_event_sets": 0
+    },
+    "reconciliation": {
+      "wallets": 100,
+      "consistent": 100,
+      "failures": []
+    }
+  }
+}

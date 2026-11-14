@@ -22,7 +22,8 @@
     "worker:references": "bun src/bootstrap/reference-worker.ts",
     "worker:commands": "bun src/bootstrap/command-consumer.ts",
     "provision:commands": "bun scripts/provision-commands.ts",
-    "test:recovery": "bun scripts/test-recovery.ts"
+    "test:recovery": "bun scripts/test-recovery.ts",
+    "test:load": "bun scripts/test-load.ts"
   },
   "dependencies": {
     "@aws-sdk/client-sqs": "3.1167.0",

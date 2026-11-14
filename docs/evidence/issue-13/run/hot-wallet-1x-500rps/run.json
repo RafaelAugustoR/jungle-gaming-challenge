@@ -1,0 +1,192 @@
+{
+  "name": "hot-wallet-1x-500rps",
+  "scenario": "hot-wallet",
+  "instances": 1,
+  "rate": 500,
+  "apiPids": [
+    15364
+  ],
+  "wallets": 1,
+  "operations": 17500,
+  "uniqueOperations": 17500,
+  "summary": {
+    "windowSeconds": 30,
+    "scheduled": 15000,
+    "issued": 3624,
+    "notIssued": 11376,
+    "completed": 3624,
+    "outcomes": {
+      "processed": 3565,
+      "rejected": 59,
+      "replay": 0,
+      "pending": 0,
+      "conflict": 0,
+      "error": 0,
+      "not_issued": 11376
+    },
+    "codes": {
+      "INSUFFICIENT_FUNDS": 59
+    },
+    "httpStatuses": {
+      "200": 3565,
+      "422": 59
+    },
+    "offeredRps": 500,
+    "issuedRps": 120.8,
+    "completedRps": 113.18875370685518,
+    "financialRps": 113.18875370685518,
+    "errors": 0,
+    "errorRate": 0,
+    "drainAfterWindowMs": 2017,
+    "latencyMs": {
+      "count": 3624,
+      "p50": 2097.86,
+      "p95": 2233.12,
+      "p99": 2290.76,
+      "max": 2357.56
+    },
+    "intendedLatencyMs": {
+      "count": 3624,
+      "p50": 2097.63,
+      "p95": 2233.25,
+      "p99": 2290.65,
+      "max": 2357.32
+    },
+    "latencyByOutcomeMs": {
+      "processed": {
+        "count": 3565,
+        "p50": 2098.33,
+        "p95": 2233.25,
+        "p99": 2290.76,
+        "max": 2357.56
+      },
+      "rejected": {
+        "count": 59,
+        "p50": 2073.98,
+        "p95": 2220,
+        "p99": 2334.24,
+        "max": 2334.24
+      },
+      "replay": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      },
+      "error": {
+        "count": 0,
+        "p50": null,
+        "p95": null,
+        "p99": null,
+        "max": null
+      }
+    },
+    "scheduleLagMs": {
+      "count": 3624,
+      "p50": -0.29,
+      "p95": 1.85,
+      "p99": 2.77,
+      "max": 20.72
+    },
+    "perInstance": [
+      {
+        "instance": 0,
+        "issued": 3624,
+        "p95": 2233.12
+      }
+    ]
+  },
+  "database": {
+    "samplesInWindow": 148,
+    "lockWaitingBackends": {
+      "mean": 3.69,
+      "count": 148,
+      "p50": 4,
+      "p95": 4,
+      "p99": 4,
+      "max": 4
+    },
+    "oldestLockWaitMs": {
+      "count": 148,
+      "p50": 26,
+      "p95": 39,
+      "p99": 42,
+      "max": 44
+    },
+    "activeBackends": {
+      "mean": 5.03,
+      "count": 148,
+      "p50": 5,
+      "p95": 6,
+      "p99": 7,
+      "max": 7
+    },
+    "outboxPending": {
+      "count": 148,
+      "p50": 4344,
+      "p95": 7619,
+      "p99": 7923,
+      "max": 7965
+    },
+    "outboxOldestAgeMs": {
+      "count": 148,
+      "p50": 19244,
+      "p95": 32657,
+      "p99": 33856,
+      "max": 34059
+    },
+    "loadEndMs": 37017
+  },
+  "outboxDrain": {
+    "eventsAtLoadEnd": 8583,
+    "pendingAtLoadEnd": 8515,
+    "drainedAfterMs": null,
+    "timeoutMs": 30000,
+    "pendingWhenStopped": 8465,
+    "publishedPerSecondWhileDraining": 1.7
+  },
+  "processMetrics": {
+    "walletLockConflicts": 0,
+    "financialRetries": 0
+  },
+  "verification": {
+    "completed": true,
+    "ok": true,
+    "checks": {
+      "reconciledWallets": true,
+      "transactionsMatchUniqueOperations": true,
+      "processedMatches": true,
+      "rejectedMatches": true,
+      "journalEntriesMatch": true,
+      "ledgerAudit": true,
+      "noDuplicateFinancialEffect": true,
+      "oversizedNeverProcessed": true
+    },
+    "finalStates": {
+      "PROCESSED": 4254,
+      "REJECTED": 74,
+      "NOT_APPLIED": 13172
+    },
+    "readBackAfterUncertainResponse": 0,
+    "neverSent": 13172,
+    "database": {
+      "processed": 4254,
+      "rejected": 74,
+      "transactions": 4328,
+      "journal_entries": 4255
+    },
+    "audit": {
+      "invalid_pairs": 0,
+      "partial_financial_effects": 0,
+      "missing_receipts": 0,
+      "pending_transactions": 0,
+      "invalid_event_sets": 0
+    },
+    "reconciliation": {
+      "wallets": 1,
+      "consistent": 1,
+      "failures": []
+    }
+  }
+}

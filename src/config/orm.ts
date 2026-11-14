@@ -3,6 +3,9 @@ import { Migrator } from '@mikro-orm/migrations';
 import { resolve } from 'node:path';
 import type { AppConfig } from './config';
 
+/** Per-process connection pool; every API/worker instance opens its own. */
+export const DATABASE_POOL = { min: 0, max: 5, acquireTimeoutMillis: 10000 } as const;
+
 export function openDatabase(config: AppConfig) {
   return MikroORM.init({
     clientUrl: config.databaseUrl,
@@ -10,7 +13,7 @@ export function openDatabase(config: AppConfig) {
     discovery: { warnWhenNoEntities: false },
     extensions: [Migrator],
     connect: false,
-    pool: { min: 0, max: 5, acquireTimeoutMillis: 10000 },
+    pool: { ...DATABASE_POOL },
     driverOptions: {
       connection: {
         connectionTimeoutMillis: config.databaseConnectTimeoutMs,
