@@ -1,4 +1,5 @@
 import type Keycloak from 'keycloak-js';
+import { isPendingStatus } from './status';
 import type { TransactionView } from './types';
 
 const messages: Record<string, string> = {
@@ -23,8 +24,20 @@ export class ApiError extends Error {
   }
 }
 
+/** True when a request ended because its caller went away (wallet changed, run stopped). */
+export const isAbort = (error: unknown) =>
+  error instanceof DOMException && error.name === 'AbortError';
+
+export interface RequestOptions {
+  body?: unknown;
+  signal?: AbortSignal;
+  /** Context-specific messages for API error codes. */
+  messages?: Record<string, string>;
+}
+
 export function createApi(identity: Keycloak) {
-  async function request<T>(path: string, body?: unknown, overrides: Record<string, string> = {}) {
+  async function request<T>(path: string, options: RequestOptions = {}): Promise<T> {
+    const { body, signal } = options;
     try {
       await identity.updateToken(30);
     } catch {
@@ -36,8 +49,10 @@ export function createApi(identity: Keycloak) {
         method: body === undefined ? 'GET' : 'POST',
         headers: { Authorization: `Bearer ${identity.token}`, 'Content-Type': 'application/json' },
         body: body === undefined ? undefined : JSON.stringify(body),
+        signal,
       });
-    } catch {
+    } catch (error) {
+      if (isAbort(error)) throw error;
       throw new ApiError('Sem conexão com a API. Confira se o ambiente está rodando.');
     }
     const data = (await response.json().catch(() => ({}))) as Record<string, unknown>;
@@ -45,7 +60,8 @@ export function createApi(identity: Keycloak) {
       const code = typeof data.code === 'string' ? data.code : undefined;
       const correlationId = typeof data.correlationId === 'string' ? data.correlationId : undefined;
       throw new ApiError(
-        (code && (overrides[code] ?? messages[code])) || `A API respondeu ${response.status}.`,
+        (code && (options.messages?.[code] ?? messages[code])) ||
+          `A API respondeu ${response.status}.`,
         code,
         correlationId,
       );
@@ -56,29 +72,33 @@ export function createApi(identity: Keycloak) {
 }
 export type Api = ReturnType<typeof createApi>;
 
-const isPending = (view: TransactionView) => ['PENDING', 'PENDING_REFERENCE'].includes(view.status);
-
-/** Polls GET until the transaction is terminal, the deadline passes or the caller goes stale. */
+/**
+ * Polls GET until the transaction is terminal or the deadline passes. When `stop` fires it returns
+ * the last view it saw; when `signal` fires the whole run is gone and it rejects with an AbortError.
+ */
 export async function followTransaction(
   api: Api,
   transactionId: string,
   options: {
     deadlineMs: number;
-    isCurrent: () => boolean;
+    signal: AbortSignal;
+    stop?: AbortSignal;
     onUpdate?: (view: TransactionView) => void;
   },
 ): Promise<TransactionView | undefined> {
   const deadline = Date.now() + options.deadlineMs;
+  let last: TransactionView | undefined;
   let wait = 250;
-  while (options.isCurrent()) {
-    const view = await api.request<TransactionView>(
+  for (;;) {
+    options.signal.throwIfAborted();
+    if (options.stop?.aborted) return last;
+    last = await api.request<TransactionView>(
       `/wagering/transactions/${encodeURIComponent(transactionId)}`,
+      { signal: options.signal },
     );
-    if (!options.isCurrent()) return undefined;
-    options.onUpdate?.(view);
-    if (!isPending(view) || Date.now() >= deadline) return view;
+    options.onUpdate?.(last);
+    if (!isPendingStatus(last.status) || Date.now() >= deadline) return last;
     await new Promise((resolve) => setTimeout(resolve, wait));
     wait = Math.min(wait * 1.5, 2000);
   }
-  return undefined;
 }

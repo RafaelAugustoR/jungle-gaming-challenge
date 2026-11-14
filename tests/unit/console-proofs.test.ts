@@ -6,7 +6,18 @@ import {
   parseAmountInput,
   toMinor,
 } from '../../frontend/src/money';
-import { reconciliationVerdict, scenarioVerdict, type ProofId } from '../../frontend/src/proofs';
+import {
+  isViewId,
+  judgeDuplicate,
+  judgeRace,
+  judgeReconciliation,
+  judgeRecovery,
+  judgeReference,
+  proofById,
+  proofs,
+  type ScenarioEvidence,
+} from '../../frontend/src/proofs';
+import { can } from '../../frontend/src/roles';
 import type { DemoScenarioResult, DemoSubmission, TransactionView } from '../../frontend/src/types';
 
 const brl = (amount: string) => ({ amount, currency: 'BRL' });
@@ -88,30 +99,33 @@ describe('money formatting keeps decimal strings exact', () => {
 describe('race proof', () => {
   const run = result('race', '80.00', [receipt('a', 'PROCESSED'), receipt('b', 'REJECTED')]);
   test('holds with one debit and one insufficient-funds rejection', () => {
-    const verdict = scenarioVerdict('race', {
+    const verdict = judgeRace({
       result: run,
       views: [view('a', 'PROCESSED'), view('b', 'REJECTED', 'INSUFFICIENT_FUNDS')],
       before: brl('100.00'),
       after: brl('20.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('held');
     expect(verdict.headline).toContain('R$ 80,00');
   });
   test('is violated when both bets debited', () => {
-    const verdict = scenarioVerdict('race', {
+    const verdict = judgeRace({
       result: run,
       views: [view('a', 'PROCESSED'), view('b', 'PROCESSED')],
       before: brl('100.00'),
       after: brl('-60.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('violated');
   });
   test('is inconclusive when a current state could not be read', () => {
-    const verdict = scenarioVerdict('race', {
+    const verdict = judgeRace({
       result: run,
       views: [view('a', 'PROCESSED'), undefined],
       before: brl('100.00'),
       after: brl('20.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('inconclusive');
   });
@@ -119,7 +133,7 @@ describe('race proof', () => {
 
 describe('duplicate proof', () => {
   test('holds with a single transaction, one replay and one debit', () => {
-    const verdict = scenarioVerdict('duplicate', {
+    const verdict = judgeDuplicate({
       result: result('duplicate', '5.00', [
         receipt('t', 'PROCESSED'),
         receipt('t', 'PROCESSED', { replay: true }),
@@ -127,11 +141,12 @@ describe('duplicate proof', () => {
       views: [view('t', 'PROCESSED'), view('t', 'PROCESSED')],
       before: brl('20.00'),
       after: brl('15.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('held');
   });
   test('holds when the single transaction was rejected and nothing moved', () => {
-    const verdict = scenarioVerdict('duplicate', {
+    const verdict = judgeDuplicate({
       result: result('duplicate', '50.00', [
         receipt('t', 'REJECTED'),
         receipt('t', 'REJECTED', { replay: true }),
@@ -142,15 +157,17 @@ describe('duplicate proof', () => {
       ],
       before: brl('20.00'),
       after: brl('20.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('held');
   });
   test('is violated when two transactions were created', () => {
-    const verdict = scenarioVerdict('duplicate', {
+    const verdict = judgeDuplicate({
       result: result('duplicate', '5.00', [receipt('t1', 'PROCESSED'), receipt('t2', 'PROCESSED')]),
       views: [view('t1', 'PROCESSED'), view('t2', 'PROCESSED')],
       before: brl('20.00'),
       after: brl('10.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('violated');
   });
@@ -162,8 +179,12 @@ describe('out-of-order and recovery proofs', () => {
     receipt('b', 'PROCESSED'),
   ]);
   const resolved = [view('r', 'PROCESSED'), view('b', 'PROCESSED')];
-  const evidence = (proof: ProofId, pendingMs: number, views = resolved) =>
-    scenarioVerdict(proof, {
+  const evidence = (
+    judge: (evidence: ScenarioEvidence) => { outcome: string },
+    pendingMs: number,
+    views = resolved,
+  ) =>
+    judge({
       result: run,
       views,
       before: brl('15.00'),
@@ -172,27 +193,28 @@ describe('out-of-order and recovery proofs', () => {
     });
 
   test('out-of-order holds when the deferred refund resolves and the balance nets to zero', () => {
-    expect(evidence('out-of-order', 0).outcome).toBe('held');
+    expect(evidence(judgeReference, 0).outcome).toBe('held');
   });
   test('stays inconclusive while the refund is still pending', () => {
     const pending = [view('r', 'PENDING_REFERENCE'), view('b', 'PROCESSED')];
-    expect(evidence('out-of-order', 200, pending).outcome).toBe('inconclusive');
+    expect(evidence(judgeReference, 200, pending).outcome).toBe('inconclusive');
   });
   test('recovery needs the refund to stay pending longer than a normal worker cycle', () => {
-    expect(evidence('recovery', 0).outcome).toBe('inconclusive');
-    expect(evidence('recovery', 300).outcome).toBe('inconclusive');
-    expect(evidence('recovery', 42_000).outcome).toBe('held');
+    expect(evidence(judgeRecovery, 0).outcome).toBe('inconclusive');
+    expect(evidence(judgeRecovery, 300).outcome).toBe('inconclusive');
+    expect(evidence(judgeRecovery, 42_000).outcome).toBe('held');
   });
   test('is violated when the refund was not deferred', () => {
     const immediate = result('out-of-order', '5.00', [
       receipt('r', 'PROCESSED'),
       receipt('b', 'PROCESSED'),
     ]);
-    const verdict = scenarioVerdict('out-of-order', {
+    const verdict = judgeReference({
       result: immediate,
       views: resolved,
       before: brl('15.00'),
       after: brl('15.00'),
+      pendingMs: 0,
     });
     expect(verdict.outcome).toBe('violated');
   });
@@ -200,7 +222,7 @@ describe('out-of-order and recovery proofs', () => {
 
 describe('reconciliation proof', () => {
   test('holds when the ledger rebuilds the stored balance', () => {
-    const verdict = reconciliationVerdict({
+    const verdict = judgeReconciliation({
       storedBalance: brl('15.00'),
       calculatedBalance: brl('15.00'),
       difference: brl('0.00'),
@@ -212,7 +234,7 @@ describe('reconciliation proof', () => {
   });
   test('is violated on divergence', () => {
     expect(
-      reconciliationVerdict({
+      judgeReconciliation({
         storedBalance: brl('15.00'),
         calculatedBalance: brl('10.00'),
         difference: brl('5.00'),
@@ -220,5 +242,34 @@ describe('reconciliation proof', () => {
         checkedEntries: 7,
       }).outcome,
     ).toBe('violated');
+  });
+});
+
+describe('proof table', () => {
+  test('every proof carries its own judge, permission and tickets', () => {
+    expect(proofs.map((proof) => proof.number)).toEqual([1, 2, 3, 4, 5]);
+    expect(proofById('recovery').judge).toBe(judgeRecovery);
+    expect(proofById('out-of-order').judge).toBe(judgeReference);
+    const recovery = proofById('recovery');
+    const outOfOrder = proofById('out-of-order');
+    if (recovery.kind !== 'scenario' || outOfOrder.kind !== 'scenario') throw new Error('kind');
+    expect(recovery.tickets.map((ticket) => ticket.kind)).toEqual(['REFUND', 'BET']);
+    expect(recovery.followMs).toBeGreaterThan(outOfOrder.followMs);
+    expect(proofById('reconcile').requires).toBe('operator');
+  });
+  test('views from links are validated before use', () => {
+    expect(isViewId('ledger')).toBe(true);
+    expect(isViewId('race')).toBe(true);
+    expect(isViewId('drop table')).toBe(false);
+    expect(isViewId(null)).toBe(false);
+  });
+});
+
+describe('console roles', () => {
+  test('follow the realm composition viewer < operator < demo-operator', () => {
+    expect(can('demo-operator', 'operator')).toBe(true);
+    expect(can('operator', 'operator')).toBe(true);
+    expect(can('operator', 'demo-operator')).toBe(false);
+    expect(can('viewer', 'operator')).toBe(false);
   });
 });

@@ -1,41 +1,21 @@
-import { useState } from 'preact/hooks';
+import { useEffect, useState } from 'preact/hooks';
 import { Icon } from './icons';
 import { formatMoney } from './money';
 import type { Outcome } from './proofs';
-import type { DemoSubmission, Reconciliation, TransactionView } from './types';
-
-const statusLabels: Record<string, string> = {
-  PROCESSED: 'Processada',
-  PENDING: 'Pendente',
-  PENDING_REFERENCE: 'Aguardando referência',
-  REJECTED: 'Recusada',
-  FAILED: 'Falhou',
-};
-const failureLabels: Record<string, string> = {
-  INSUFFICIENT_FUNDS: 'Saldo insuficiente',
-  REVERSAL_INSUFFICIENT_FUNDS: 'Saldo insuficiente para estornar',
-  REFERENCE_NOT_FOUND: 'Referência não encontrada',
-  REFERENCE_NOT_READY: 'Referência não ficou pronta no prazo',
-  ALREADY_REVERSED: 'Já estornada',
-  AMOUNT_LIMIT_EXCEEDED: 'Limite de valor excedido',
-};
-
-export type Tone = 'held' | 'pending' | 'void' | 'none';
-export function statusTone(status?: string): Tone {
-  if (!status) return 'none';
-  if (status === 'PROCESSED') return 'held';
-  if (status === 'PENDING' || status === 'PENDING_REFERENCE') return 'pending';
-  return 'void';
-}
+import { failureLabels, statusLabels, statusTone, type Tone } from './status';
+import type {
+  DemoSubmission,
+  Money,
+  Reconciliation,
+  TransactionKind,
+  TransactionStatus,
+  TransactionView,
+  WagerFailureCode,
+} from './types';
+import './ticket.css';
 
 /** Fixed-cell state mark: filled holds, hollow waits, struck voids. Always paired with text. */
-export function StateMark({
-  tone,
-  size = 'md',
-}: {
-  tone: Tone | Outcome | 'running';
-  size?: 'sm' | 'md';
-}) {
+export function StateMark({ tone }: { tone: Tone | Outcome | 'running' }) {
   const kind =
     tone === 'held'
       ? 'held'
@@ -46,22 +26,28 @@ export function StateMark({
           : 'pending';
   return (
     <span
-      class={`mark mark-${kind} mark-${size}${tone === 'running' ? ' mark-running' : ''}`}
+      class={`mark mark-${kind}${tone === 'running' ? ' mark-running' : ''}`}
       aria-hidden="true"
     >
-      {kind === 'void' && <Icon name="strike" size={size === 'sm' ? 12 : 14} />}
+      {kind === 'void' && <Icon name="strike" size={12} />}
     </span>
   );
 }
 
-export function Status({ status, failureCode }: { status?: string; failureCode?: string | null }) {
+export function Status({
+  status,
+  failureCode,
+}: {
+  status?: TransactionStatus;
+  failureCode?: WagerFailureCode | null;
+}) {
   if (!status) return <span class="status status-none">Consultando…</span>;
   return (
     <span class={`status status-${statusTone(status)}`}>
-      <StateMark tone={statusTone(status)} size="sm" />
+      <StateMark tone={statusTone(status)} />
       <span>
-        {statusLabels[status] ?? status}
-        {failureCode ? ` · ${failureLabels[failureCode] ?? failureCode}` : ''}
+        {statusLabels[status]}
+        {failureCode ? ` · ${failureLabels[failureCode]}` : ''}
       </span>
       <code>{status}</code>
     </span>
@@ -90,6 +76,21 @@ export function CopyId({ value, label }: { value: string; label: string }) {
   );
 }
 
+/** mm:ss since an instant, ticking on its own so nothing above it re-renders. */
+function Elapsed({ since }: { since: string }) {
+  const [now, setNow] = useState(Date.now());
+  useEffect(() => {
+    const timer = setInterval(() => setNow(Date.now()), 1000);
+    return () => clearInterval(timer);
+  }, []);
+  const seconds = Math.max(0, Math.round((now - Date.parse(since)) / 1000));
+  return (
+    <>
+      {String(Math.floor(seconds / 60)).padStart(2, '0')}:{String(seconds % 60).padStart(2, '0')}
+    </>
+  );
+}
+
 const time = (iso?: string | null) =>
   iso
     ? new Date(iso).toLocaleTimeString('pt-BR', {
@@ -101,45 +102,37 @@ const time = (iso?: string | null) =>
 
 interface TicketProps {
   label: string;
-  kind: string;
-  amount: { amount: string; currency: string };
-  externalId: string | null;
-  submission?: DemoSubmission | null;
+  /** What the ticket shows before its first GET arrives; the view wins once it exists. */
+  expected?: { kind: TransactionKind; amount: Money };
+  submission?: DemoSubmission;
   view?: TransactionView;
   watching?: boolean;
-  pendingSince?: number;
-  now?: number;
 }
 
 /**
  * The signature object: the original receipt on the stub, the current state on the validation side,
  * separated by a perforation. The two halves never share a cell, so immutable and current cannot blur.
  */
-export function Ticket({
-  label,
-  kind,
-  amount,
-  externalId,
-  submission,
-  view,
-  watching,
-  pendingSince,
-  now,
-}: TicketProps) {
+export function Ticket({ label, expected, submission, view, watching }: TicketProps) {
   const receipt = submission?.originalReceipt ?? view?.originalReceipt ?? null;
   const body = receipt?.body;
+  const kind = view?.kind ?? expected?.kind;
+  const amount = view?.money ?? expected?.amount;
   const changed = !!body && !!view && body.status !== view.status;
-  const pendingFor = pendingSince && now ? Math.max(0, Math.round((now - pendingSince) / 1000)) : 0;
+  const pending = !!view && statusTone(view.status) === 'pending';
+  const transactionId = view?.transactionId ?? body?.transactionId;
   return (
     <article
       class={`ticket tone-${statusTone(view?.status ?? body?.status)}`}
-      aria-label={`${label}: ${kind} ${formatMoney(amount)}`}
+      aria-label={`${label}: ${kind} ${amount ? formatMoney(amount) : ''}`}
     >
       <header class="ticket-head">
         <span class="ticket-label">{label}</span>
         <span class="ticket-kind">{kind}</span>
-        <span class="ticket-amount">{formatMoney(amount)}</span>
-        {externalId && <code class="ticket-serial">{externalId}</code>}
+        {amount && <span class="ticket-amount">{formatMoney(amount)}</span>}
+        {view?.externalTransactionId && (
+          <code class="ticket-serial">{view.externalTransactionId}</code>
+        )}
       </header>
       <div class="ticket-body">
         <section class="stub" aria-label="Recibo original">
@@ -198,25 +191,15 @@ export function Ticket({
               <dd class="num">{view?.balance ? formatMoney(view.balance) : '—'}</dd>
             </div>
             <div>
-              <dt>
-                {view && statusTone(view.status) === 'pending' ? 'Pendente há' : 'Concluída às'}
-              </dt>
+              <dt>{pending ? 'Pendente há' : 'Concluída às'}</dt>
               <dd class="num">
-                {view && statusTone(view.status) === 'pending'
-                  ? `${String(Math.floor(pendingFor / 60)).padStart(2, '0')}:${String(pendingFor % 60).padStart(2, '0')}`
-                  : time(view?.processedAt)}
+                {pending ? <Elapsed since={view.createdAt} /> : time(view?.processedAt)}
               </dd>
             </div>
             <div>
               <dt>ID interno</dt>
               <dd>
-                {view ? (
-                  <CopyId value={view.transactionId} label="ID da transação" />
-                ) : body ? (
-                  <CopyId value={body.transactionId} label="ID da transação" />
-                ) : (
-                  '—'
-                )}
+                {transactionId ? <CopyId value={transactionId} label="ID da transação" /> : '—'}
               </dd>
             </div>
           </dl>

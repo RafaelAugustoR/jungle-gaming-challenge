@@ -220,7 +220,12 @@ browserTest(
         .getByText('Executar provas exige o perfil demo-operator.', { exact: false })
         .waitFor();
       expect(await viewer.getByRole('button', { name: /Executar prova/ }).count()).toBe(0);
-      expect(await viewer.getByRole('button', { name: /Reconciliação/ }).count()).toBe(0);
+      await viewer
+        .getByRole('navigation', { name: 'Provas e evidências' })
+        .getByRole('button', { name: /Reconciliação/ })
+        .click();
+      await viewer.getByText('A reconciliação exige o perfil operator.').waitFor();
+      expect(await viewer.getByRole('button', { name: /Executar prova/ }).count()).toBe(0);
       await viewerContext.close();
     } finally {
       await browser.close();
