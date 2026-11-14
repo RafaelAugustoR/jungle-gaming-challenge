@@ -158,3 +158,68 @@ test('reference expiration is pure and retains the known reference identity', ()
     ),
   ).toMatchObject({ status: 'PENDING_REFERENCE' });
 });
+
+test('reversals apply the full inverse of a processed reference', () => {
+  const reference = (kind: 'BET' | 'WIN' | 'REFUND'): WagerReference => ({
+    id: `reference-${kind}`,
+    providerId: 'provider-a',
+    externalTransactionId: 'original',
+    playerId: 'player',
+    walletId: 'wallet',
+    currency: 'BRL',
+    roundId: 'round',
+    kind,
+    status: 'PROCESSED',
+    money: Money.create('20.00', 'BRL'),
+    reversedBy: new Set(),
+  });
+  const reverse = (kind: 'REFUND' | 'ROLLBACK', target: WagerReference, from = wallet) => {
+    const transaction = WagerTransaction.create({
+      payload: WagerPayload.create({ ...base, kind, referenceExternalTransactionId: 'original' }),
+      idempotencyKey: 'key',
+      createdAt: at,
+    });
+    const result = wagerStepFor(kind).apply(
+      transaction,
+      from,
+      { counterpartAccountId: 'gaming', occurredAt: at },
+      { correlationId: 'request' },
+      target,
+    );
+    return { transaction, result };
+  };
+  for (const [kind, target, balance, direction] of [
+    ['REFUND', 'BET', '120.00', 'CREDIT'],
+    ['ROLLBACK', 'BET', '120.00', 'CREDIT'],
+    ['ROLLBACK', 'WIN', '80.00', 'DEBIT'],
+    ['ROLLBACK', 'REFUND', '80.00', 'DEBIT'],
+  ] as const) {
+    const { transaction, result } = reverse(kind, reference(target));
+    expect(result).toMatchObject({
+      status: 'PROCESSED',
+      referenceTransactionId: `reference-${target}`,
+    });
+    if (result.status !== 'PROCESSED') throw new Error('expected processed reversal');
+    expect(result.wallet.balance.toProps()).toEqual({ amount: balance, currency: 'BRL' });
+    expect(result.wallet.version).toBe(2);
+    expect(result.change?.event.toJSON().data).toMatchObject({
+      direction,
+      money: { amount: '20.00', currency: 'BRL' },
+    });
+    transaction.complete(result, at, { correlationId: 'request' });
+    expect(transaction.resultEvent.toJSON().eventType).toBe('WagerTransactionProcessed');
+  }
+  const poor = Wallet.rehydrate({
+    id: 'wallet',
+    playerId: 'player',
+    accountId: 'player-account',
+    currency: 'BRL',
+    balance: '10.00',
+    version: 3,
+  });
+  const { result } = reverse('ROLLBACK', reference('WIN'), poor);
+  expect(result).toMatchObject({ status: 'REJECTED', failureCode: 'REVERSAL_INSUFFICIENT_FUNDS' });
+  expect(result.wallet.balance.toProps().amount).toBe('10.00');
+  expect(result.wallet.version).toBe(3);
+  expect(result.change).toBeUndefined();
+});
