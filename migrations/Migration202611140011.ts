@@ -42,28 +42,35 @@ export class Migration202611140011 extends Migration {
         then raise exception 'RESULT_EVENT_REQUIRED' using errcode='23514'; end if;
         return null;
       end $$;
+      -- One event id per opening: gen_random_uuid() in the select list of a MATERIALIZED CTE is
+      -- evaluated per row. An uncorrelated subquery (lateral or not) may be evaluated once and
+      -- reused by the planner, which repeats the id and violates outbox_pkey.
+      with missing as materialized (
+        select gen_random_uuid() as event_id, t.id as transaction_id, t.wallet_id, t.currency, t.amount,
+          w.player_id, b.payload as balance_payload, b.occurred_at
+        from wagering.transactions t
+        join wagering.wallets w on w.id=t.wallet_id
+        join wagering.outbox b on b.transaction_id=t.id and b.event_type='WalletBalanceChanged'
+        where t.kind='OPENING'
+          and not exists(select from wagering.outbox o where o.transaction_id=t.id and o.event_type='WagerTransactionProcessed')
+      )
       insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at)
-      select e.event_id, t.wallet_id, t.id,
-        (select max(o.sequence) from wagering.outbox o where o.aggregate_id=t.wallet_id) + row_number() over (partition by t.wallet_id order by t.id),
+      select m.event_id, m.wallet_id, m.transaction_id,
+        (select max(o.sequence) from wagering.outbox o where o.aggregate_id=m.wallet_id) + row_number() over (partition by m.wallet_id order by m.transaction_id),
         'WagerTransactionProcessed',
         jsonb_strip_nulls(jsonb_build_object(
-          'eventId', e.event_id, 'aggregateId', t.wallet_id,
-          'correlationId', coalesce(b.payload->>'correlationId', t.id::text),
-          'causationId', b.payload->>'causationId',
-          'occurredAt', to_char(b.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
+          'eventId', m.event_id, 'aggregateId', m.wallet_id,
+          'correlationId', coalesce(m.balance_payload->>'correlationId', m.transaction_id::text),
+          'causationId', m.balance_payload->>'causationId',
+          'occurredAt', to_char(m.occurred_at at time zone 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"'),
           'eventType', 'WagerTransactionProcessed', 'version', 1,
-          'actorId', b.payload->>'actorId',
+          'actorId', m.balance_payload->>'actorId',
           'data', jsonb_build_object(
-            'transactionId', t.id, 'walletId', t.wallet_id, 'playerId', w.player_id, 'kind', 'OPENING',
-            'money', jsonb_build_object('amount', to_char(t.amount, 'FM9999999999999990.00'), 'currency', t.currency),
-            'balance', jsonb_build_object('amount', to_char(t.amount, 'FM9999999999999990.00'), 'currency', t.currency)))),
-        b.occurred_at
-      from wagering.transactions t
-      join wagering.wallets w on w.id=t.wallet_id
-      join wagering.outbox b on b.transaction_id=t.id and b.event_type='WalletBalanceChanged'
-      cross join lateral (select gen_random_uuid() as event_id) e
-      where t.kind='OPENING'
-        and not exists(select from wagering.outbox o where o.transaction_id=t.id and o.event_type='WagerTransactionProcessed');
+            'transactionId', m.transaction_id, 'walletId', m.wallet_id, 'playerId', m.player_id, 'kind', 'OPENING',
+            'money', jsonb_build_object('amount', to_char(m.amount, 'FM9999999999999990.00'), 'currency', m.currency),
+            'balance', jsonb_build_object('amount', to_char(m.amount, 'FM9999999999999990.00'), 'currency', m.currency)))),
+        m.occurred_at
+      from missing m;
     `);
   }
 
