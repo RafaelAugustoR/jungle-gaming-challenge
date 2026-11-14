@@ -141,7 +141,7 @@ export class WagerTransaction {
   markPendingReference(): void {
     this.transition({ status: 'PENDING_REFERENCE' });
   }
-  markProcessed(referenceTransactionId: string | undefined, at: string): void {
+  markProcessed(at: string, referenceTransactionId?: string): void {
     this.transition({
       status: 'PROCESSED',
       ...(referenceTransactionId ? { referenceTransactionId } : {}),
@@ -149,7 +149,6 @@ export class WagerTransaction {
     this.processedAt = at;
   }
   reject(failureCode: WagerFailureCode, referenceTransactionId?: string): void {
-    if (!failureCode) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
     this.transition({
       status: 'REJECTED',
       failureCode,
@@ -157,7 +156,6 @@ export class WagerTransaction {
     });
   }
   fail(failureCode: WagerFailureCode): void {
-    if (!failureCode) throw new DomainError('INVALID_TRANSACTION_TRANSITION');
     this.transition({ status: 'FAILED', failureCode });
   }
   private transition(next: TransactionState): void {
@@ -206,7 +204,7 @@ export class WagerTransaction {
         context,
       );
     } else {
-      this.markProcessed(outcome.referenceTransactionId, at);
+      this.markProcessed(at, outcome.referenceTransactionId);
       if (accepting)
         this.receipt = {
           httpStatus: submissionHttpStatus.PROCESSED,

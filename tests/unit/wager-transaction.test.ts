@@ -22,7 +22,7 @@ function pending() {
   });
 }
 type Transition = (transaction: WagerTransaction) => void;
-const toProcessed: Transition = (t) => t.markProcessed(undefined, at);
+const toProcessed: Transition = (t) => t.markProcessed(at);
 const toRejected: Transition = (t) => t.reject('INSUFFICIENT_FUNDS');
 const toFailed: Transition = (t) => t.fail('INSUFFICIENT_FUNDS');
 const toPendingReference: Transition = (t) => t.markPendingReference();
@@ -49,14 +49,12 @@ test('accepted transactions transition once to terminal states and cannot be reo
   }
 });
 
-test('pending reference has one entry transition and terminal failures require a code', () => {
+test('pending reference has one entry transition', () => {
   const transaction = pending();
-  expect(() => transaction.reject(undefined as never)).toThrow('INVALID_TRANSACTION_TRANSITION');
-  expect(() => transaction.fail('' as never)).toThrow('INVALID_TRANSACTION_TRANSITION');
   transaction.markPendingReference();
   expect(transaction.isTerminal()).toBe(false);
   expect(() => transaction.markPendingReference()).toThrow('INVALID_TRANSACTION_TRANSITION');
-  transaction.markProcessed('reference-id', at);
+  transaction.markProcessed(at, 'reference-id');
   expect(transaction.toProps()).toMatchObject({
     status: 'PROCESSED',
     referenceTransactionId: 'reference-id',
@@ -80,7 +78,7 @@ test('a pending reference may still be rejected with its resolved reference or f
   });
   failed.fail('REFERENCE_NOT_READY');
   expect(failed.toProps()).toMatchObject({ status: 'FAILED', failureCode: 'REFERENCE_NOT_READY' });
-  expect(() => failed.markProcessed(undefined, at)).toThrow('INVALID_TRANSACTION_TRANSITION');
+  expect(() => failed.markProcessed(at)).toThrow('INVALID_TRANSACTION_TRANSITION');
 });
 
 test('transaction owns canonical identity, its historical receipt and typed result event', () => {

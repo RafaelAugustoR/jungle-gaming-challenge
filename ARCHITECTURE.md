@@ -100,7 +100,7 @@ Entregue em BRL; o modelo carrega a moeda e testa incompatibilidade.
 
 ## 4. Modelo de domínio
 
-Construtores privados com factories (`create`/`open`/`receive`/`enqueue`) e `rehydrate`, que
+Construtores privados com factories (`create`/`open`/`record`/`enqueue`) e `rehydrate`, que
 reconstrói estado persistido sem reexecutar regras de transição. Os esqueletos do §6 foram adaptados
 onde indicado.
 
@@ -112,13 +112,12 @@ onde indicado.
 | `WagerTransaction` | `wagering/domain/wager-transaction.ts`      | Máquina de estados, recibo de submissão e evento de resultado                                                                                                                   |
 | `JournalEntry`     | `wallets/domain/journal-entry.ts`           | Equivalente ao `WalletLedgerEntry`, em partidas dobradas                                                                                                                        |
 | `IntegrationEvent` | `shared/domain/events/integration-event.ts` | Base abstrata com `eventType`/`version` e envelope `toJSON()` do §11                                                                                                            |
-| `InboxMessage`     | `messaging/domain/inbox-message.ts`         | `receive`/`rehydrate`, `isProcessed`, `markProcessed(at, transactionId)`, `matchesPayload`; usada na gravação da inbox de comandos e na detecção de redelivery conflitante      |
-| `OutboxMessage`    | `messaging/domain/outbox-message.ts`        | `enqueue(event)`/`rehydrate`, `isPending`, `isDue`, `markPublished`, `scheduleRetry(now, options)` (retorna o atraso); usada na gravação da outbox e nas decisões do publisher  |
+| `InboxMessage`     | `messaging/domain/inbox-message.ts`         | `record` valida e representa exatamente a linha da inbox (`consumerName`, `messageId`, `payloadHash`, `transactionId`)                                                          |
+| `OutboxMessage`    | `messaging/domain/outbox-message.ts`        | `enqueue(event)`/`rehydrate`: identidade, envelope serializado e `attempts`; `retryDelay(options)` calcula o backoff                                                            |
 
 ### WagerTransaction
 
-Nasce em `PENDING` (`create`) e expõe transições explícitas: `markProcessed(referenceTransactionId,
-at)`, `markPendingReference()`, `reject(code, referenceTransactionId?)`, `fail(code)`, além de `isTerminal()` e
+Nasce em `PENDING` (`create`) e expõe transições explícitas: `markProcessed(at, referenceTransactionId?)`, `markPendingReference()`, `reject(code, referenceTransactionId?)`, `fail(code)`, além de `isTerminal()` e
 `matchesPayload(hash)`. Uma transição inválida lança `INVALID_TRANSACTION_TRANSITION` (erro de
 programação, categoria `internal`). `REJECTED` e `FAILED` exigem `failureCode`; os demais o proíbem.
 
@@ -159,14 +158,14 @@ saldo muda, criado a partir do `JournalEntry`). O envelope tem `eventId`, `aggre
 
 ### InboxMessage e OutboxMessage
 
-Expressam no domínio as regras do §6.5; a garantia continua no schema e no SQL dos repositórios. O caso de uso cria `InboxMessage.receive(...).markProcessed(...)` a cada tentativa da transação (o retry de deadlock não reaproveita estado processado), e o repositório recusa gravar mensagem não processada. A outbox é gravada via `OutboxMessage.enqueue(event)`; o publisher reidrata a mensagem reservada, chama `markPublished`/`scheduleRetry` e aplica o resultado com os UPDATEs protegidos por lease/token, que continuam autoritativos. Reserva, lease, `SKIP LOCKED`, `blocked_at` e o relógio de vencimento ficam no SQL (`isDue` não substitui o relógio do banco). `fail(code)` existe no modelo, mas nenhum caminho de produção gera `FAILED` hoje.
+Adaptam os esqueletos do §6.5 (o desafio permite adaptar assinaturas) e modelam apenas o estado que o banco realmente guarda; a garantia continua no schema e no SQL dos repositórios. A inbox só é gravada no fim da transação financeira, junto do efeito, então não há ciclo de vida recebida → processada em memória: o caso de uso cria `InboxMessage.record({...inbox, transactionId})` dentro da transação, e um redelivery com o mesmo `messageId` e hash diferente é conflito. A outbox é gravada via `OutboxMessage.enqueue(event)` (linha com uma única fonte, inclusive `occurred_at`); o publisher recebe a mensagem reservada e usa `retryDelay` para agendar nova tentativa. Reserva, lease, `SKIP LOCKED`, publicação (`published_at`), `blocked_at` e o vencimento (`next_attempt_at`, no relógio do banco) ficam no SQL e não são espelhados na classe, para não haver estado em memória que diverge do persistido. `fail(code)` existe no `WagerTransaction`, mas nenhum caminho de produção gera `FAILED` hoje.
 
 - **Inbox:** `messaging.command_inbox`, PK `(consumer_name, message_id)`, `request_hash` e
   `transaction_id NOT NULL`. A linha só é inserida no fim da transação financeira bem-sucedida, então
   no banco "recebida" e "processada" coincidem (a tabela tem `received_at`, sem `processed_at`).
 - **Outbox:** `wagering.outbox` com `event_id`, `aggregate_id`, `sequence` por wallet, `payload`,
   `attempts`, `next_attempt_at`, `published_at`, `lease_token`/`lease_until`, `blocked_at` e
-  `last_error_code`. `scheduleRetry` segue o backoff do publisher (base 1 s, teto 60 s, jitter 50–100%).
+  `last_error_code`. `retryDelay` usa o backoff compartilhado de `messaging/domain/retry-backoff.ts` (base 1 s, teto 60 s, jitter 50–100%).
 
 ## 5. Estratégia transacional e concorrência
 
