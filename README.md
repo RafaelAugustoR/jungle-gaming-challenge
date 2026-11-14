@@ -14,15 +14,15 @@ que morrem no meio do trabalho:
   provedor, com recibo original estável ([ADR 0008](docs/adr/0008-provider-scoped-idempotency.md),
   [ADR 0007](docs/adr/0007-stable-submission-receipt.md), [ADR 0009](docs/adr/0009-reversal-uniqueness-by-kind.md)).
 - **Sem saldo negativo e sem lost update**: lock pessimista por wallet e constraints no schema
-  ([ADR 0004](docs/adr/0004-wallet-pessimistic-locking.md), ARCHITECTURE.md, seções *concorrência* e *schema*).
+  ([ADR 0004](docs/adr/0004-wallet-pessimistic-locking.md), ARCHITECTURE.md, seções _concorrência_ e _schema_).
 - **Dinheiro exato**: `Money` com `decimal.js` e `NUMERIC` no banco, nunca `number`
   ([ADR 0005](docs/adr/0005-exact-money.md)); saldo sempre igual ao ledger
   ([ADR 0012](docs/adr/0012-double-entry-ledger.md)).
 - **Idempotência persistente**: deduplicação no PostgreSQL, sem estado em memória
-  (ARCHITECTURE.md, seção *idempotência*).
+  (ARCHITECTURE.md, seção _idempotência_).
 - **Inbox/outbox transacionais**: inbox, saldo, ledger, recibo e evento entram no mesmo commit; o
   ack SQS só acontece depois dele ([ADR 0013](docs/adr/0013-outbox-persistent-leases.md),
-  [ADR 0014](docs/adr/0014-sqs-consumer-failures.md), ARCHITECTURE.md, seção *mensageria*).
+  [ADR 0014](docs/adr/0014-sqs-consumer-failures.md), ARCHITECTURE.md, seção _mensageria_).
 - **Multi-instância**: API e workers sem estado local, testados com três processos simultâneos
   ([ADR 0016](docs/adr/0016-modular-monolith-mikroorm.md)).
 
@@ -49,14 +49,14 @@ filas FIFO com DLQ e sobe API, `command-consumer`, `reference-worker`, Prometheu
 `events` acrescenta o `outbox-publisher` e o `event-consumer` demonstrativo; sem ele os eventos ficam
 pendentes na outbox. As portas são publicadas apenas em `127.0.0.1`:
 
-| Serviço | Endereço | Credenciais (somente locais) |
-| --- | --- | --- |
-| Console + API | http://localhost:3000 | usuários do realm abaixo |
-| Keycloak | http://localhost:18080 | admin `admin` / `local-demo-only` |
-| Grafana | http://localhost:3001 | `admin` / `local-demo-only` (`GRAFANA_ADMIN_PASSWORD`) |
-| Prometheus | http://localhost:9090 | — |
-| PostgreSQL | `127.0.0.1:55439` | migrations `jungle` / `local-demo-only`; runtime `jungle_runtime` / `runtime-demo-only` |
-| SQS (LocalStack 4.0.3) | http://localhost:4566 | `test` / `test` |
+| Serviço                | Endereço               | Credenciais (somente locais)                                                            |
+| ---------------------- | ---------------------- | --------------------------------------------------------------------------------------- |
+| Console + API          | http://localhost:3000  | usuários do realm abaixo                                                                |
+| Keycloak               | http://localhost:18080 | admin `admin` / `local-demo-only`                                                       |
+| Grafana                | http://localhost:3001  | `admin` / `local-demo-only` (`GRAFANA_ADMIN_PASSWORD`)                                  |
+| Prometheus             | http://localhost:9090  | —                                                                                       |
+| PostgreSQL             | `127.0.0.1:55439`      | migrations `jungle` / `local-demo-only`; runtime `jungle_runtime` / `runtime-demo-only` |
+| SQS (LocalStack 4.0.3) | http://localhost:4566  | `test` / `test`                                                                         |
 
 Usuários do realm `jungle`, senha `demo-only` ([ADR 0002](docs/adr/0002-demo-access-boundaries.md)):
 `viewer` consulta wallets, transações, ledger e métricas; `operator` também reconcilia (sem corrigir
@@ -108,17 +108,17 @@ bun run worker:events
 
 ## Testes
 
-| Comando | O que cobre | Infraestrutura |
-| --- | --- | --- |
-| `bun test` | Unidade (domínio, contratos, geradores); testes que exigem containers aparecem como *skip* | — |
-| `INTEGRATION=1 bun test` | Unidade + integração + concorrência (sem o roteiro de recuperação nem o navegador) | PostgreSQL, SQS, Keycloak |
-| `bun run test:integration` | `tests/integration`, `tests/concurrency` e `tests/recovery`; grava evidências em `artifacts/` (usado na CI) | PostgreSQL, SQS, Keycloak |
-| `bun run test:concurrency` | 50 duplicatas, disputa 100→80+80, wallets independentes, 3 processos API, reversões concorrentes | PostgreSQL, Keycloak |
-| `bun run test:recovery` | 4 fases: migrations/constraints, concorrência, entrega/recuperação e roteiro integrado com SIGKILL e restart; evidência em `artifacts/recovery/` | PostgreSQL, SQS, Keycloak |
-| `bun run test:browser` | Build do console + login PKCE, permissões e cenário completo no navegador | Keycloak, Chromium |
-| `bun run test:load` | Carga com 1 e 3 APIs em 3 cenários (≈15 min no padrão); falha se algum invariante quebrar. Opções em [docs/load-testing.md](docs/load-testing.md) | PostgreSQL, SQS, Keycloak |
-| `STACK_URL=http://localhost:3000 bun run test:stack` | Smoke caixa-preta de um stack em execução (`STACK_USER`/`STACK_PASSWORD`, padrão `demo-operator`/`demo-only`) | stack Compose ou hospedado |
-| `docker compose --profile test run --build --rm tests` | `bun test` com `INTEGRATION=1` dentro de um container | Compose |
+| Comando                                                | O que cobre                                                                                                                                       | Infraestrutura             |
+| ------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------- |
+| `bun test`                                             | Unidade (domínio, contratos, geradores); testes que exigem containers aparecem como _skip_                                                        | —                          |
+| `INTEGRATION=1 bun test`                               | Unidade + integração + concorrência (sem o roteiro de recuperação nem o navegador)                                                                | PostgreSQL, SQS, Keycloak  |
+| `bun run test:integration`                             | `tests/integration`, `tests/concurrency` e `tests/recovery`; grava evidências em `artifacts/` (usado na CI)                                       | PostgreSQL, SQS, Keycloak  |
+| `bun run test:concurrency`                             | 50 duplicatas, disputa 100→80+80, wallets independentes, 3 processos API, reversões concorrentes                                                  | PostgreSQL, Keycloak       |
+| `bun run test:recovery`                                | 4 fases: migrations/constraints, concorrência, entrega/recuperação e roteiro integrado com SIGKILL e restart; evidência em `artifacts/recovery/`  | PostgreSQL, SQS, Keycloak  |
+| `bun run test:browser`                                 | Build do console + login PKCE, permissões e cenário completo no navegador                                                                         | Keycloak, Chromium         |
+| `bun run test:load`                                    | Carga com 1 e 3 APIs em 3 cenários (≈15 min no padrão); falha se algum invariante quebrar. Opções em [docs/load-testing.md](docs/load-testing.md) | PostgreSQL, SQS, Keycloak  |
+| `STACK_URL=http://localhost:3000 bun run test:stack`   | Smoke caixa-preta de um stack em execução (`STACK_USER`/`STACK_PASSWORD`, padrão `demo-operator`/`demo-only`)                                     | stack Compose ou hospedado |
+| `docker compose --profile test run --build --rm tests` | `bun test` com `INTEGRATION=1` dentro de um container                                                                                             | Compose                    |
 
 Para rodar a infraestrutura dos testes fora do Docker, use os três primeiros comandos de
 [Desenvolvimento local](#desenvolvimento-local-fora-do-docker) mais `docker compose run --rm provision`.
@@ -132,46 +132,46 @@ Todo teste financeiro termina verificando `wallet.balance == saldo reconstruído
 
 ### Testes obrigatórios do §13
 
-| Exigência | Arquivos (`tests/`) |
-| --- | --- |
-| `Money`: escala, arredondamento, entradas inválidas | `unit/money.test.ts` |
-| Invariantes da `Wallet` | `unit/wallet.test.ts`, `unit/journal.test.ts` |
-| Regras de BET, WIN, LOSS, REFUND, ROLLBACK | `unit/settlement.test.ts`, `unit/wallet.test.ts`, `unit/wager-transaction.test.ts` |
-| Conflito de moeda | `unit/wallet.test.ts` (`CURRENCY_MISMATCH`), `unit/journal.test.ts`, `unit/settlement.test.ts` |
-| Idempotency key com payload divergente | `unit/wager-transaction.test.ts`, `integration/wagering-http.test.ts` |
-| Migrations e constraints | `integration/infrastructure.test.ts`, `integration/*-schema.test.ts`, `integration/wallet-chain.test.ts` |
-| Atomicidade wallet/ledger/inbox/outbox | `integration/wallet-schema.test.ts`, `integration/wagering-http.test.ts`, `integration/command-idempotency.test.ts` |
-| Inbox e redelivery | `integration/command-idempotency.test.ts`, `integration/command-process.test.ts`, `integration/outbox.test.ts` |
-| Publishers concorrentes na mesma outbox | `integration/outbox.test.ts` |
-| Retry e DLQ | `integration/command-dlq.test.ts`, `integration/sqs-capabilities.test.ts`, `integration/outbox.test.ts` |
-| Recuperação após reinicialização | `recovery/integrated.test.ts`, `integration/pending-references.test.ts` |
-| C1. Mesma aposta 50× em paralelo → um débito | `concurrency/bet.test.ts`, `integration/command-process.test.ts` |
-| C2. Disputa pelo saldo da mesma wallet | `concurrency/bet.test.ts` |
-| C3. Wallets distintas em paralelo | `concurrency/bet.test.ts`, `integration/command-process.test.ts` |
-| C4. ≥ 3 processos simultâneos | `concurrency/bet.test.ts`, `concurrency/reversals.test.ts`, `integration/command-process.test.ts` |
-| C5. Worker morto depois do commit e antes do ack | `integration/command-process.test.ts`, `recovery/integrated.test.ts` |
-| C6. Dois publishers na mesma outbox | `integration/outbox.test.ts` |
-| C7. ROLLBACK/REFUND antes da referência | `integration/pending-references.test.ts`, `integration/command-references.test.ts`, `integration/settlement-http.test.ts` |
-| C8. Reinício com consistência final comprovada | `recovery/integrated.test.ts`, `concurrency/bet.test.ts` |
+| Exigência                                           | Arquivos (`tests/`)                                                                                                       |
+| --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
+| `Money`: escala, arredondamento, entradas inválidas | `unit/money.test.ts`                                                                                                      |
+| Invariantes da `Wallet`                             | `unit/wallet.test.ts`, `unit/journal.test.ts`                                                                             |
+| Regras de BET, WIN, LOSS, REFUND, ROLLBACK          | `unit/settlement.test.ts`, `unit/wallet.test.ts`, `unit/wager-transaction.test.ts`                                        |
+| Conflito de moeda                                   | `unit/wallet.test.ts` (`CURRENCY_MISMATCH`), `unit/journal.test.ts`, `unit/settlement.test.ts`                            |
+| Idempotency key com payload divergente              | `unit/wager-transaction.test.ts`, `integration/wagering-http.test.ts`                                                     |
+| Migrations e constraints                            | `integration/infrastructure.test.ts`, `integration/*-schema.test.ts`, `integration/wallet-chain.test.ts`                  |
+| Atomicidade wallet/ledger/inbox/outbox              | `integration/wallet-schema.test.ts`, `integration/wagering-http.test.ts`, `integration/command-idempotency.test.ts`       |
+| Inbox e redelivery                                  | `integration/command-idempotency.test.ts`, `integration/command-process.test.ts`, `integration/outbox.test.ts`            |
+| Publishers concorrentes na mesma outbox             | `integration/outbox.test.ts`                                                                                              |
+| Retry e DLQ                                         | `integration/command-dlq.test.ts`, `integration/sqs-capabilities.test.ts`, `integration/outbox.test.ts`                   |
+| Recuperação após reinicialização                    | `recovery/integrated.test.ts`, `integration/pending-references.test.ts`                                                   |
+| C1. Mesma aposta 50× em paralelo → um débito        | `concurrency/bet.test.ts`, `integration/command-process.test.ts`                                                          |
+| C2. Disputa pelo saldo da mesma wallet              | `concurrency/bet.test.ts`                                                                                                 |
+| C3. Wallets distintas em paralelo                   | `concurrency/bet.test.ts`, `integration/command-process.test.ts`                                                          |
+| C4. ≥ 3 processos simultâneos                       | `concurrency/bet.test.ts`, `concurrency/reversals.test.ts`, `integration/command-process.test.ts`                         |
+| C5. Worker morto depois do commit e antes do ack    | `integration/command-process.test.ts`, `recovery/integrated.test.ts`                                                      |
+| C6. Dois publishers na mesma outbox                 | `integration/outbox.test.ts`                                                                                              |
+| C7. ROLLBACK/REFUND antes da referência             | `integration/pending-references.test.ts`, `integration/command-references.test.ts`, `integration/settlement-http.test.ts` |
+| C8. Reinício com consistência final comprovada      | `recovery/integrated.test.ts`, `concurrency/bet.test.ts`                                                                  |
 
 ## API
 
 Contrato completo no [ADR 0015](docs/adr/0015-http-response-contract.md). Erros têm `code`, `message`
 e `correlationId`; toda resposta traz `X-Correlation-Id`.
 
-| Rota | Autorização | Resultado |
-| --- | --- | --- |
-| `POST /wallets` | demo-operator | 201 com a wallet; abertura positiva gera lançamento OPENING e evento no mesmo commit |
-| `GET /wallets/:id` | viewer+ | Estado atual |
-| `GET /wallets/:id/ledger?cursor=&limit=` | viewer+ | `{ entries, nextCursor }`, limite padrão 50, máximo 100 |
-| `POST /wallets/:id/reconciliation` | operator+ | `storedBalance`, `calculatedBalance`, `difference`, `consistent`; divergência vira log e métrica, nunca correção |
-| `POST /wagering/transactions` | provedor | Submissão; header `Idempotency-Key` obrigatório |
-| `GET /wagering/transactions/:id` | viewer+ ou provedor dono | Estado atual |
-| `GET /providers/:providerId/wagering/transactions/:externalId` | viewer+ ou provedor dono | Mesma consulta pela identidade externa |
-| `GET /wagering/transactions?walletId=&status=&kind=&providerId=` | viewer+ | Extensão para o console: listagem com `originalReceipt` |
-| `POST /demo/scenarios` | demo-operator | Extensão: `duplicate`, `race`, `out-of-order` pelo endpoint real do provedor |
-| `GET /internal/metrics` | viewer+ | Métricas Prometheus da API |
-| `GET /health/live`, `GET /health/ready` | público | Liveness; readiness verifica PostgreSQL e SQS |
+| Rota                                                             | Autorização              | Resultado                                                                                                        |
+| ---------------------------------------------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------------------- |
+| `POST /wallets`                                                  | demo-operator            | 201 com a wallet; abertura positiva gera lançamento OPENING e evento no mesmo commit                             |
+| `GET /wallets/:id`                                               | viewer+                  | Estado atual                                                                                                     |
+| `GET /wallets/:id/ledger?cursor=&limit=`                         | viewer+                  | `{ entries, nextCursor }`, limite padrão 50, máximo 100                                                          |
+| `POST /wallets/:id/reconciliation`                               | operator+                | `storedBalance`, `calculatedBalance`, `difference`, `consistent`; divergência vira log e métrica, nunca correção |
+| `POST /wagering/transactions`                                    | provedor                 | Submissão; header `Idempotency-Key` obrigatório                                                                  |
+| `GET /wagering/transactions/:id`                                 | viewer+ ou provedor dono | Estado atual                                                                                                     |
+| `GET /providers/:providerId/wagering/transactions/:externalId`   | viewer+ ou provedor dono | Mesma consulta pela identidade externa                                                                           |
+| `GET /wagering/transactions?walletId=&status=&kind=&providerId=` | viewer+                  | Extensão para o console: listagem com `originalReceipt`                                                          |
+| `POST /demo/scenarios`                                           | demo-operator            | Extensão: `duplicate`, `race`, `out-of-order` pelo endpoint real do provedor                                     |
+| `GET /internal/metrics`                                          | viewer+                  | Métricas Prometheus da API                                                                                       |
+| `GET /health/live`, `GET /health/ready`                          | público                  | Liveness; readiness verifica PostgreSQL e SQS                                                                    |
 
 Exemplo de submissão como provedor (crie a wallet antes pelo console):
 
@@ -187,17 +187,17 @@ curl -s http://localhost:3000/wagering/transactions \
        "money":{"amount":"20.00","currency":"BRL"}}'
 ```
 
-| Status | Significado |
-| --- | --- |
-| 200 | `PROCESSED`; repetir a mesma requisição devolve o mesmo recibo com `idempotentReplay: true` |
-| 202 | `PENDING_REFERENCE`: referência ainda ausente; o `reference-worker` conclui ou expira (TTL 15 min) |
-| 422 | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`) |
-| 409 | `IDEMPOTENCY_CONFLICT` (mesma chave, corpo diferente) ou `EXTERNAL_TRANSACTION_CONFLICT` (outra chave, mesmo `externalTransactionId`) |
-| 400 / 401 / 403 / 404 | Payload inválido / sem token válido / sem permissão ou provedor errado / recurso inexistente |
-| 503 | `INFRASTRUCTURE_UNAVAILABLE`: nada foi gravado e a chave não foi consumida; repita com a mesma chave |
+| Status                | Significado                                                                                                                           |
+| --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| 200                   | `PROCESSED`; repetir a mesma requisição devolve o mesmo recibo com `idempotentReplay: true`                                           |
+| 202                   | `PENDING_REFERENCE`: referência ainda ausente; o `reference-worker` conclui ou expira (TTL 15 min)                                    |
+| 422                   | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`)                                                         |
+| 409                   | `IDEMPOTENCY_CONFLICT` (mesma chave, corpo diferente) ou `EXTERNAL_TRANSACTION_CONFLICT` (outra chave, mesmo `externalTransactionId`) |
+| 400 / 401 / 403 / 404 | Payload inválido / sem token válido / sem permissão ou provedor errado / recurso inexistente                                          |
+| 503                   | `INFRASTRUCTURE_UNAVAILABLE`: nada foi gravado e a chave não foi consumida; repita com a mesma chave                                  |
 
 Os `failureCode` estáveis e o mapeamento completo para HTTP estão em [ARCHITECTURE.md](ARCHITECTURE.md)
-(seção *failureCodes/HTTP*).
+(seção _failureCodes/HTTP_).
 
 ## SQS
 
@@ -256,16 +256,16 @@ corrigido é uma nova mensagem; estados terminais nunca são reabertos. Detalhes
 [`.env.example`](.env.example) lista todas as variáveis com valores locais; dentro do Compose os
 endpoints apontam para a rede dos containers.
 
-| Grupo | Variáveis principais | Padrão local |
-| --- | --- | --- |
-| Banco | `DATABASE_URL` (runtime restrito), `MIGRATION_DATABASE_URL` (dono do schema; migrations e testes) | porta 55439 |
-| SQS | `SQS_ENDPOINT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY` | LocalStack |
-| Identidade | `KEYCLOAK_ISSUER`, `KEYCLOAK_JWKS_URL`, `KEYCLOAK_TOKEN_URL`, `PROVIDER_CLIENTS`, `DEMO_PROVIDER_CLIENT_SECRETS` | realm `jungle` |
-| Financeiro | `FINANCIAL_LOCK_TIMEOUT_MS`, `FINANCIAL_STATEMENT_TIMEOUT_MS`, `FINANCIAL_DEADLINE_MS` | 3000 / 5000 / 15000 |
-| Referências | `REFERENCE_TTL_MS`, `REFERENCE_BASE_MS`, `REFERENCE_MAX_MS`, `REFERENCE_POLL_MS`, `REFERENCE_BATCH_SIZE` | 900000 / 1000 / 30000 / 500 / 50 |
-| Comandos SQS | `COMMAND_QUEUE_NAME`, `COMMAND_VISIBILITY_SECONDS`, `COMMAND_DRAIN_MS`, `COMMAND_MAX_RECEIVE_COUNT`, `COMMAND_RETRY_*` | `wager-transactions.fifo`, 30 s, 20 s, 5 |
-| Outbox | `OUTBOX_QUEUE_NAME`, `OUTBOX_LEASE_MS`, `OUTBOX_BATCH_SIZE`, `OUTBOX_RETRY_*`, `OUTBOX_POLL_MS` | `wager-events.fifo`, 30 s, 20, 500 ms |
-| Observabilidade | `PORT`, `METRICS_PORT`, `METRICS_NETWORK_SUBNET`, `PROBE_TIMEOUT_MS`, `GRAFANA_ADMIN_*` | 3000, 0 (listener desligado), `172.31.20.0/24`, 2000 |
+| Grupo           | Variáveis principais                                                                                                   | Padrão local                                         |
+| --------------- | ---------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------- |
+| Banco           | `DATABASE_URL` (runtime restrito), `MIGRATION_DATABASE_URL` (dono do schema; migrations e testes)                      | porta 55439                                          |
+| SQS             | `SQS_ENDPOINT`, `AWS_REGION`, `AWS_ACCESS_KEY_ID`, `AWS_SECRET_ACCESS_KEY`                                             | LocalStack                                           |
+| Identidade      | `KEYCLOAK_ISSUER`, `KEYCLOAK_JWKS_URL`, `KEYCLOAK_TOKEN_URL`, `PROVIDER_CLIENTS`, `DEMO_PROVIDER_CLIENT_SECRETS`       | realm `jungle`                                       |
+| Financeiro      | `FINANCIAL_LOCK_TIMEOUT_MS`, `FINANCIAL_STATEMENT_TIMEOUT_MS`, `FINANCIAL_DEADLINE_MS`                                 | 3000 / 5000 / 15000                                  |
+| Referências     | `REFERENCE_TTL_MS`, `REFERENCE_BASE_MS`, `REFERENCE_MAX_MS`, `REFERENCE_POLL_MS`, `REFERENCE_BATCH_SIZE`               | 900000 / 1000 / 30000 / 500 / 50                     |
+| Comandos SQS    | `COMMAND_QUEUE_NAME`, `COMMAND_VISIBILITY_SECONDS`, `COMMAND_DRAIN_MS`, `COMMAND_MAX_RECEIVE_COUNT`, `COMMAND_RETRY_*` | `wager-transactions.fifo`, 30 s, 20 s, 5             |
+| Outbox          | `OUTBOX_QUEUE_NAME`, `OUTBOX_LEASE_MS`, `OUTBOX_BATCH_SIZE`, `OUTBOX_RETRY_*`, `OUTBOX_POLL_MS`                        | `wager-events.fifo`, 30 s, 20, 500 ms                |
+| Observabilidade | `PORT`, `METRICS_PORT`, `METRICS_NETWORK_SUBNET`, `PROBE_TIMEOUT_MS`, `GRAFANA_ADMIN_*`                                | 3000, 0 (listener desligado), `172.31.20.0/24`, 2000 |
 
 Se `172.31.20.0/24` conflitar com outra rede Docker, altere `METRICS_NETWORK_SUBNET`; o mesmo valor
 define a rede de scrape e a allowlist do listener de métricas. As credenciais acima são públicas e
