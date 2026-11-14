@@ -1,6 +1,6 @@
 # Especificação — Distributed Wagering Processor
 
-Status: implementação incremental. Bootstrap (#2), abertura autenticada de wallet (#3) e BET HTTP idempotente (#4) têm evidências próprias; a matriz continua sendo o contrato completo, sem presumir entregas dos próximos tickets.
+Status: implementação entregue nas issues #2–#13 e consolidada na #14. A matriz abaixo define a evidência exigida; o mapeamento final para código, testes e evidências executadas está em [requirements-matrix.md](requirements-matrix.md). Os parágrafos de evidência por issue abaixo registram o histórico incremental.
 
 Fonte normativa: [README da Jungle Gaming](https://github.com/junglegaming/backend-challenge), consultado em 2026-11-11. Decisões do grill estão nas ADRs 0001–0017. Legenda: **R** = exigência do README; **A** = decisão aprovada; **D** = detalhamento técnico desta especificação, não apresentado como aprovação anterior.
 

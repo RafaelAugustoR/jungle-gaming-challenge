@@ -1,61 +1,270 @@
-# Architecture
+# Arquitetura
 
-## Bootstrap — Issue #2
+Este documento descreve as decisões, os trade-offs e as limitações da implementação entregue. A
+fonte normativa é o [README do desafio](docs/research/challenge-readme.md). As decisões aprovadas
+estão na [especificação](docs/spec.md) e nas [ADRs](docs/adr/). A rastreabilidade de cada
+requisito até o código e os testes está na [matriz](docs/requirements-matrix.md).
 
-The backend and tests execute the same TypeScript sources directly with Bun 1.3.14. TypeScript remains the mandatory strict typecheck (`build` checks types and bundles the browser console); no separate transpiled runtime exists. MikroORM 6.6.17 owns migrations, discovered from the migrations directory without a manual list.
+## Visão geral
 
-LocalStack 4.0.3 is pinned to an account-free release. MiniStack was considered as the alternative permitted by the challenge; the chosen release is validated against FIFO deduplication, visibility release and automatic DLQ redrive, in addition to send/receive/delete. This is evidence of the required emulator capabilities, not a claim that every SQS feature is equivalent to AWS. Older local images require reassessment before hosted deployment.
+O sistema é um monólito modular NestJS em Bun 1.3.14 (TypeScript `strict`), com MikroORM 6.6 sobre
+PostgreSQL 16.6 e SQS FIFO no LocalStack 4.0.3. API e workers são processos separados da mesma
+imagem e compartilham o mesmo núcleo financeiro ([ADR 0016](docs/adr/0016-modular-monolith-mikroorm.md)).
 
-A typed configuration is loaded and validated once at boot. Factories receive it explicitly; local credentials come from the environment, and absent AWS credentials use the SDK provider chain. InfrastructureModule provides separate MikroORM and SQSClient tokens, closed by its lifecycle provider on shutdown. Financial modules do not depend on HealthModule. EntityManager forks will isolate financial requests in the next ticket. HealthModule lives under observability and only consumes infrastructure; ApiModule.register composes the modules. Readiness queries shared clients with a probe-local SQL deadline/cancellation and SQS abort signal. There is no global statement timeout imposed on migrations or future financial queries. Probe failures log a sanitized reason; Nest exceptions and startup failures use JSON logging with URL/credential redaction. HTTP responses only expose booleans. Shared clients retain SDK defaults for retry/long polling; probe deadlines are applied only at the call site. DATABASE_CONNECT_TIMEOUT_MS controls database connection establishment separately. JSON logs preserve Nest stack/context and structured application fields with recursive redaction.
+```mermaid
+flowchart LR
+  P[Provedores<br/>Client Credentials] -->|HTTP + Idempotency-Key| API
+  B[Console<br/>PKCE] --> API
+  Q[(wager-transactions.fifo)] --> CC[command-consumer]
+  API --> SW[[SubmitWagerTransaction]]
+  CC --> SW
+  RW[reference-worker] --> RP[[ReprocessReferences]]
+  SW --> PG[(PostgreSQL<br/>wallet · journal · transações<br/>recibos · inbox · outbox)]
+  RP --> PG
+  PG --> OP[outbox-publisher] --> E[(wager-events.fifo)] --> EC[event-consumer]
+  Q -. 5 recebimentos .-> DLQ[(wager-transactions-dlq.fifo)]
+  KC[Keycloak] -. JWKS .-> API
+```
 
-Compose runs a one-shot migration service before API startup. Readiness still measures dependency connectivity; schema rollout is an explicit deployment prerequisite rather than being inferred from connectivity. CI tests real PostgreSQL/SQS and waits for the runtime healthcheck. Keycloak is started by the full local stack; realm/auth testing belongs to the next ticket.
+| Módulo | Responsabilidade |
+| --- | --- |
+| `shared/domain` | `Money` (decimal.js), `IntegrationEvent` e `DomainError` |
+| `modules/wallets` | `Wallet`, `JournalEntry`, abertura, ledger paginado e reconciliação |
+| `modules/wagering` | `WagerPayload`, `WagerTransaction`, passos por tipo (`wager-step.ts`), recibos, eventos, caso de uso de submissão e reprocessamento de referências |
+| `modules/identity` | Verificação de JWT do Keycloak e política de acesso de humanos e provedores |
+| `modules/demo` | Cenários de demonstração e auditoria do ator humano |
+| `messaging/*` | Consumidor de comandos, publisher da outbox, consumidor de eventos, runtime de workers e backoff |
+| `observability` | Logger JSON sanitizado, métricas Prometheus, health |
 
-The initial migration creates the wagering schema without inventing business entities. Tests create a uniquely named disposable database, run up/down/up, assert schema existence and clean up their own database. The local database account needs CREATEDB for this test; restricted runtime and migration identities will be introduced with the financial schema in Issue #3.
+O domínio não importa NestJS, MikroORM nem SQS. As classes de domínio têm construtor privado e
+factories (`create`/`open`/`rehydrate`); `rehydrate` reconstrói estado persistido sem reexecutar
+transições. Os casos de uso dependem das portas `WageringStore` e `WalletStore`, implementadas por
+repositórios em `infrastructure/persistence`.
 
-Keycloak is started here; realm configuration, application authentication and human/provider identities are delivered in Issue #3. Financial processing, inbox/outbox and workers are subsequent tickets. No financial guarantees are claimed by this bootstrap.
+## Fluxo de uma operação financeira
 
-## Design references
+HTTP e SQS montam o mesmo `WagerCommand` e chamam o mesmo `SubmitWagerTransaction`. O
+`reference-worker` usa a mesma ordem de passos. Uma operação nova executa, em **uma** transação
+PostgreSQL:
 
-- [NestJS MikroORM integration](https://docs.nestjs.com/recipes/mikroorm)
-- [MikroORM migrations](https://mikro-orm.io/docs/migrations)
-- [LocalStack SQS](https://docs.localstack.cloud/aws/services/sqs/)
-- [Approved specification](docs/spec.md)
-- [Architecture decisions](docs/adr/)
+1. Leitura antecipada do recibo, sem lock: a mesma chave com o mesmo hash vira replay; com outro
+   hash vira 409.
+2. `SELECT … FOR UPDATE` da wallet. É o único lock de saldo, e é por wallet.
+3. Nova checagem do recibo sob o lock e reserva da identidade, protegida por UNIQUE
+   `(provider_id, idempotency_key)` e `(provider_id, external_transaction_id)`.
+4. Resolução e validação da referência, quando houver.
+5. Passo do tipo (`BET`, `WIN`, `LOSS`, `REFUND` ou `ROLLBACK`), que decide `PROCESSED`, `REJECTED`
+   + `failureCode` ou `PENDING_REFERENCE`.
+6. Gravação conjunta de transação no estado final, wallet (saldo e versão), linha do journal,
+   recibo imutável, eventos na outbox, agenda de referência e, no SQS, a inbox.
+7. Commit. Depois do commit vem a resposta HTTP ou o `DeleteMessage` do SQS. A publicação é
+   assíncrona, pelo publisher.
 
-## Authenticated wallet opening — Issue #3
+Nenhuma chamada de rede acontece dentro da transação. Deadlock, falha de serialização e timeout de
+lock geram até três tentativas dentro do prazo total (`FINANCIAL_DEADLINE_MS`). Uma violação das
+UNIQUE de identidade faz rollback e uma nova tentativa, e a nova tentativa lê o vencedor como
+replay ou conflito. Indisponibilidade retorna 503 e não consome a chave.
 
-Identity verifies JWTs with jose and Keycloak JWKS. Public console assets and health routes remain available before login; wallet routes enforce human roles on the backend. The public client uses the official keycloak-js adapter, PKCE S256 and in-memory tokens. Human role inheritance is configured in the imported realm; each provider has its own confidential client and fixed providerId claim. A trusted issuer and audience are mandatory before claims become a principal.
+## Decisões e trade-offs
 
-Wallet, Money and JournalEntry have private constructors, factories and rehydrate methods. They depend on neither NestJS nor MikroORM. Financial requests use an EntityManager fork and one transaction. Persistence uses explicit SQL through MikroORM to preserve PostgreSQL NUMERIC strings, deferred constraints and exact journal semantics. No identity map or connection session is shared between requests. Opening and gaming counterpart accounts are distinct and have no materialized balance or per-wallet update/lock. The BRL counterpart accounts are seeded in the migration.
+### ORM, Money e estratégia transacional (exigido pelo §4)
 
-A single journal row represents the pair: debit counterpart, credit player, one positive amount and one currency. The player ledger is a view over that fact. Composite foreign keys enforce currencies and transaction context. Deferred constraint triggers check the wallet balance/version against its opening and the applicable outbox event at commit. Runtime cannot UPDATE/DELETE/TRUNCATE the journal, and immutable triggers also protect owner writes. Only the separate migration owner can change the schema. Amounts use unconstrained NUMERIC plus finitude/scale/range checks to reject 0.001 before PostgreSQL can round it.
+- **MikroORM**, a opção preferencial do desafio. Cada requisição ou trabalho usa
+  `em.fork().transactional()`, com Unit of Work isolado e sem identity map compartilhado. As
+  escritas financeiras usam SQL explícito pela conexão do MikroORM, e não entidades gerenciadas. O
+  motivo é preservar `NUMERIC` como string, controlar a ordem dos locks e as constraints diferidas,
+  e inserir o estado final decidido pelo domínio sem uma linha `PENDING` intermediária que nada
+  acrescentaria. As migrations são do MikroORM, versionadas e reversíveis.
+- **Money** é imutável, usa decimal.js (precisão 40) e aceita apenas strings com exatamente duas
+  casas. São rejeitados NaN, Infinity, expoente, sinal, espaços e zeros à esquerda. O limite é
+  `9999999999999999.99`. No banco, o valor fica em `NUMERIC` sem coerção de escala, no domínio
+  `wagering.money_amount` (finito, escala ≤ 2, ≥ 0), e a moeda em coluna separada. Por isso
+  `0.001` é recusado, e não arredondado ([ADR 0005](docs/adr/0005-exact-money.md)). O valor nunca
+  passa por `number`.
+- **Lock pessimista por wallet**, e não otimista com retry
+  ([ADR 0004](docs/adr/0004-wallet-pessimistic-locking.md)). Sob disputa entre processos, as
+  decisões de saldo ficam sequenciais por wallet, sem tempestade de retries. O custo é a vazão de
+  uma wallet quente (~110–127 ops/s medidos; ver [carga](docs/evidence/issue-13/README.md)).
+  Wallets diferentes não compartilham lock, e as contas de contrapartida são lidas sem lock.
 
-The unmerged financial baseline is consolidated in migration 0002, which creates the common `transactions` table directly, without an intermediate openings table or legacy trigger. The database validates journal adjacency, arithmetic, processed transaction linkage, wallet endpoints and applicable outbox presence for both credit and debit; the ledger derives kind and direction. The current API still produces OPENING only. Wagering transitions, external identities, receipts and idempotency remain in the wagering ticket. Event payload shape/version is owned by domain classes and their public tests, while PostgreSQL enforces relational atomicity and immutability. The outbox publisher ticket must add publication/lease state in a separate table without editing event payloads. Neither inbox nor submission receipts apply to the internal wallet creation command. Zero opening creates no opening transaction, journal or event.
+### Garantias no schema
 
-The console uses buildless HTML/CSS plus TypeScript bundled by Bun, served from the API origin. It creates and queries real wallets and reads the ledger; no seeded display balances, frontend finance arithmetic or machine credentials are included. Further wagering and reconciliation screens remain in their respective tickets.
+| Garantia | Mecanismo |
+| --- | --- |
+| Uma wallet por jogador e moeda | UNIQUE `(player_id, currency)` |
+| Saldo nunca negativo | domínio `money_amount` (≥ 0) em `balance`, `balance_before` e `balance_after` |
+| Sem débito ou crédito duplicado | UNIQUE de identidade, UNIQUE `journal.transaction_id`, UNIQUE `(wallet_id, wallet_version)` e índice único parcial `(referência, kind)` para reversões `PROCESSED` |
+| Saldo = ledger | trigger diferido de cadeia: saldo e versão da wallet batem com o último lançamento, cada lançamento tem `before ± amount = after` e versões contíguas |
+| Ledger imutável | triggers bloqueiam UPDATE, DELETE e TRUNCATE no journal, nas contas e nos recibos. O papel `jungle_runtime` não é dono das tabelas e tem só os grants por coluna necessários |
+| Estados terminais | trigger de transição: `PENDING → PENDING_REFERENCE/PROCESSED/REJECTED/FAILED` e `PENDING_REFERENCE → PROCESSED/REJECTED/FAILED`. Campos financeiros são imutáveis depois do aceite |
+| Atomicidade | outbox obrigatória para lançamentos e transações processadas (trigger diferido) e inbox com `transaction_id NOT NULL` |
 
-Review follow-up: `Wallet.open` returns wallet, internal transaction, journal entry and derived event as one domain result; zero produces only the wallet. Factories validate creation; Wallet/JournalEntry rehydrate persisted facts without reopening them. Wallet holds Money, and only Money imports decimal.js. REST parsers produce typed commands and serializers preserve the existing HTTP contracts. Application use cases depend on the WalletStore port and throw typed DomainError codes, with one global REST filter translating them; SQL and database error classification live in the persistence adapter. Only the player/currency unique constraint maps to WALLET_ALREADY_EXISTS. Identity principals are a human/provider discriminated union; provider client-to-providerId bindings come from PROVIDER_CLIENTS configuration.
+O journal tem **partidas dobradas** em uma linha: conta debitada, conta creditada, valor positivo e
+moeda única. Assim não existe meio par ([ADR 0012](docs/adr/0012-double-entry-ledger.md)). O ledger
+da wallet (`wagering.wallet_ledger`) é uma view sobre esse journal. As contrapartidas de abertura e
+de jogos são contas próprias, sem saldo materializado.
 
-T02 persists final PROCESSED records only (also the schema default), with no transaction UPDATE grant. PENDING states are deliberately rejected until T03 implements validated transitions, status/failure fields and their grants together. Transaction journal checks currently run on INSERT; T03 must cover permitted UPDATE transitions before enabling them. Wallet opening results have an explicit `WalletOpenResult` type with one optional `WalletOpening` bundle whose transaction, entry and event are all required together.
+### Idempotência e recibos
 
-## Financial processing boundaries and trade-offs
+- O escopo é o provedor: `(providerId, idempotencyKey)`
+  ([ADR 0008](docs/adr/0008-provider-scoped-idempotency.md)). O header é obrigatório.
+- `payloadHash` é o SHA-256 do JSON canônico, com chaves ordenadas recursivamente e sem espaços,
+  dos campos `providerId`, `externalTransactionId`, `playerId`, `walletId`, `roundId`, `gameId`,
+  `kind`, `money` e, quando presente, `referenceExternalTransactionId`. Chave, correlação,
+  timestamps e IDs de transporte ficam de fora.
+- Usar outra chave para a mesma operação externa retorna 409 `EXTERNAL_TRANSACTION_CONFLICT`
+  ([ADR 0006](docs/adr/0006-external-operation-key-conflict.md)).
+- O replay devolve **o recibo original**, com status HTTP e saldo observados no aceite, mudando
+  apenas `idempotentReplay` ([ADR 0007](docs/adr/0007-stable-submission-receipt.md)). Um 202 continua
+  202 mesmo depois da conclusão. Os GET mostram o estado atual.
+- No SQS, a inbox `(consumer_name, message_id)` é gravada no fim da mesma transação. Um
+  `messageId` repetido com outro conteúdo vai para a DLQ como `INBOX_CONFLICT`.
 
-`SubmitWagerTransaction` coordinates one transport-independent transaction over `WageringStore`. A kind selects a financial step; only BET is enabled. This keeps locking, idempotency and persistence common for the later HTTP/SQS paths without pretending that WIN, LOSS or reversals are implemented. `WagerTransaction` owns the immutable business identity, canonical hash, explicit transition table, result, submission receipt and typed result event. WagerPayload validates and freezes business content and its canonical hash before entering the transaction; creation and retries reuse that pair instead of trusting a caller-supplied hash string or calculating it again. Each enabled kind owns both validation and its financial step. Wallet owns exact arithmetic and returns a discriminated movement result: insufficient funds is an expected rejection, and positive debit returns journal and balance event as one change.
+### Regras de negócio e interpretações
 
-Pessimistic wallet locking makes balance decisions sequential within a wallet, which trades hot-wallet throughput for straightforward correctness between processes. Distinct wallets and read-only gaming counterpart accounts do not share a balance lock. A read-only receipt preflight makes an existing provider/key authoritative for replay or conflict, even when a divergent command names a missing wallet. New operations still lock the wallet before reserving their identity and applying effects, and recheck the receipt after acquiring the lock. Two provider-scoped UNIQUE constraints settle races between different wallets; the adapter rolls back and retries the entire callback before reading the winner. Only those named constraints are retryable identity conflicts, with at most three attempts within the remaining budget.
+| Tipo | Efeito | Observação |
+| --- | --- | --- |
+| BET | débito | `INSUFFICIENT_FUNDS` se faltar saldo. Não aceita referência |
+| WIN | crédito | Referência opcional; se informada, precisa ser uma BET processada compatível ([ADR 0017](docs/adr/0017-win-optional-reference.md)). O valor pode ser diferente do da BET |
+| LOSS | nenhum | Registra o resultado e o evento `WagerTransactionProcessed`, sem ledger e sem versão nova |
+| REFUND | crédito | Referencia BET processada, com valor igual |
+| ROLLBACK | inverso da referência | BET, WIN ou REFUND. `REVERSAL_INSUFFICIENT_FUNDS` quando a reversão deixaria o saldo negativo |
 
-The adapter inserts the final state decided by the domain directly. An unobservable PENDING row followed by UPDATE adds no durability guarantee. One commit contains transaction, optional journal/wallet update, immutable receipt and outbox. Deferred constraints validate both INSERT and permitted UPDATE against the final persisted state; terminal transitions and financial-field changes are blocked. The journal stores both accounting sides in a single row, making partial pairs unrepresentable. Outbox sequence is independent of financial wallet.version because rejected and zero-value operations also emit result events.
+- A referência precisa ter o mesmo provedor, jogador, wallet, moeda e rodada. Uma incompatibilidade
+  conhecida é rejeitada na hora. Referência ausente ou pendente aguarda
+  ([ADR 0010](docs/adr/0010-reference-state-policy.md)).
+- A unicidade de reversão é por referência **e tipo**. REFUND e ROLLBACK da mesma BET são ambos
+  aplicáveis (100 → 80 → 100 → 120). É uma leitura literal do §7, documentada e testada
+  ([ADR 0009](docs/adr/0009-reversal-uniqueness-by-kind.md)).
+- Valores zero são aceitos e geram o evento de resultado, mas não geram ledger, versão nova nem
+  `WalletBalanceChanged`. Uma abertura zero não cria transação OPENING.
+- `FAILED` existe no modelo e no schema, mas nenhum fluxo atual o produz. Indisponibilidade nunca
+  vira falha financeira.
 
-A receipt is the immutable original response, whereas GET exposes current transaction state. Provider/key plus canonical SHA-256 detect a changed command; provider/external-ID also prevents another key from duplicating the operation. Sorted business fields and exact MoneyProps enter the hash, while transport credentials and correlation do not. Receipt types bind HTTP 200 to PROCESSED and 422 to REJECTED with a closed failure taxonomy and an exhaustive message mapping, so reference and reversal failures cannot inherit the insufficient-BET message. Replays preserve the original balance and body correlation, changing only the replay flag; the current transport correlation goes in the header.
+### Códigos de falha
 
-Application queries own transaction ownership for both lookup forms. REST parses IDs and commands and translates the result, without accessing a concrete repository. Identity evaluates one Access policy for providers and human roles; wallet-specific HumanRole is a shorthand for that policy, with default denial. Provider binding remains mandatory before financial submission.
+São estáveis e servem para a máquina decidir o que fazer:
 
-Connection-level application_name identifies each API process; the test harness can override it through DATABASE_URL. SQL lock/statement limits are configured once per attempt while their effective values are unchanged. Every command checks the deadline locally; if the remaining time drops below a configured limit, the adapter lowers the PostgreSQL timeout before the next command and before commit. This removes redundant configuration round trips on the normal path while retaining cancellation of a statement that would overrun the remaining budget. A JavaScript check alone cannot stop an in-flight query. Pool/connection acquisition has its separately configured timeouts; the financial budget is checked again when the connection is available.
+- Rejeições persistidas (422): `INSUFFICIENT_FUNDS`, `REVERSAL_INSUFFICIENT_FUNDS`,
+  `AMOUNT_LIMIT_EXCEEDED`, `REFERENCE_REQUIRED`, `REFERENCE_KIND_MISMATCH`,
+  `REFERENCE_CONTEXT_MISMATCH`, `REFERENCE_AMOUNT_MISMATCH`, `REFERENCE_NOT_PROCESSED`,
+  `REFERENCE_NOT_FOUND`, `REFERENCE_NOT_READY` e `ALREADY_REVERSED`.
+- Erros de transporte, que não persistem a operação: `INVALID_PAYLOAD` (400),
+  `PLAYER_MISMATCH`/`CURRENCY_MISMATCH` (400), 401/403, `WALLET_NOT_FOUND` (404),
+  `IDEMPOTENCY_CONFLICT`/`EXTERNAL_TRANSACTION_CONFLICT`/`WALLET_ALREADY_EXISTS` (409) e
+  `INFRASTRUCTURE_UNAVAILABLE` (503).
 
-Migration 0003 extends the merged 0002 and preserves existing openings. Its down refuses to erase accepted external identities rather than silently losing the audit trail. FAILED remains terminal in the state model, without inventing an obligatory WagerTransactionFailed event; the optional extension belongs to the ticket that implements permanent-failure processing. References, SQS inbox/consumer and outbox publisher/leases remain planned work.
+O provedor pode repetir com a mesma chave depois de um 503. Os outros códigos são definitivos para
+aquela chave ou pedem a correção do payload.
 
-Tests use three actual API processes, IPC readiness and PostgreSQL-observable lock barriers. HTTP assertions and deliberate schema-seam audits establish historical replay, independent wallets, atomicity, ledger reconstruction and balanced pairs. CI publishes logs and process data as downloadable CI logs; the repository retains reproduction commands and the requirement matrix instead of machine-specific execution logs.
+### Referências fora de ordem
 
-## Settlement reference constraints — Issue #5 review
+O TTL é de 15 min desde o primeiro aceite. O backoff começa em 1 s, tem teto de 30 s e jitter de
+50–100%. A agenda é persistida em `wagering.reference_retries`
+([ADR 0011](docs/adr/0011-reference-wait-policy.md)). O worker seleciona candidatos sem manter lock,
+obtém o lock da wallet e revalida tudo. Expiração, rejeição e evento são confirmados juntos.
+Detalhes operacionais estão em [docs/operations.md](docs/operations.md).
 
-Resolved reference IDs are processing results, separate from immutable submission identity. The runtime role can bind a previously NULL internal reference only while advancing a pending transaction to a terminal state; supplied external reference fields and terminal transactions remain immutable. A deferred constraint checks that a processed reference resolves to a processed operation in the same context, full reversal amount and rollback direction; the per-kind allowed-reference matrix lives in the domain policy. This avoids duplicating that configurable matrix in SQL while retaining financial-integrity checks and the partial unique reversal index.
+### Mensageria
+
+- **Entrada**: `wager-transactions.fifo` com `MessageGroupId = walletId`. A deduplicação FIFO é
+  apenas uma otimização; os testes variam o ID de transporte para que as duplicatas cheguem à
+  aplicação. O ack acontece depois do commit. Negócio recebe ack; erro transitório não recebe ack e
+  entra em backoff; erro permanente ou conflito de contrato vai para a DLQ com diagnóstico.
+  `maxReceiveCount` é 5. No SIGTERM, o consumidor drena, cancela e só então devolve a visibilidade
+  ([ADR 0014](docs/adr/0014-sqs-consumer-failures.md)).
+- **Outbox**: os eventos são gravados na transação financeira com uma sequência por wallet,
+  independente de `wallet.version`, porque LOSS e rejeições também geram eventos. O publisher
+  reserva com `SKIP LOCKED`, usa lease e token persistidos e só confirma se ainda for o dono da
+  lease. Publicar duas vezes é seguro: o `eventId` é estável, o consumidor tem inbox e a projeção
+  não regride ([ADR 0013](docs/adr/0013-outbox-persistent-leases.md)). Não há promessa de
+  exactly-once no transporte.
+- **Eventos**: `WagerTransactionProcessed` (inclusive LOSS), `WagerTransactionRejected`,
+  `WalletBalanceChanged` (só quando o saldo muda) e `WagerTransactionPendingReference`. São
+  subclasses de `IntegrationEvent` com `eventType` e `version` no tipo. O envelope `toJSON()` segue
+  o §11 e `data` usa `MoneyProps`.
+
+### Identidade
+
+Keycloak é o IdP externo. O console usa Authorization Code + PKCE S256 e guarda os tokens em
+memória. Os provedores usam Client Credentials, e cada cliente fica vinculado a um `providerId` por
+`PROVIDER_CLIENTS`. A API verifica a assinatura RS256, o issuer, a audience `jungle-api`, a
+expiração e os perfis. Um `providerId` diferente do token retorna 403. Os cenários do console obtêm
+o token de provedor no servidor e passam pelo mesmo endpoint HTTP dos provedores, registrando o
+ator humano em `demo.scenario_audit`.
+
+O Keycloak publica um issuer fixo (`KC_HOSTNAME`) e atende os containers pelo backchannel. Assim,
+o token que a API obtém pela URL interna tem o mesmo `iss` que a API valida.
+
+### Observabilidade
+
+Os logs são JSON, com `correlationId`, `messageId`, `transactionId`, `walletId` e `providerId`, e
+mascaram credenciais, payloads e valores. As métricas Prometheus cobrem:
+
+- transações por status (contagem durável vinda do banco);
+- tentativas, duplicatas, retries por componente e motivo;
+- transferências e profundidade da DLQ;
+- conflitos de lock;
+- latência;
+- outbox pendente, bloqueada e a idade do evento mais antigo;
+- referências pendentes;
+- divergências de reconciliação.
+
+Os labels têm cardinalidade limitada. O dashboard Grafana é provisionado. Detalhes estão em
+[docs/observability.md](docs/observability.md).
+
+## Desvios de forma em relação aos esqueletos do README
+
+O §6 permite adaptar nomes e assinaturas desde que as garantias se mantenham. As adaptações são:
+
+- `Money.create(amount, currency)` no lugar de `Money.from(props)`. `Wallet.open` retorna a wallet
+  e, se houver abertura, a transação OPENING, o lançamento e o evento como um só resultado.
+- O ledger da wallet é derivado de `JournalEntry` (par débito/crédito) e não de uma classe
+  `WalletLedgerEntry` própria, por causa das partidas dobradas.
+- Inbox e outbox são registros de persistência com políticas puras
+  (`messaging/outbox/publication-policy.ts`, `worker-backoff.ts`), e não as classes de domínio
+  `InboxMessage`/`OutboxMessage`. As garantias de unicidade, atomicidade, lease e backoff estão no
+  schema e no repositório.
+- `IntegrationEvent` recebe o contexto (`correlationId`/`causationId`) e o `occurredAt` serializado,
+  em vez de `IntegrationEventProps`. O envelope `toJSON()` é o do §11.
+  `WalletBalanceChanged.from(entry, occurredAt, ctx)` usa o lançamento, que já carrega saldo antes e
+  depois e a versão.
+- A matriz de tipos de referência permitidos (REFUND → BET; ROLLBACK → BET/WIN/REFUND) é validada
+  no domínio. O banco valida contexto, valor, direção do ROLLBACK e unicidade da reversão, que são
+  as garantias exigidas no schema pelo §5.9.
+
+## Limitações conhecidas
+
+- **Vazão da outbox.** É o principal limite medido. O publisher reserva só o evento cabeça de cada
+  wallet por ciclo, para preservar a ordem por agregado. Por isso uma wallet quente publica poucos
+  eventos por segundo, e sob carga sustentada a outbox não drenou nos 30 s seguintes. O caminho
+  financeiro não é afetado: as respostas não esperam a publicação e as invariantes passaram. O
+  sleep após lote cheio foi removido no PR #28. Reservar cadeias por agregado muda a ADR 0013 e
+  está na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27), fora
+  desta entrega.
+- **Wallet quente.** O lock por wallet serializa a wallet: ~110–127 ops/s neste host, e mais
+  instâncias não aumentam esse teto. Com 3 APIs em wallets distribuídas, as 500 ops/s oferecidas
+  foram sustentadas; o teto com 3 APIs não foi medido.
+- **Medições de carga.** Foram feitas em um host único compartilhado (WSL2), com gerador no mesmo
+  host, só entrada HTTP e pool de 5 conexões. São ordem de grandeza, não previsão de produção
+  ([docs/load-testing.md](docs/load-testing.md)).
+- **SQS emulado.** O LocalStack 4.0.3 foi validado para FIFO, deduplicação, visibilidade e redrive.
+  Isso não prova equivalência com a AWS em todos os detalhes. A demo hospedada também usa o
+  LocalStack, só na rede interna.
+- **Um papel de runtime.** API e workers usam o mesmo papel restrito `jungle_runtime`. Separar
+  logins por processo fica como endurecimento posterior.
+- **Sem expurgo.** Inbox, outbox, recibos e agenda de referências não são expurgados.
+  Idempotência sem expiração foi uma decisão desta entrega.
+- **FAILED.** O estado está modelado, mas nenhum fluxo o produz. Erros permanentes de transporte
+  vão para a DLQ sem criar transação.
+- **Escopo.** Ficam fora pagamentos reais, conversão cambial, reversões parciais, OpenTelemetry e
+  multi-tenancy (ver [Out of Scope](docs/spec.md#out-of-scope)).
+
+## Referências
+
+[Especificação](docs/spec.md) · [ADRs](docs/adr/) · [Matriz](docs/requirements-matrix.md) ·
+[Testes](docs/testing-strategy.md) · [Operação](docs/operations.md) ·
+[NestJS + MikroORM](https://docs.nestjs.com/recipes/mikroorm) ·
+[MikroORM identity map](https://mikro-orm.io/docs/identity-map) ·
+[PostgreSQL explicit locking](https://www.postgresql.org/docs/current/explicit-locking.html) ·
+[Keycloak hostname](https://www.keycloak.org/server/hostname)
