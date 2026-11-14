@@ -100,6 +100,7 @@ entrypoints and the `letsencrypt` resolver. Run `prepare.ts` first; it derives
 `coolify` network (`TRAEFIK_NETWORK` overrides its name). No demo service publishes
 host ports. Traefik terminates TLS and forwards to Caddy on port 8080; Caddy keeps
 its realm and internal-route restrictions and forwards the public HTTPS scheme.
+Dedicated backend DNS aliases avoid name collisions on the shared proxy network.
 
 The overlay applies CPU/memory limits for a shared demo host. It is intended for
 interactive evaluation, not load benchmarks. Build off-host and load the runtime
@@ -114,6 +115,9 @@ JUNGLE_IMAGE=jungle-demo:<commit> docker compose \
 ```
 
 The existing proxy, its certificates and unrelated services are not recreated.
+On a cold first start, Keycloak prepares its production image and imports the
+realm under its CPU limit. The profile gives it 120 seconds of healthcheck startup
+grace without weakening readiness; allow `--wait-timeout 420` for deployment.
 Stop only this project with the same Compose files; preserve its PostgreSQL volume
 unless intentionally deleting the fictitious demo data. Verify HTTPS, login,
 `test:stack`, blocked administration paths and resource consumption after deployment.

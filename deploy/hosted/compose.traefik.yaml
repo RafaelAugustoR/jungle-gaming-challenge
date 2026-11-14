@@ -34,8 +34,13 @@ services:
     mem_limit: 768m
     cpus: 0.75
   keycloak:
+    networks:
+      internal:
+        aliases: [jungle-demo-keycloak]
     mem_limit: 1024m
     cpus: 1
+    healthcheck:
+      start_period: 120s
   migrate:
     <<: *runtime
     mem_limit: 256m
@@ -46,6 +51,9 @@ services:
     cpus: 0.5
   api:
     <<: *runtime
+    networks:
+      internal:
+        aliases: [jungle-demo-api]
     mem_limit: 384m
     cpus: 0.5
   reference-worker:
