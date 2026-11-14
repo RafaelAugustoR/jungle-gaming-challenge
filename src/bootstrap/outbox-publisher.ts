@@ -20,7 +20,13 @@ async function main() {
         },
         publisherMetricsObserver(metrics),
       ),
-    { once: process.argv.includes('--once'), pollMs: options.pollMs },
+    {
+      once: process.argv.includes('--once'),
+      pollMs: options.pollMs,
+      // Keep publishing while there is work; wait OUTBOX_POLL_MS only after an idle iteration.
+      // Each wallet still sends one event per claim (aggregate order); see issue #27.
+      continueWhen: (published) => published > 0,
+    },
   );
 }
 main().catch((error: unknown) => {

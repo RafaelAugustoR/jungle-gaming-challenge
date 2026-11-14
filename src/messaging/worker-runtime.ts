@@ -1,7 +1,6 @@
 import type { SQSClient } from '@aws-sdk/client-sqs';
 import type { MikroORM } from '@mikro-orm/postgresql';
-import { setTimeout as delay } from 'node:timers/promises';
-import { WorkerBackoff } from './worker-backoff';
+import { workerLoop } from './worker-loop';
 import { loadConfig, type AppConfig } from '../config/config';
 import { openDatabase } from '../config/orm';
 import { createSqsClient } from '../config/sqs';
@@ -20,7 +19,13 @@ export async function runWorker(
     signal: AbortSignal;
     metrics: MetricsRegistry;
   }) => Promise<Runner>,
-  options: { once: boolean; pollMs: number; config?: AppConfig; onReady?: () => void },
+  options: {
+    once: boolean;
+    pollMs: number;
+    config?: AppConfig;
+    onReady?: () => void;
+    continueWhen?: (processed: number) => boolean;
+  },
 ) {
   const config = options.config ?? loadConfig(),
     orm = await openDatabase(config),
@@ -40,21 +45,16 @@ export async function runWorker(
     runner = await create({ orm, sqs, config, signal: shutdown.signal, metrics });
     logger.log({ event: 'worker_started', worker: name });
     options.onReady?.();
-    while (!shutdown.signal.aborted) {
-      let delayMs = options.pollMs;
-      try {
-        await runner.runOnce();
-      } catch (error) {
+    await workerLoop(runner, {
+      once: options.once,
+      pollMs: options.pollMs,
+      signal: shutdown.signal,
+      continueWhen: options.continueWhen,
+      onError: (error) => {
         metrics.retries.inc({ component: name, reason: 'iteration_error' });
         logger.error({ event: 'worker_iteration_failed', worker: name, error });
-        if (options.once) throw error;
-        if (error instanceof WorkerBackoff) delayMs = error.delayMs;
-        else delayMs = Math.max(1000, delayMs);
-      }
-      if (shutdown.signal.aborted || options.once) break;
-      if (delayMs > 0)
-        await delay(delayMs, undefined, { signal: shutdown.signal }).catch(() => undefined);
-    }
+      },
+    });
   } catch (error) {
     if (!shutdown.signal.aborted) throw error;
   } finally {

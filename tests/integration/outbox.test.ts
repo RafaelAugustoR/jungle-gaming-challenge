@@ -527,6 +527,98 @@ integration(
 );
 
 integration(
+  'production publisher drains one wallet backlog in order without waiting the poll interval per event',
+  async () => {
+    const wallet = await opening();
+    const { SubmitWagerTransaction } =
+      await import('../../src/modules/wagering/application/submit-wager-transaction');
+    const { WageringRepository } =
+      await import('../../src/modules/wagering/infrastructure/persistence/wagering-repository');
+    const submit = new SubmitWagerTransaction(
+      new WageringRepository(runtime, database.config),
+      new Set(['provider-a']),
+      new ReferenceRetryPolicy({ ttlMs: 900000, baseMs: 1000, maxMs: 30000 }),
+    );
+    for (let i = 0; i < 8; i++) {
+      const id = crypto.randomUUID();
+      await submit.execute(
+        {
+          providerId: 'provider-a',
+          externalTransactionId: id,
+          playerId: wallet.playerId,
+          walletId: wallet.id,
+          roundId: 'r',
+          gameId: 'g',
+          kind: 'BET',
+          money: Money.create('1.00', 'BRL'),
+        },
+        id,
+        { correlationId: crypto.randomUUID() },
+        { channel: 'http' },
+      );
+    }
+    const pending = async () =>
+      (
+        await runtime.em
+          .fork()
+          .execute(
+            'select count(*)::int n from wagering.outbox where aggregate_id=? and published_at is null',
+            [wallet.id],
+          )
+      )[0].n as number;
+    // Opening + (processed + balance changed) per BET, all heads of the same aggregate.
+    expect(await pending()).toBe(17);
+    const { CreateQueueCommand, DeleteQueueCommand } = await import('@aws-sdk/client-sqs');
+    const { createSqsClient } = await import('../../src/config/sqs');
+    const sqs = createSqsClient(database.config);
+    const name = `drain-${crypto.randomUUID()}.fifo`;
+    const queue = (
+      await sqs.send(new CreateQueueCommand({ QueueName: name, Attributes: { FifoQueue: 'true' } }))
+    ).QueueUrl!;
+    // A 5 s poll would need ~80 s if the worker slept after every productive iteration.
+    const child = Bun.spawn([process.execPath, 'src/bootstrap/outbox-publisher.ts'], {
+      cwd: new URL('../..', import.meta.url).pathname,
+      env: {
+        ...process.env,
+        DATABASE_URL: database.config.databaseUrl,
+        OUTBOX_QUEUE_NAME: name,
+        OUTBOX_POLL_MS: '5000',
+        METRICS_PORT: '0',
+      },
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    const output = Promise.all([
+      new Response(child.stdout).text(),
+      new Response(child.stderr).text(),
+    ]);
+    try {
+      const deadline = Date.now() + 8000;
+      while ((await pending()) > 0 && Date.now() < deadline) await Bun.sleep(50);
+      expect(await pending()).toBe(0);
+      const order = await runtime.em
+        .fork()
+        .execute(
+          'select sequence from wagering.outbox where aggregate_id=? order by published_at, sequence',
+          [wallet.id],
+        );
+      expect((order as { sequence: number }[]).map((row) => row.sequence)).toEqual(
+        Array.from({ length: 17 }, (_, i) => i + 1),
+      );
+    } finally {
+      child.kill('SIGTERM');
+      const code = await child.exited;
+      await sqs.send(new DeleteQueueCommand({ QueueUrl: queue }));
+      sqs.destroy();
+      const [out, error] = await output;
+      expect({ code, error }).toMatchObject({ code: 0 });
+      expect(out).toContain('worker_stopped');
+    }
+  },
+  30000,
+);
+
+integration(
   'only poison reaches DLQ while a valid event in the same FIFO group is acknowledged',
   async () => {
     const wallet = await opening();
