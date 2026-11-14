@@ -14,19 +14,19 @@ Isolamento: o projeto Compose foi `jungle-issue14`, com as portas 3010 (API), 55
 `172.31.24.0/24`. A remarcação foi feita por um override fora do repositório e por um `.env` com
 essas portas. Nenhum stack de outra sessão foi parado, reiniciado ou apagado.
 
-| Passo (comando documentado no README) | Resultado |
-| --- | --- |
-| `bun install --frozen-lockfile` | ok |
-| `bun run typecheck` · `bun run build` | ok |
-| `bun test` | 68 pass, 127 skip (precisam de containers), 0 fail |
-| `docker compose --profile events up -d --build` + health | ok; `/health/ready` `{"postgres":true,"sqs":true}` |
-| `bun run migrate:down` → `migrate:up` → `migrate:up` | ok (idempotente) |
-| `bun run test:integration` | 132 pass, 1 skip (navegador, executado à parte), 0 fail, 948 asserções, 135 s |
-| `bun run test:browser` (`CHROME_PATH=/usr/bin/google-chrome`) | 1 pass, 21 asserções |
-| `bun run test:recovery` | 4 fases concluídas (`completed: true`), 108 s |
-| `docker compose --profile test run --build --rm tests` | 175 pass, 20 skip, 0 fail |
-| `STACK_URL=… bun run test:stack` (API do Compose) | 1 pass, 14 asserções |
-| `bun run test:load` curto (hot-wallet, 20 ops/s, 5 s, 1 API) | `invariants=ok`, 0 erros. Só valida o comando; o benchmark completo da #13 não foi repetido |
+| Passo (comando documentado no README)                         | Resultado                                                                                   |
+| ------------------------------------------------------------- | ------------------------------------------------------------------------------------------- |
+| `bun install --frozen-lockfile`                               | ok                                                                                          |
+| `bun run typecheck` · `bun run build`                         | ok                                                                                          |
+| `bun test`                                                    | 68 pass, 127 skip (precisam de containers), 0 fail                                          |
+| `docker compose --profile events up -d --build` + health      | ok; `/health/ready` `{"postgres":true,"sqs":true}`                                          |
+| `bun run migrate:down` → `migrate:up` → `migrate:up`          | ok (idempotente)                                                                            |
+| `bun run test:integration`                                    | 132 pass, 1 skip (navegador, executado à parte), 0 fail, 948 asserções, 135 s               |
+| `bun run test:browser` (`CHROME_PATH=/usr/bin/google-chrome`) | 1 pass, 21 asserções                                                                        |
+| `bun run test:recovery`                                       | 4 fases concluídas (`completed: true`), 108 s                                               |
+| `docker compose --profile test run --build --rm tests`        | 175 pass, 20 skip, 0 fail                                                                   |
+| `STACK_URL=… bun run test:stack` (API do Compose)             | 1 pass, 14 asserções                                                                        |
+| `bun run test:load` curto (hot-wallet, 20 ops/s, 5 s, 1 API)  | `invariants=ok`, 0 erros. Só valida o comando; o benchmark completo da #13 não foi repetido |
 
 Notas:
 
@@ -63,11 +63,11 @@ o teste de navegador continue usando uma API em processo.
   [matriz](../../requirements-matrix.md#falhas-eliminatórias-14).
 - **Revisão independente:** um revisor sem acesso às conclusões desta sessão leu o código contra o
   README original, a spec e as ADRs. Não encontrou bloqueios. Os achados foram tratados assim:
-  - *Should-fix:* os testes **unitários** do §13 não cobriam REFUND/ROLLBACK bem-sucedidos nem
+  - _Should-fix:_ os testes **unitários** do §13 não cobriam REFUND/ROLLBACK bem-sucedidos nem
     `REVERSAL_INSUFFICIENT_FUNDS`, que só existiam em integração. Foram acrescentados em
     `tests/unit/settlement.test.ts`, cobrindo REFUND→BET, ROLLBACK→BET, ROLLBACK→WIN e
     ROLLBACK→REFUND, com saldo, versão e direção do evento, além da rejeição sem efeito.
-  - *Menores:* a forma do `IntegrationEvent` difere do esqueleto (o envelope serializado é idêntico)
+  - _Menores:_ a forma do `IntegrationEvent` difere do esqueleto (o envelope serializado é idêntico)
     e a matriz de tipos de referência é validada apenas no domínio. Os dois pontos ficaram
     documentados em [ARCHITECTURE.md](../../../ARCHITECTURE.md#desvios-de-forma-em-relação-aos-esqueletos-do-readme),
     sem refatoração.
@@ -83,38 +83,42 @@ A configuração em [deploy/hosted](../../../deploy/hosted/README.md) foi execut
 projeto `jungle-issue14-hosted`, com `DEMO_ORIGIN=https://demo.localhost:8443`,
 `AUTH_ORIGIN=https://auth.localhost:8443` e TLS interno do Caddy, publicado só em loopback:
 
-| Verificação | Resultado |
-| --- | --- |
-| `GET /`, `/health/ready` (HTTPS) | 200 |
-| `http://` | 308 → `https://` |
-| `/internal/metrics` | 404 no proxy |
-| Keycloak `/realms/jungle/.well-known/openid-configuration` | 200, issuer `https://auth.localhost:8443/realms/jungle` |
-| Keycloak `/admin/`, `/admin/master/console/`, `/realms/master/`, `/metrics`, `/health` | 404 |
-| Portas publicadas | somente Caddy; PostgreSQL, SQS, Keycloak e workers sem publicação, em rede `internal` |
-| HSTS / `nosniff` | presentes |
-| `test:stack` com a senha gerada | 1 pass: login PKCE, disputa, replay, REFUND fora de ordem resolvido pelo worker e reconciliação `consistent` |
-| Mesma senha local `demo-only` | recusada pelo Keycloak |
-| Navegador | Login redirecionado para `https://auth.localhost:8443/realms/jungle/…` e console autenticado como `demo-operator` ([captura](hosted-console-https.png)) |
+| Verificação                                                                            | Resultado                                                                                                                                               |
+| -------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /`, `/health/ready` (HTTPS)                                                       | 200                                                                                                                                                     |
+| `http://`                                                                              | 308 → `https://`                                                                                                                                        |
+| `/internal/metrics`                                                                    | 404 no proxy                                                                                                                                            |
+| Keycloak `/realms/jungle/.well-known/openid-configuration`                             | 200, issuer `https://auth.localhost:8443/realms/jungle`                                                                                                 |
+| Keycloak `/admin/`, `/admin/master/console/`, `/realms/master/`, `/metrics`, `/health` | 404                                                                                                                                                     |
+| Portas publicadas                                                                      | somente Caddy; PostgreSQL, SQS, Keycloak e workers sem publicação, em rede `internal`                                                                   |
+| HSTS / `nosniff`                                                                       | presentes                                                                                                                                               |
+| `test:stack` com a senha gerada                                                        | 1 pass: login PKCE, disputa, replay, REFUND fora de ordem resolvido pelo worker e reconciliação `consistent`                                            |
+| Mesma senha local `demo-only`                                                          | recusada pelo Keycloak                                                                                                                                  |
+| Navegador                                                                              | Login redirecionado para `https://auth.localhost:8443/realms/jungle/…` e console autenticado como `demo-operator` ([captura](hosted-console-https.png)) |
 
 O `.env` gerado e o realm renderizado foram apagados depois do teste. **Nada foi publicado
 externamente**; as decisões pendentes estão em [submission.md](../../submission.md).
 
 ## Vídeo
 
-[`demo.mp4`](demo.mp4) tem 1 min 57 s, 1280×800 e não tem áudio (as legendas fazem a narração). Foi
-gravado com `bun run demo:record` contra o stack isolado acima, seguindo o
-[roteiro](../../demo-script.md). [`demo-run.json`](demo-run.json) guarda os dados reais da
-execução (2026-11-14 17:08–17:10 UTC, wallet `e360182a-9ca7-41ff-82ad-33e22a878403`):
+[`demo.mp4`](demo.mp4) tem 3 min 52 s, 1280×800, **narração em pt-BR** e legendas pt-BR como faixa
+selecionável ([`demo.srt`](demo.srt)). A gravação original em 1920×1200 fica fora do Git
+(`artifacts/demo/`). Foi produzido pelo pipeline do [roteiro](../../demo-script.md): narração
+sintetizada (`edge-tts`, voz `pt-BR-AntonioNeural`), console real conduzido pelo Playwright no ritmo
+de cada fala, e mixagem com ffmpeg que remove esperas mudas do stack (nesta execução o consumidor
+SQS voltou sem espera, então nada foi cortado) e normaliza o áudio em −16 LUFS.
+[`demo-run.json`](demo-run.json) guarda os dados reais da execução (2026-11-14 20:42–20:46 UTC, wallet `4cdf1c6a-de60-493a-9555-03a279aa3753`):
 
-| Cena | Resultado registrado |
-| --- | --- |
-| Disputa (2 × BET 80.00 sobre 100.00) | `200 PROCESSED` e `422 REJECTED INSUFFICIENT_FUNDS`; saldo 20.00 |
-| Replay (BET 5.00 duas vezes, mesma chave) | Mesmo `transactionId`; `idempotentReplay` false/true; saldo 15.00 |
-| `docker compose kill reference-worker` + REFUND fora de ordem | Recibo `202 PENDING_REFERENCE`; a BET referenciada debita (10.00); o REFUND segue `PENDING_REFERENCE` com o worker morto |
-| `docker compose start reference-worker` | REFUND `PROCESSED`; saldo 15.00; o detalhe mostra o recibo 202 original ao lado do estado atual |
-| `docker compose kill command-consumer` + BET 10.00 via SQS | 1 mensagem na fila; depois do `start`, `PROCESSED`, saldo 5.00, versão 6 |
-| Reentrega com outro `messageId` | Saldo 5.00 e versão 6 inalterados |
-| Reconciliação | `consistent: true`; registrado = reconstruído = 5.00; diferença 0.00; 6 lançamentos |
+| Cena                                                                    | Resultado registrado                                                                            |
+| ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
+| Prova 1 · Disputa (2 × BET 80,00 sobre 100,00)                          | `200 PROCESSED` e `422 REJECTED INSUFFICIENT_FUNDS`; saldo 20,00                                |
+| Prova 2 · Replay (BET 5,00 duas vezes, mesma chave)                     | Mesmo `transactionId`; `idempotentReplay` false/true; saldo 15,00                               |
+| Prova 3 · Fora de ordem (worker ativo)                                  | REFUND `202 PENDING_REFERENCE` no aceite, `PROCESSED` no estado atual; saldo 15,00              |
+| Prova 4 · `docker compose kill reference-worker` + REFUND fora de ordem | O REFUND segue `PENDING_REFERENCE` com o worker morto                                           |
+| `docker compose start reference-worker`                                 | REFUND `PROCESSED` após a retomada, 17,4 s depois do aceite; carimbo "Garantia mantida"         |
+| `docker compose kill command-consumer` + BET 10,00 via SQS              | 1 mensagem na fila; depois do `start`, `PROCESSED`, saldo 5,00, versão 8                        |
+| Reentrega com outro `messageId`                                         | Saldo 5,00 e versão 8 inalterados                                                               |
+| Prova 5 · Reconciliação                                                 | `consistent: true`; registrado = reconstruído = 5,00; diferença 0,00; 8 lançamentos; placar 5/5 |
 
 O vídeo está versionado apenas neste repositório privado. A forma de disponibilizá-lo aos
 avaliadores ainda precisa de decisão ([submission.md](../../submission.md)). A morte depois do

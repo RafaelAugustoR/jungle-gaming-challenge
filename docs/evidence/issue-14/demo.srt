@@ -1,0 +1,87 @@
+1
+00:00:00,593 --> 00:00:07,433
+Este é o Lastro, o console de prova do processador de apostas que construímos para o desafio de backend.
+
+2
+00:00:08,135 --> 00:00:19,583
+Tudo roda no stack local real: API, workers, PostgreSQL, SQS e Keycloak. O health check confirma banco e fila prontos.
+
+3
+00:00:20,037 --> 00:00:29,253
+Entramos pelo Keycloak com Authorization Code e PKCE, como demo-operator, o perfil que cria wallets e executa as provas.
+
+4
+00:00:29,703 --> 00:00:37,815
+Criamos uma wallet fictícia com R$ 100,00. O saldo inicial entra no ledger como lançamento de abertura.
+
+5
+00:00:38,270 --> 00:00:50,438
+Prova 1: o saldo nunca fica negativo. Duas apostas de 80% do saldo chegam ao mesmo tempo, com chaves diferentes.
+
+6
+00:00:50,893 --> 00:01:02,773
+Uma foi aceita com HTTP 200; a outra, recusada por saldo insuficiente. Um único débito: o saldo terminou em R$ 20,00.
+
+7
+00:01:03,223 --> 00:01:15,559
+Cada operação vira um bilhete: o recibo original fica no canhoto; o estado atual, consultado por GET, na via de validação.
+
+8
+00:01:16,009 --> 00:01:24,385
+Prova 2: idempotência. A mesma aposta é enviada duas vezes em paralelo, com a mesma chave.
+
+9
+00:01:24,840 --> 00:01:33,648
+As duas respostas apontam para a mesma transação, e o segundo recibo é um replay. O débito aconteceu uma vez só.
+
+10
+00:01:34,098 --> 00:01:39,234
+Prova 3: um estorno que chega antes da aposta que ele referencia.
+
+11
+00:01:39,682 --> 00:01:53,434
+O canhoto guarda o aceite original: 202, aguardando referência. A validação mostra que ele foi processado quando a aposta chegou.
+
+12
+00:01:53,885 --> 00:02:01,925
+Prova 4: falha de processo. No terminal, derrubamos o worker de referências com SIGKILL.
+
+13
+00:02:02,377 --> 00:02:16,609
+Sem o worker, o estorno fica pendente, e o cronômetro mostra há quanto tempo. A agenda de novas tentativas está no PostgreSQL, não na memória.
+
+14
+00:02:17,061 --> 00:02:19,677
+Subimos o worker de novo.
+
+15
+00:02:23,430 --> 00:02:35,022
+Ele retoma o trabalho pendente e processa o estorno. A prova só vale porque a pendência durou mais que o ciclo normal do worker.
+
+16
+00:02:35,472 --> 00:02:44,592
+O mesmo vale para a fila: derrubamos o consumidor de comandos e publicamos uma aposta de R$ 10,00 direto no SQS.
+
+17
+00:02:49,831 --> 00:02:56,527
+A mensagem espera na fila. Quando o consumidor volta, a aposta é processada.
+
+18
+00:02:56,980 --> 00:03:06,820
+Reenviamos a mesma operação com outro messageId: a inbox e a idempotência persistentes não repetem o débito.
+
+19
+00:03:07,272 --> 00:03:14,184
+No ledger, um único lançamento de R$ 10,00, e o saldo corrente fecha com o saldo da wallet.
+
+20
+00:03:14,634 --> 00:03:24,114
+Prova 5: reconciliação. O servidor reconstrói o saldo somando o ledger imutável e compara com o saldo registrado.
+
+21
+00:03:24,564 --> 00:03:34,068
+Registrado e reconstruído são iguais, diferença zero. Cinco de cinco garantias mantidas, com os dados desta execução.
+
+22
+00:03:34,519 --> 00:03:48,055
+A morte do processo entre o commit e o ack é provada pelos testes automatizados de recuperação. Código, arquitetura e testes estão no repositório.

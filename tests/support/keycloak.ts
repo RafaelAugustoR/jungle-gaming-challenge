@@ -140,7 +140,8 @@ export async function allowConsoleRedirect(baseUrl: string) {
   };
   const previousRedirects = client.redirectUris;
   const previousOrigins = client.webOrigins;
-  await update([...previousRedirects, baseUrl], [...previousOrigins, baseUrl]);
+  // The console keeps deep links (?wallet=…) across login, so allow paths under the base too.
+  await update([...previousRedirects, baseUrl, `${baseUrl}/*`], [...previousOrigins, baseUrl]);
   return async () => update(previousRedirects, previousOrigins);
 }
 

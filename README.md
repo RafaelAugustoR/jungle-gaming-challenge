@@ -71,15 +71,25 @@ com `docker compose up -d --scale command-consumer=3` (ou `outbox-publisher`); a
 
 ### Roteiro de avaliação em 5 minutos
 
-1. Abra http://localhost:3000, entre como `demo-operator` e crie uma wallet com `100.00 BRL`.
-2. Em **Executar cenário**, rode **Disputa pelo saldo**: duas BET de 80 em paralelo, uma `PROCESSED`
-   e outra `REJECTED` com `INSUFFICIENT_FUNDS`; saldo final `20.00`.
-3. Rode **Repetição idempotente**: a mesma chave duas vezes em paralelo gera um único débito e um
+O console se chama **Lastro · Console de prova**. Cada operação aparece como um bilhete: o recibo
+original imutável fica no canhoto, o estado atual consultado por GET fica na via de validação, e o
+veredito de cada prova vem num carimbo calculado com os dados daquela execução.
+
+1. Abra http://localhost:3000, entre como `demo-operator` e crie uma wallet com R$ 100,00.
+2. **Prova 1 · Disputa pelo saldo.** Duas BETs de 80% do saldo em paralelo: uma `PROCESSED` e outra
+   `REJECTED` com `INSUFFICIENT_FUNDS`; saldo final R$ 20,00.
+3. **Prova 2 · Repetição idempotente.** A mesma chave duas vezes em paralelo gera um único débito e um
    recibo com `idempotentReplay: true`.
-4. Rode **Referência fora de ordem**: o REFUND chega antes da BET, recebe `202 PENDING_REFERENCE` e o
-   `reference-worker` o conclui; o console mostra o recibo original ao lado do estado atual.
-5. Clique em **Reconciliar ledger**: `storedBalance = calculatedBalance` e `consistent: true`.
-6. Opcional: abra o dashboard **Jungle Gaming Operations** no Grafana.
+4. **Prova 3 · Referência fora de ordem.** O REFUND chega antes da BET e recebe `202 PENDING_REFERENCE`
+   no canhoto; o `reference-worker` o conclui e a validação mostra `PROCESSED`.
+5. **Prova 4 · Recuperação após falha.** `docker compose kill reference-worker`, execute a prova, espere
+   alguns segundos com o REFUND pendente e `docker compose start reference-worker`. A prova só é dada
+   como mantida se a pendência durou mais que o ciclo normal do worker (5 s).
+6. **Prova 5 · Reconciliação.** O saldo reconstruído do ledger é igual ao registrado; o placar fecha em
+   5/5 e a aba **Ledger** mostra o saldo corrente fechando com a wallet.
+7. `operator` (reconcilia) e `viewer` (só consulta) abrem bilhetes e ledger pelo ID da wallet ou por
+   link direto: `http://localhost:3000/?wallet=<id>&view=ledger`.
+8. Opcional: abra o dashboard **Jungle Gaming Operations** no Grafana.
 
 O roteiro do vídeo, com falha e recuperação de processos, está em [docs/demo-script.md](docs/demo-script.md).
 
@@ -117,7 +127,7 @@ bun run worker:events
 | `bun run test:integration`                             | `tests/integration`, `tests/concurrency` e `tests/recovery`; grava evidências em `artifacts/` (usado na CI)                                       | PostgreSQL, SQS, Keycloak  |
 | `bun run test:concurrency`                             | 50 duplicatas, disputa 100→80+80, wallets independentes, 3 processos API, reversões concorrentes                                                  | PostgreSQL, Keycloak       |
 | `bun run test:recovery`                                | 4 fases: migrations/constraints, concorrência, entrega/recuperação e roteiro integrado com SIGKILL e restart; evidência em `artifacts/recovery/`  | PostgreSQL, SQS, Keycloak  |
-| `bun run test:browser`                                 | Build do console + login PKCE, permissões e cenário completo no navegador                                                                         | Keycloak, Chromium         |
+| `bun run test:browser`                                 | Build do console + login PKCE, as 5 provas, link direto e perfil somente leitura                                                                  | Keycloak, Chromium         |
 | `bun run test:load`                                    | Carga com 1 e 3 APIs em 3 cenários (≈15 min no padrão); falha se algum invariante quebrar. Opções em [docs/load-testing.md](docs/load-testing.md) | PostgreSQL, SQS, Keycloak  |
 | `STACK_URL=http://localhost:3000 bun run test:stack`   | Smoke caixa-preta de um stack em execução (`STACK_USER`/`STACK_PASSWORD`, padrão `demo-operator`/`demo-only`)                                     | stack Compose ou hospedado |
 | `docker compose --profile test run --build --rm tests` | `bun test` com `INTEGRATION=1` dentro de um container                                                                                             | Compose                    |

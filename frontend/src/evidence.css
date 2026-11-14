@@ -1,0 +1,130 @@
+/* Evidence pages: tickets list and ledger table. */
+.empty {
+  padding: 24px;
+  border: 1px dashed var(--rule-strong);
+  color: var(--ink-2);
+}
+.loading {
+  padding: 12px 0;
+}
+.more {
+  margin-top: 16px;
+}
+.table-wrap {
+  overflow-x: auto;
+  border: 1px solid var(--rule);
+  background: var(--sheet);
+}
+table {
+  width: 100%;
+  border-collapse: collapse;
+}
+th,
+td {
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--rule);
+  text-align: left;
+  white-space: nowrap;
+}
+thead th {
+  font-size: 12px;
+  font-stretch: 72%;
+  font-weight: 750;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--ink-2);
+  background: var(--paper);
+}
+th.num,
+td.num {
+  text-align: right;
+}
+.kind-tag {
+  padding: 1px 6px;
+  border: 1px solid var(--rule-strong);
+  font-size: 12px;
+  font-weight: 700;
+  font-stretch: 75%;
+  letter-spacing: 0.04em;
+}
+td.debit {
+  color: var(--void);
+}
+td.credit {
+  color: var(--held);
+}
+td.running {
+  font-weight: 650;
+}
+tfoot th,
+tfoot td {
+  border-bottom: 0;
+  font-weight: 700;
+}
+tfoot th {
+  text-align: right;
+}
+tr.closes {
+  background: var(--held-bg);
+  color: var(--held);
+}
+tr.diverges {
+  background: var(--void-bg);
+  color: var(--void);
+}
+@media (max-width: 640px) {
+  table.ledger thead {
+    display: none;
+  }
+  table.ledger,
+  table.ledger tbody,
+  table.ledger tfoot {
+    display: block;
+  }
+  table.ledger tbody tr {
+    display: grid;
+    grid-template-columns: auto 1fr auto;
+    gap: 4px 12px;
+    padding: 12px 14px;
+    border-bottom: 1px solid var(--rule);
+  }
+  table.ledger td {
+    padding: 0;
+    border: 0;
+    white-space: normal;
+  }
+  table.ledger td[data-label='Versão']::before {
+    content: 'v';
+    color: var(--ink-2);
+  }
+  table.ledger td.ext {
+    grid-column: 1 / -1;
+    grid-row: 2;
+    overflow-wrap: anywhere;
+  }
+  table.ledger td.debit:empty,
+  table.ledger td.credit:empty {
+    display: none;
+  }
+  table.ledger td.running {
+    grid-column: 1 / -1;
+    text-align: left;
+    color: var(--ink-2);
+    font-weight: 500;
+  }
+  table.ledger td.running::before {
+    content: 'Saldo após ';
+  }
+  table.ledger tfoot tr {
+    display: flex;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 12px 14px;
+  }
+  table.ledger tfoot th,
+  table.ledger tfoot td {
+    padding: 0;
+    white-space: normal;
+    text-align: left;
+  }
+}
