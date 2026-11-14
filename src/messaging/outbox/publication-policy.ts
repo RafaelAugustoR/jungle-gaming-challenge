@@ -13,12 +13,8 @@ export function retryDelay(
   );
   return Math.floor(maximum * (0.5 + Math.min(1, Math.max(0, random)) / 2));
 }
-export function publicationFailure(
-  error: unknown,
-  attempts: number,
-  options: RetryOptions,
-  random = Math.random(),
-) {
+/** Classifies a send failure; the retry delay belongs to OutboxMessage.scheduleRetry. */
+export function publicationFailure(error: unknown) {
   const name = error instanceof Error ? error.name : '';
   return {
     code: /^[A-Za-z0-9_]{1,100}$/.test(name) ? name : 'PublishError',
@@ -31,7 +27,6 @@ export function publicationFailure(
       'InvalidParameterValue',
       'UnsupportedOperation',
     ].includes(name),
-    delayMs: retryDelay(attempts, options, random),
   };
 }
 

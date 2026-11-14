@@ -21,37 +21,66 @@ function pending() {
     createdAt: at,
   });
 }
+type Transition = (transaction: WagerTransaction) => void;
+const toProcessed: Transition = (t) => t.markProcessed(undefined, at);
+const toRejected: Transition = (t) => t.reject('INSUFFICIENT_FUNDS');
+const toFailed: Transition = (t) => t.fail('INSUFFICIENT_FUNDS');
+const toPendingReference: Transition = (t) => t.markPendingReference();
+const allTransitions = [toPendingReference, toProcessed, toRejected, toFailed];
+
 test('accepted transactions transition once to terminal states and cannot be reopened', () => {
-  for (const status of ['PROCESSED', 'REJECTED', 'FAILED'] as const) {
+  const cases = [
+    [toProcessed, { status: 'PROCESSED', processedAt: at }],
+    [toRejected, { status: 'REJECTED', failureCode: 'INSUFFICIENT_FUNDS' }],
+    [toFailed, { status: 'FAILED', failureCode: 'INSUFFICIENT_FUNDS' }],
+  ] as const;
+  for (const [move, expected] of cases) {
     const transaction = pending();
     expect(transaction.toProps()).toMatchObject({ status: 'PENDING' });
-    transaction.transition(status, status === 'PROCESSED' ? undefined : 'INSUFFICIENT_FUNDS');
-    expect(transaction.toProps()).toMatchObject({
-      status,
-      ...(status === 'PROCESSED' ? {} : { failureCode: 'INSUFFICIENT_FUNDS' }),
-    });
+    expect(transaction.isTerminal()).toBe(false);
+    move(transaction);
+    expect(transaction.toProps()).toMatchObject(expected);
+    expect(transaction.isTerminal()).toBe(true);
     const restored = WagerTransaction.rehydrate(transaction.toProps());
-    for (const next of ['PENDING_REFERENCE', 'PROCESSED', 'REJECTED', 'FAILED'] as const)
-      expect(() =>
-        restored.transition(
-          next,
-          next === 'REJECTED' || next === 'FAILED' ? 'INSUFFICIENT_FUNDS' : undefined,
-        ),
-      ).toThrow('INVALID_TRANSACTION_TRANSITION');
+    expect(restored.isTerminal()).toBe(true);
+    for (const next of allTransitions)
+      expect(() => next(restored)).toThrow('INVALID_TRANSACTION_TRANSITION');
+    expect(restored.toProps()).toMatchObject(expected);
   }
 });
+
 test('pending reference has one entry transition and terminal failures require a code', () => {
   const transaction = pending();
-  expect(() => transaction.transition('REJECTED')).toThrow('INVALID_TRANSACTION_TRANSITION');
-  expect(() => transaction.transition('PROCESSED', 'INSUFFICIENT_FUNDS')).toThrow(
-    'INVALID_TRANSACTION_TRANSITION',
-  );
-  transaction.transition('PENDING_REFERENCE');
-  expect(() => transaction.transition('PENDING_REFERENCE')).toThrow(
-    'INVALID_TRANSACTION_TRANSITION',
-  );
-  transaction.transition('PROCESSED');
-  expect(transaction.toProps()).toMatchObject({ status: 'PROCESSED' });
+  expect(() => transaction.reject(undefined as never)).toThrow('INVALID_TRANSACTION_TRANSITION');
+  expect(() => transaction.fail('' as never)).toThrow('INVALID_TRANSACTION_TRANSITION');
+  transaction.markPendingReference();
+  expect(transaction.isTerminal()).toBe(false);
+  expect(() => transaction.markPendingReference()).toThrow('INVALID_TRANSACTION_TRANSITION');
+  transaction.markProcessed('reference-id', at);
+  expect(transaction.toProps()).toMatchObject({
+    status: 'PROCESSED',
+    referenceTransactionId: 'reference-id',
+    processedAt: at,
+  });
+});
+
+test('a pending reference may still be rejected with its resolved reference or fail', () => {
+  const rejected = pending();
+  rejected.markPendingReference();
+  rejected.reject('REFERENCE_NOT_PROCESSED', 'reference-id');
+  expect(rejected.toProps()).toMatchObject({
+    status: 'REJECTED',
+    failureCode: 'REFERENCE_NOT_PROCESSED',
+    referenceTransactionId: 'reference-id',
+  });
+  expect(rejected.toProps().processedAt).toBeUndefined();
+  const failed = WagerTransaction.rehydrate({
+    ...pending().toProps(),
+    status: 'PENDING_REFERENCE',
+  });
+  failed.fail('REFERENCE_NOT_READY');
+  expect(failed.toProps()).toMatchObject({ status: 'FAILED', failureCode: 'REFERENCE_NOT_READY' });
+  expect(() => failed.markProcessed(undefined, at)).toThrow('INVALID_TRANSACTION_TRANSITION');
 });
 
 test('transaction owns canonical identity, its historical receipt and typed result event', () => {

@@ -60,6 +60,8 @@ export class OutboxPublisher {
         { abortSignal: AbortSignal.timeout(this.options.sendTimeoutMs) },
       );
       await this.observer.sent?.(event);
+      // The domain validates the transition; the lease-guarded UPDATE stays authoritative.
+      event.message.markPublished(new Date().toISOString());
       const confirmed = await this.repository.confirm(event.eventId, event.token);
       if (!confirmed)
         this.logger.warn({
@@ -96,11 +98,8 @@ export class OutboxPublisher {
           /* Ambiguous diagnosis remains retryable; never block on configuration failure. */
         }
       }
-      const { code, blocked, delayMs, pauseWorker } = publicationFailure(
-        failure,
-        event.attempts,
-        this.options,
-      );
+      const { code, blocked, pauseWorker } = publicationFailure(failure);
+      const delayMs = event.message.scheduleRetry(new Date().toISOString(), this.options);
       this.observer.retryScheduled?.(blocked ? 'blocked' : 'retryable');
       await this.repository.fail(event.eventId, event.token, code, delayMs, blocked);
       this.logger.warn({

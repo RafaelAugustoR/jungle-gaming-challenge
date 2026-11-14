@@ -1,5 +1,7 @@
 import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
 import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
+import { InboxMessage } from '../../../../messaging/domain/inbox-message';
+import { OutboxMessage } from '../../../../messaging/domain/outbox-message';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
 import type { AppConfig } from '../../../../config/config';
@@ -235,12 +237,13 @@ export class WageringRepository implements WageringStore {
       const last = pageRows.at(-1);
       return {
         transactions: pageRows.map(transactionView),
-        next: hasMore && first && last
-          ? {
-              createdAt: last.cursor_created_at,
-              id: last.id,
-            }
-          : null,
+        next:
+          hasMore && first && last
+            ? {
+                createdAt: last.cursor_created_at,
+                id: last.id,
+              }
+            : null,
       };
     });
   }
@@ -248,9 +251,7 @@ export class WageringRepository implements WageringStore {
     return databaseOperation(async () => {
       const [row] = await this.orm.em
         .fork()
-        .execute<
-          TransactionRow[]
-        >(`${transactionViewSelect} where ${where}`, params);
+        .execute<TransactionRow[]>(`${transactionViewSelect} where ${where}`, params);
       return row && transactionView(row);
     });
   }
@@ -289,17 +290,38 @@ class PostgresWageringSession implements WageringSession {
     await this.budget();
     return this.em.execute<T>(sql, params);
   }
-  async recordInbox(inbox: Parameters<WageringSession['recordInbox']>[0], transactionId: string) {
+  async recordInbox(message: InboxMessage) {
+    // The inbox only records messages whose effect commits in this same transaction.
+    if (!message.isProcessed() || !message.transactionId)
+      throw new Error('Inbox message must be processed before it is recorded');
     const inserted = await this.execute(
       `insert into messaging.command_inbox(consumer_name,message_id,request_hash,transaction_id) values(?,?,?,?) on conflict do nothing returning 1`,
-      [inbox.consumerName, inbox.messageId, inbox.hash, transactionId],
+      [message.consumerName, message.messageId, message.payloadHash, message.transactionId],
     );
     if (inserted.length) return;
-    const [row] = await this.execute<{ request_hash: string }[]>(
-      'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
-      [inbox.consumerName, inbox.messageId],
+    const [row] = await this.execute<
+      {
+        consumer_name: string;
+        message_id: string;
+        request_hash: string;
+        transaction_id: string;
+        received_at: Date;
+      }[]
+    >(
+      'select consumer_name,message_id,request_hash,transaction_id,received_at from messaging.command_inbox where consumer_name=? and message_id=?',
+      [message.consumerName, message.messageId],
     );
-    if (row?.request_hash !== inbox.hash) throw new InboxConflict();
+    const recorded =
+      row &&
+      InboxMessage.rehydrate({
+        consumerName: row.consumer_name,
+        messageId: row.message_id,
+        payloadHash: row.request_hash,
+        receivedAt: new Date(row.received_at).toISOString(),
+        processedAt: new Date(row.received_at).toISOString(),
+        transactionId: row.transaction_id,
+      });
+    if (!recorded?.matchesPayload(message.payloadHash)) throw new InboxConflict();
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<
@@ -518,16 +540,18 @@ class PostgresWageringSession implements WageringSession {
     let sequence = last!.sequence;
     for (const event of [input.change?.event, transaction.resultEvent]) {
       if (!event) continue;
-      const envelope = event.toJSON();
+      const message = OutboxMessage.enqueue(event);
+      // Wallet events are partitioned by wallet; a mismatch would break per-aggregate order.
+      if (message.aggregateId !== wallet.id) throw new Error('Outbox aggregate mismatch');
       await this.execute(
         'insert into wagering.outbox(event_id,aggregate_id,transaction_id,sequence,event_type,payload,occurred_at) values(?,?,?,?,?,?::jsonb,?)',
         [
-          envelope.eventId,
-          wallet.id,
+          message.eventId,
+          message.aggregateId,
           transaction.id,
           ++sequence,
-          envelope.eventType,
-          JSON.stringify(envelope),
+          message.eventType,
+          JSON.stringify(message.payload),
           occurredAt,
         ],
       );
