@@ -191,9 +191,9 @@ curl -s http://localhost:3000/wagering/transactions \
 | --------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
 | 200                   | `PROCESSED`; repetir a mesma requisição devolve o mesmo recibo com `idempotentReplay: true`                                           |
 | 202                   | `PENDING_REFERENCE`: referência ainda ausente; o `reference-worker` conclui ou expira (TTL 15 min)                                    |
-| 422                   | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `CURRENCY_MISMATCH`)                                                         |
+| 422                   | `REJECTED` com `failureCode` (ex.: `INSUFFICIENT_FUNDS`, `REVERSAL_INSUFFICIENT_FUNDS`)                                               |
 | 409                   | `IDEMPOTENCY_CONFLICT` (mesma chave, corpo diferente) ou `EXTERNAL_TRANSACTION_CONFLICT` (outra chave, mesmo `externalTransactionId`) |
-| 400 / 401 / 403 / 404 | Payload inválido / sem token válido / sem permissão ou provedor errado / recurso inexistente                                          |
+| 400 / 401 / 403 / 404 | Payload inválido (inclui `CURRENCY_MISMATCH`; nada é gravado e a chave não é consumida) / sem token / sem permissão / inexistente   |
 | 503                   | `INFRASTRUCTURE_UNAVAILABLE`: nada foi gravado e a chave não foi consumida; repita com a mesma chave                                  |
 
 Os `failureCode` estáveis e o mapeamento completo para HTTP estão em [ARCHITECTURE.md](ARCHITECTURE.md)
