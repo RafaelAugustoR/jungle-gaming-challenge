@@ -33,6 +33,8 @@ const env: Record<string, string> = {
   AUTH_ORIGIN: origin('AUTH_ORIGIN'),
   CADDY_GLOBAL_OPTIONS: process.env.CADDY_GLOBAL_OPTIONS ?? existing.CADDY_GLOBAL_OPTIONS ?? '',
 };
+env.DEMO_HOST = new URL(env.DEMO_ORIGIN).hostname;
+env.AUTH_HOST = new URL(env.AUTH_ORIGIN).hostname;
 // Secrets are generated once and preserved; none of them reuse the local demo credentials.
 for (const key of [
   'POSTGRES_PASSWORD',

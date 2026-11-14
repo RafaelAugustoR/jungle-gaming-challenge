@@ -1,0 +1,78 @@
+# Overlay for an existing Coolify/Traefik edge. Build locally and load the image on the host.
+x-runtime: &runtime
+  image: ${JUNGLE_IMAGE:-jungle-demo:local}
+services:
+  caddy:
+    ports: !reset []
+    networks: !override [internal, coolify]
+    environment:
+      DEMO_HOST: ${DEMO_HOST:?run prepare.ts}
+      AUTH_HOST: ${AUTH_HOST:?run prepare.ts}
+    volumes:
+      - ./Caddyfile.traefik:/etc/caddy/Caddyfile:ro
+    mem_limit: 64m
+    cpus: 0.25
+    labels:
+      traefik.enable: 'true'
+      traefik.docker.network: ${TRAEFIK_NETWORK:-coolify}
+      traefik.http.routers.jungle-demo-http.rule: Host(`${DEMO_HOST}`) || Host(`${AUTH_HOST}`)
+      traefik.http.routers.jungle-demo-http.entrypoints: http
+      traefik.http.routers.jungle-demo-http.middlewares: jungle-demo-https
+      traefik.http.routers.jungle-demo-http.service: jungle-demo-ingress
+      traefik.http.middlewares.jungle-demo-https.redirectscheme.scheme: https
+      traefik.http.middlewares.jungle-demo-https.redirectscheme.permanent: 'true'
+      traefik.http.routers.jungle-demo.rule: Host(`${DEMO_HOST}`) || Host(`${AUTH_HOST}`)
+      traefik.http.routers.jungle-demo.entrypoints: https
+      traefik.http.routers.jungle-demo.tls: 'true'
+      traefik.http.routers.jungle-demo.tls.certresolver: letsencrypt
+      traefik.http.routers.jungle-demo.service: jungle-demo-ingress
+      traefik.http.services.jungle-demo-ingress.loadbalancer.server.port: '8080'
+  postgres:
+    mem_limit: 384m
+    cpus: 0.5
+  sqs:
+    mem_limit: 768m
+    cpus: 0.75
+  keycloak:
+    networks:
+      internal:
+        aliases: [jungle-demo-keycloak]
+    mem_limit: 1024m
+    cpus: 1
+    healthcheck:
+      start_period: 120s
+  migrate:
+    <<: *runtime
+    mem_limit: 256m
+    cpus: 0.5
+  provision-queues:
+    <<: *runtime
+    mem_limit: 256m
+    cpus: 0.5
+  api:
+    <<: *runtime
+    networks:
+      internal:
+        aliases: [jungle-demo-api]
+    mem_limit: 384m
+    cpus: 0.5
+  reference-worker:
+    <<: *runtime
+    mem_limit: 192m
+    cpus: 0.25
+  command-consumer:
+    <<: *runtime
+    mem_limit: 192m
+    cpus: 0.25
+  outbox-publisher:
+    <<: *runtime
+    mem_limit: 192m
+    cpus: 0.25
+  event-consumer:
+    <<: *runtime
+    mem_limit: 192m
+    cpus: 0.25
+networks:
+  coolify:
+    external: true
+    name: ${TRAEFIK_NETWORK:-coolify}

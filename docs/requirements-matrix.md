@@ -47,7 +47,7 @@ entrega a partir de um checkout limpo está em [evidence/issue-14](evidence/issu
 | D02 Keycloak e perfis | §2 + A | `identity/identity.module.ts`, `infra/keycloak/jungle-realm.json` | `identity.test.ts`, `wallet-http.test.ts`, `demo.test.ts` (401/403, provedor alheio, ownership) | [ADR 0002](adr/0002-demo-access-boundaries.md), [ADR 0003](adr/0003-provider-machine-identity.md) |
 | D03 Console | A | `frontend/*`, `modules/demo/*` | `tests/integration/console.test.ts` (navegador), `demo.test.ts`, `tests/stack/demo-stack.test.ts` | [issue-10](evidence/issue-10/README.md) |
 | D04 Teste de carga | §14 + A | `scripts/test-load.ts`, `tests/load/*` | `load-*.test.ts` (unidade), `load-smoke.test.ts` | [issue-13](evidence/issue-13/README.md) |
-| D05 Demonstração hospedada e vídeo | A | [deploy/hosted/](../deploy/hosted/README.md), [roteiro](demo-script.md) | `test:stack` sobre HTTPS no stack hospedado local | [issue-14](evidence/issue-14/README.md). A publicação depende das decisões listadas em [submission.md](submission.md) |
+| D05 Demonstração hospedada e vídeo | A | [deploy/hosted/](../deploy/hosted/README.md), [roteiro](demo-script.md) | `test:stack` sobre HTTPS público e login no navegador | [publicação verificada](evidence/issue-14/public-deployment.md), [vídeo gravado](evidence/issue-14/README.md#vídeo). Acesso dos avaliadores e distribuição permanecem em [submission.md](submission.md) |
 
 ## Falhas eliminatórias (§14)
 

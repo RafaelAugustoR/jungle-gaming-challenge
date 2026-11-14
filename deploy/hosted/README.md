@@ -4,10 +4,11 @@ Esta configuração é reproduzível e serve para publicar o console e a API em 
 autenticação e dados fictícios. É um diferencial escolhido por nós ([delivery.md](../../docs/delivery.md)),
 não um requisito do README do desafio. A avaliação continua sendo o ambiente local.
 
-> **Situação:** a configuração foi testada localmente com TLS interno (evidência em
-> [issue-14](../../docs/evidence/issue-14/README.md#demonstração-hospedada)). **Nada foi publicado.**
-> Destino, domínio, custo e forma de entregar as credenciais aos avaliadores ainda precisam de
-> decisão; ver [docs/submission.md](../../docs/submission.md).
+> **Situação:** publicada na VPS existente, com o perfil Traefik, em
+> https://jungle.178-18-253-17.sslip.io. Login em
+> https://jungle-auth.178-18-253-17.sslip.io. HTTPS, navegador e smoke financeiro
+> passaram; ver [evidência pública](../../docs/evidence/issue-14/public-deployment.md).
+> Senhas são geradas e entregues por canal privado, nunca pelo repositório.
 
 ## Topologia
 
@@ -91,3 +92,33 @@ PW="$(grep ^DEMO_OPERATOR_PASSWORD= .env | cut -d= -f2-)"
 Uma VM de 2 vCPU e 4 GB em provedores comuns custa na ordem de US$ 5–25 por mês, e o domínio, se
 for necessário, cerca de US$ 10–15 por ano. Os valores são aproximados e precisam ser confirmados
 no provedor escolhido antes de qualquer contratação.
+
+## Existing Coolify/Traefik proxy
+
+Use `compose.traefik.yaml` when the host already runs Traefik with `http`/`https`
+entrypoints and the `letsencrypt` resolver. Run `prepare.ts` first; it derives
+`DEMO_HOST` and `AUTH_HOST` from the HTTPS origins. Only Caddy joins the external
+`coolify` network (`TRAEFIK_NETWORK` overrides its name). No demo service publishes
+host ports. Traefik terminates TLS and forwards to Caddy on port 8080; Caddy keeps
+its realm and internal-route restrictions and forwards the public HTTPS scheme.
+Dedicated backend DNS aliases avoid name collisions on the shared proxy network.
+
+The overlay applies CPU/memory limits for a shared demo host. It is intended for
+interactive evaluation, not load benchmarks. Build off-host and load the runtime
+image with `docker save` / `docker load`; set `JUNGLE_IMAGE` to its immutable tag:
+
+```sh
+DEMO_ORIGIN=https://demo.example.com AUTH_ORIGIN=https://auth.example.com \
+  bun deploy/hosted/prepare.ts
+cd deploy/hosted
+JUNGLE_IMAGE=jungle-demo:<commit> docker compose \
+  -f compose.yaml -f compose.traefik.yaml up -d --no-build --wait --wait-timeout 420
+```
+
+The existing proxy, its certificates and unrelated services are not recreated.
+On a cold first start, Keycloak prepares its production image and imports the
+realm under its CPU limit. The profile gives it 120 seconds of healthcheck startup
+grace without weakening readiness; allow `--wait-timeout 420` for deployment.
+Stop only this project with the same Compose files; preserve its PostgreSQL volume
+unless intentionally deleting the fictitious demo data. Verify HTTPS, login,
+`test:stack`, blocked administration paths and resource consumption after deployment.
