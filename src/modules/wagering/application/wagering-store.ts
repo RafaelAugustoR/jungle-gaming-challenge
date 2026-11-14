@@ -1,3 +1,4 @@
+import type { InboxMessage, InboxMessageProps } from '../../../messaging/domain/inbox-message';
 import type { WagerReference } from '../domain/wager-step';
 import type { TransactionKind, WagerKind } from '../domain/wager-command';
 import type { Wallet, WalletChange } from '../../wallets/domain/wallet';
@@ -48,15 +49,13 @@ export interface PendingReferenceCandidate {
   walletId: string;
 }
 export interface SubmissionExecution {
-  inbox?: { consumerName: string; messageId: string; hash: string };
+  /** Received command message; recorded as processed atomically with its transaction. */
+  inbox?: Omit<InboxMessageProps, 'transactionId'>;
   signal?: AbortSignal;
   channel: 'http' | 'sqs';
 }
 export interface WageringSession {
-  recordInbox(
-    inbox: NonNullable<SubmissionExecution['inbox']>,
-    transactionId: string,
-  ): Promise<void>;
+  recordInbox(message: InboxMessage): Promise<void>;
   referenceSchedule(id: string): Promise<{ attempts: number; now: string } | undefined>;
   scheduleReference(
     id: string,

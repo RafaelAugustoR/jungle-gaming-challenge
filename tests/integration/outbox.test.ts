@@ -35,19 +35,21 @@ integration('publishers reserve disjoint heads and stale owners cannot confirm',
     repository.claim(1, 30_000),
     repository.claim(1, 30_000),
   ]);
-  expect([...first, ...second].filter((x) => x.aggregateId === wallet.id)).toHaveLength(1);
-  const event = [...first, ...second].find((x) => x.aggregateId === wallet.id)!;
-  expect(await repository.confirm(event.eventId, crypto.randomUUID())).toBe(false);
+  expect([...first, ...second].filter((x) => x.message.aggregateId === wallet.id)).toHaveLength(1);
+  const event = [...first, ...second].find((x) => x.message.aggregateId === wallet.id)!;
+  expect(await repository.confirm(event.message.eventId, crypto.randomUUID())).toBe(false);
   await database.owner.em.execute(
     "update wagering.outbox set lease_until=clock_timestamp()-interval '1 second' where event_id=?",
-    [event.eventId],
+    [event.message.eventId],
   );
   const [replacement] = await repository.claim(1, 30000);
-  expect(replacement!.eventId).toBe(event.eventId);
+  expect(replacement!.message.eventId).toBe(event.message.eventId);
   expect(replacement!.token).not.toBe(event.token);
-  expect(await repository.confirm(event.eventId, event.token)).toBe(false);
-  expect(await repository.fail(event.eventId, event.token, 'StaleWorker', 0, true)).toBe(false);
-  expect(await repository.confirm(replacement!.eventId, replacement!.token)).toBe(true);
+  expect(await repository.confirm(event.message.eventId, event.token)).toBe(false);
+  expect(await repository.fail(event.message.eventId, event.token, 'StaleWorker', 0, true)).toBe(
+    false,
+  );
+  expect(await repository.confirm(replacement!.message.eventId, replacement!.token)).toBe(true);
 });
 
 integration(
@@ -264,23 +266,31 @@ integration(
     const [event] = await repository.claim(10, 30000);
     expect(event).toBeDefined();
     expect(
-      await repository.fail(event!.eventId, event!.token, 'TransportFailure', 60000, false),
+      await repository.fail(event!.message.eventId, event!.token, 'TransportFailure', 60000, false),
     ).toBe(true);
     expect(await repository.claim(10, 30000)).toHaveLength(0);
     const other = await opening();
-    expect((await repository.claim(10, 30000)).map((x) => x.aggregateId)).toEqual([other.id]);
+    expect((await repository.claim(10, 30000)).map((x) => x.message.aggregateId)).toEqual([
+      other.id,
+    ]);
     await database.owner.em.execute(
       'update wagering.outbox set next_attempt_at=clock_timestamp() where event_id=?',
-      [event!.eventId],
+      [event!.message.eventId],
     );
     const [retry] = await repository.claim(10, 30000);
-    expect(retry!.eventId).toBe(event!.eventId);
+    expect(retry!.message.eventId).toBe(event!.message.eventId);
     expect(
-      await repository.fail(retry!.eventId, retry!.token, 'InvalidMessageContents', 0, true),
+      await repository.fail(
+        retry!.message.eventId,
+        retry!.token,
+        'InvalidMessageContents',
+        0,
+        true,
+      ),
     ).toBe(true);
     expect(await repository.claim(10, 30000)).toHaveLength(0);
-    expect(await repository.retryBlocked(retry!.eventId)).toBe(true);
-    expect((await repository.claim(10, 30000))[0]!.eventId).toBe(event!.eventId);
+    expect(await repository.retryBlocked(retry!.message.eventId)).toBe(true);
+    expect((await repository.claim(10, 30000))[0]!.message.eventId).toBe(event!.message.eventId);
     await expect(
       runtime.em
         .fork()
@@ -324,11 +334,11 @@ integration('later wallet events remain blocked behind an unpublished head', asy
   const [head] = await repository.claim(10, 30000);
   expect(head!.sequence).toBe(1);
   expect(await repository.claim(10, 30000)).toHaveLength(0);
-  expect(await repository.confirm(head!.eventId, head!.token)).toBe(true);
+  expect(await repository.confirm(head!.message.eventId, head!.token)).toBe(true);
   const [next] = await repository.claim(10, 30000);
   expect(next!.sequence).toBe(2);
   expect(await repository.claim(10, 30000)).toHaveLength(0);
-  await repository.confirm(next!.eventId, next!.token);
+  await repository.confirm(next!.message.eventId, next!.token);
   expect((await repository.claim(10, 30000))[0]!.sequence).toBe(3);
 });
 
@@ -443,7 +453,7 @@ integration('consumer commits inbox and projection atomically', async () => {
   const sqs = createSqsClient(database.config);
   try {
     const [event] = await new OutboxRepository(runtime).claim(1, 30000);
-    const body = JSON.stringify({ ...event!.payload, sequence: event!.sequence });
+    const body = JSON.stringify({ ...event!.message.payload, sequence: event!.sequence });
     await database.owner.em
       .execute(`create function wagering.fail_projection() returns trigger language plpgsql as $$ begin raise exception 'injected projection failure'; end $$;
       create trigger fail_projection before insert on demo_consumer.event_projection for each row execute function wagering.fail_projection();`);
@@ -670,7 +680,7 @@ integration(
       20000,
     );
     const [head] = await new OutboxRepository(runtime).claim(20, 30000);
-    expect(head).toMatchObject({ aggregateId: wallet.id, sequence: 301 });
+    expect(head).toMatchObject({ message: { aggregateId: wallet.id }, sequence: 301 });
   },
   60000,
 );
@@ -714,9 +724,9 @@ integration(
       await sqs.send(
         new SendMessageCommand({
           QueueUrl: queue,
-          MessageBody: JSON.stringify({ ...event!.payload, sequence: event!.sequence }),
+          MessageBody: JSON.stringify({ ...event!.message.payload, sequence: event!.sequence }),
           MessageGroupId: wallet.id,
-          MessageDeduplicationId: event!.eventId,
+          MessageDeduplicationId: event!.message.eventId,
         }),
       );
       const consumer = new EventConsumer(runtime, sqs, queue, { visibilityTimeoutSeconds: 0 });
