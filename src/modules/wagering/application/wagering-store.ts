@@ -47,6 +47,9 @@ export interface PendingReference {
 export interface PendingReferenceCandidate {
   transactionId: string;
   walletId: string;
+  /** Diagnostic context for retry-failure logs; the use case relies only on the ids above. */
+  providerId?: string;
+  correlationId?: string;
 }
 export interface SubmissionExecution {
   /** Received command message; recorded as processed atomically with its transaction. */
