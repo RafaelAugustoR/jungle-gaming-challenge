@@ -1,14 +1,27 @@
 import { createHash } from 'node:crypto';
 import { loadConfig } from '../../src/config/config';
 
+export interface PkceLogin {
+  issuer: string;
+  clientId: string;
+  redirectUri: string;
+  username: string;
+  password: string;
+}
+
 // Exercise Authorization Code + PKCE against real Keycloak; password grants stay disabled.
-export async function humanToken(username: string): Promise<string> {
-  const issuer = loadConfig().keycloakIssuer;
+// Shared by integration tests, the stack smoke and the demo recorder so the login form is parsed once.
+export async function loginWithPkce({
+  issuer,
+  clientId,
+  redirectUri,
+  username,
+  password,
+}: PkceLogin): Promise<string> {
   const verifier = crypto.randomUUID() + crypto.randomUUID();
   const challenge = createHash('sha256').update(verifier).digest('base64url');
-  const redirectUri = 'http://localhost:3000/';
   const query = new URLSearchParams({
-    client_id: 'jungle-console',
+    client_id: clientId,
     redirect_uri: redirectUri,
     response_type: 'code',
     scope: 'openid',
@@ -30,17 +43,17 @@ export async function humanToken(username: string): Promise<string> {
     method: 'POST',
     redirect: 'manual',
     headers: { Cookie: cookies, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ username, password: 'demo-only', credentialId: '' }),
+    body: new URLSearchParams({ username, password, credentialId: '' }),
   });
   const location = submit.headers.get('location');
-  if (!location) throw new Error(`Keycloak login failed (${submit.status})`);
+  if (!location) throw new Error(`Keycloak login failed for ${username} (${submit.status})`);
   const code = new URL(location).searchParams.get('code');
   if (!code) throw new Error('Keycloak did not return authorization code');
   const response = await fetch(`${issuer}/protocol/openid-connect/token`, {
     method: 'POST',
     body: new URLSearchParams({
       grant_type: 'authorization_code',
-      client_id: 'jungle-console',
+      client_id: clientId,
       code,
       redirect_uri: redirectUri,
       code_verifier: verifier,
@@ -50,6 +63,30 @@ export async function humanToken(username: string): Promise<string> {
   if (!response.ok || !body.access_token)
     throw new Error(`Keycloak token exchange failed (${response.status})`);
   return body.access_token;
+}
+
+// Logs in to a running console using the issuer it advertises at /console-config.
+export async function consoleLogin(base: string, username: string, password: string) {
+  const response = await fetch(`${base}/console-config`);
+  if (!response.ok) throw new Error(`Console config unavailable (${response.status})`);
+  const config = (await response.json()) as { url: string; realm: string; clientId: string };
+  return loginWithPkce({
+    issuer: `${config.url}/realms/${config.realm}`,
+    clientId: config.clientId,
+    redirectUri: `${base}/`,
+    username,
+    password,
+  });
+}
+
+export function humanToken(username: string): Promise<string> {
+  return loginWithPkce({
+    issuer: loadConfig().keycloakIssuer,
+    clientId: 'jungle-console',
+    redirectUri: 'http://localhost:3000/',
+    username,
+    password: 'demo-only',
+  });
 }
 export async function providerToken(provider: 'a' | 'b'): Promise<string> {
   const response = await fetch(`${loadConfig().keycloakIssuer}/protocol/openid-connect/token`, {

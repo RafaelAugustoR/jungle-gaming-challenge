@@ -1,62 +1,12 @@
 import { expect, test } from 'bun:test';
-import { createHash } from 'node:crypto';
+import { consoleLogin } from '../support/keycloak';
 
 // Black-box smoke of a running stack (Compose or hosted demo) through its public console origin.
 // It exercises the deployed issuer, the server-side provider credentials and the real workers.
-const base = process.env.STACK_URL?.replace(/\/$/, '');
+const base = (process.env.STACK_URL ?? '').replace(/\/$/, '');
 const stack = base ? test : test.skip;
 const username = process.env.STACK_USER ?? 'demo-operator';
 const password = process.env.STACK_PASSWORD ?? 'demo-only';
-
-async function humanToken() {
-  const config = (await (await fetch(`${base}/console-config`)).json()) as {
-    url: string;
-    realm: string;
-    clientId: string;
-  };
-  const issuer = `${config.url}/realms/${config.realm}`;
-  const verifier = crypto.randomUUID() + crypto.randomUUID();
-  const redirectUri = `${base}/`;
-  const query = new URLSearchParams({
-    client_id: config.clientId,
-    redirect_uri: redirectUri,
-    response_type: 'code',
-    scope: 'openid',
-    code_challenge: createHash('sha256').update(verifier).digest('base64url'),
-    code_challenge_method: 'S256',
-    state: crypto.randomUUID(),
-  });
-  const login = await fetch(`${issuer}/protocol/openid-connect/auth?${query}`, {
-    redirect: 'manual',
-  });
-  const cookies = login.headers
-    .getSetCookie()
-    .map((cookie) => cookie.split(';')[0])
-    .join('; ');
-  const action = (await login.text()).match(/action="([^"]+)"/)?.[1]?.replaceAll('&amp;', '&');
-  if (!action) throw new Error(`Keycloak login form missing (${login.status})`);
-  const submit = await fetch(action, {
-    method: 'POST',
-    redirect: 'manual',
-    headers: { Cookie: cookies, 'Content-Type': 'application/x-www-form-urlencoded' },
-    body: new URLSearchParams({ username, password, credentialId: '' }),
-  });
-  const code = new URL(submit.headers.get('location') ?? `${base}/`).searchParams.get('code');
-  if (!code) throw new Error(`Keycloak login failed (${submit.status})`);
-  const response = await fetch(`${issuer}/protocol/openid-connect/token`, {
-    method: 'POST',
-    body: new URLSearchParams({
-      grant_type: 'authorization_code',
-      client_id: config.clientId,
-      code,
-      redirect_uri: redirectUri,
-      code_verifier: verifier,
-    }),
-  });
-  const body = (await response.json()) as { access_token?: string };
-  if (!body.access_token) throw new Error(`Keycloak token exchange failed (${response.status})`);
-  return body.access_token;
-}
 
 async function eventually<T>(read: () => Promise<T>, done: (value: T) => boolean) {
   const deadline = Date.now() + 30_000;
@@ -73,7 +23,7 @@ stack(
     expect((await fetch(`${base}/health/live`)).status).toBe(200);
     expect((await fetch(`${base}/health/ready`)).status).toBe(200);
     const headers = {
-      Authorization: `Bearer ${await humanToken()}`,
+      Authorization: `Bearer ${await consoleLogin(base, username, password)}`,
       'Content-Type': 'application/json',
     };
     const call = async (method: string, path: string, body?: unknown) => {
