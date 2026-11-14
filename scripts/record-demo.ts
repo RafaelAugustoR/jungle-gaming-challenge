@@ -164,9 +164,21 @@ async function sendCommand(
     }),
   );
   const attributes = await sqs.send(
-    new GetQueueAttributesCommand({ QueueUrl, AttributeNames: ['ApproximateNumberOfMessages'] }),
+    new GetQueueAttributesCommand({
+      QueueUrl,
+      AttributeNames: ['ApproximateNumberOfMessages', 'ApproximateNumberOfMessagesNotVisible'],
+    }),
   );
-  return { queueDepth: attributes.Attributes?.ApproximateNumberOfMessages, body };
+  const visible = Number(attributes.Attributes?.ApproximateNumberOfMessages ?? 0);
+  const inFlight = Number(attributes.Attributes?.ApproximateNumberOfMessagesNotVisible ?? 0);
+  return { queueDepth: String(visible + inFlight), body };
+}
+
+async function showWallet(page: Page, walletId: string, balance: string) {
+  await page.getByLabel('ID da wallet').fill(walletId);
+  await page.getByRole('button', { name: 'Consultar', exact: true }).click();
+  await page.getByTestId('wallet-balance').filter({ hasText: balance }).waitFor();
+  await page.getByTestId('wallet-balance').scrollIntoViewIfNeeded();
 }
 
 await mkdir(outDir, { recursive: true });
@@ -285,6 +297,11 @@ try {
   );
   run.killCommandConsumer = await sh('docker', 'compose', 'kill', 'command-consumer');
   const externalId = `sqs-${crypto.randomUUID().slice(0, 8)}`;
+  await page
+    .locator('#close-detail')
+    .click()
+    .catch(() => {});
+  await showWallet(page, walletId, '15.00');
   const first = await sendCommand(
     walletId,
     playerId,
@@ -296,7 +313,7 @@ try {
   await terminal(
     page,
     'docker compose kill command-consumer && aws sqs send-message … wager-transactions.fifo',
-    `${String(run.killCommandConsumer) || 'Container command-consumer Killed'}\nmessageId=${first.body.messageId}\nApproximateNumberOfMessages=${first.queueDepth}`,
+    `${String(run.killCommandConsumer) || 'Container command-consumer Killed'}\nmessageId=${first.body.messageId}\nmensagens na fila (visíveis + em voo)=${first.queueDepth}`,
   );
   run.startCommandConsumer = await sh('docker', 'compose', 'start', 'command-consumer');
   let processed: any;
@@ -314,6 +331,7 @@ try {
   }
   run.sqsProcessed = processed;
   const afterFirst = await api(`/wallets/${walletId}`);
+  await showWallet(page, walletId, afterFirst.balance.amount);
   await terminal(
     page,
     'docker compose start command-consumer',
@@ -340,12 +358,7 @@ try {
     `saldo ${afterSecond.balance.amount} · versão ${afterSecond.version} (inalterados)`,
   );
 
-  await page.getByLabel('ID da wallet').fill(walletId);
-  await page.getByRole('button', { name: 'Consultar', exact: true }).click();
-  await page
-    .getByTestId('wallet-balance')
-    .filter({ hasText: afterSecond.balance.amount })
-    .waitFor();
+  await showWallet(page, walletId, afterSecond.balance.amount);
   await caption(
     page,
     '5) Reconciliação final: saldo materializado comparado ao saldo reconstruído pelo ledger.',
@@ -369,6 +382,8 @@ try {
     pace * 2,
   );
 } finally {
+  // Never leave the local stack degraded, even when a scene fails midway.
+  await sh('docker', 'compose', 'start', 'reference-worker', 'command-consumer').catch(() => {});
   run.finishedAt = new Date().toISOString();
   const video = page.video();
   await context.close();

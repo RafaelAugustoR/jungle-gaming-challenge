@@ -1,6 +1,6 @@
 # Roteiro do vídeo de demonstração
 
-Este vídeo curto (~3 min) é um diferencial escolhido por nós ([delivery.md](delivery.md)). Ele
+Este vídeo curto (~2 min) é um diferencial escolhido por nós ([delivery.md](delivery.md)). Ele
 mostra disputa de saldo, replay idempotente, referência fora de ordem, falha e recuperação de
 processos e a reconciliação final, sempre com dados reais da execução. O console mostra o recibo
 original e o estado atual lado a lado.
