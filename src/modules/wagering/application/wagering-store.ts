@@ -50,7 +50,7 @@ export interface PendingReferenceCandidate {
 }
 export interface SubmissionExecution {
   /** Received command message; recorded as processed atomically with its transaction. */
-  inbox?: InboxMessageProps;
+  inbox?: Omit<InboxMessageProps, 'transactionId'>;
   signal?: AbortSignal;
   channel: 'http' | 'sqs';
 }

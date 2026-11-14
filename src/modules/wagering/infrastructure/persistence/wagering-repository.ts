@@ -1,6 +1,6 @@
 import { withBackendCancellation } from '../../../../shared/infrastructure/with-backend-cancellation';
 import { InboxConflict } from '../../../../messaging/commands/inbox-conflict';
-import { InboxMessage } from '../../../../messaging/domain/inbox-message';
+import type { InboxMessage } from '../../../../messaging/domain/inbox-message';
 import { OutboxMessage } from '../../../../messaging/domain/outbox-message';
 import { Inject, Injectable } from '@nestjs/common';
 import { APP_CONFIG } from '../../../../config/infrastructure.module';
@@ -291,37 +291,16 @@ class PostgresWageringSession implements WageringSession {
     return this.em.execute<T>(sql, params);
   }
   async recordInbox(message: InboxMessage) {
-    // The inbox only records messages whose effect commits in this same transaction.
-    if (!message.isProcessed() || !message.transactionId)
-      throw new Error('Inbox message must be processed before it is recorded');
     const inserted = await this.execute(
       `insert into messaging.command_inbox(consumer_name,message_id,request_hash,transaction_id) values(?,?,?,?) on conflict do nothing returning 1`,
       [message.consumerName, message.messageId, message.payloadHash, message.transactionId],
     );
     if (inserted.length) return;
-    const [row] = await this.execute<
-      {
-        consumer_name: string;
-        message_id: string;
-        request_hash: string;
-        transaction_id: string;
-        received_at: Date;
-      }[]
-    >(
-      'select consumer_name,message_id,request_hash,transaction_id,received_at from messaging.command_inbox where consumer_name=? and message_id=?',
+    const [row] = await this.execute<{ request_hash: string }[]>(
+      'select request_hash from messaging.command_inbox where consumer_name=? and message_id=?',
       [message.consumerName, message.messageId],
     );
-    const recorded =
-      row &&
-      InboxMessage.rehydrate({
-        consumerName: row.consumer_name,
-        messageId: row.message_id,
-        payloadHash: row.request_hash,
-        receivedAt: new Date(row.received_at).toISOString(),
-        processedAt: new Date(row.received_at).toISOString(),
-        transactionId: row.transaction_id,
-      });
-    if (!recorded?.matchesPayload(message.payloadHash)) throw new InboxConflict();
+    if (row?.request_hash !== message.payloadHash) throw new InboxConflict();
   }
   async lockWallet(id: string) {
     const [row] = await this.execute<
@@ -552,7 +531,7 @@ class PostgresWageringSession implements WageringSession {
           ++sequence,
           message.eventType,
           JSON.stringify(message.payload),
-          occurredAt,
+          message.occurredAt,
         ],
       );
     }
