@@ -1,4 +1,11 @@
-import type { Outcome } from './classify';
+export type Outcome =
+  | 'processed'
+  | 'rejected'
+  | 'replay'
+  | 'pending'
+  | 'conflict'
+  | 'error'
+  | 'not_issued';
 
 export interface RequestRecord {
   index: number;
@@ -9,9 +16,12 @@ export interface RequestRecord {
   sentMs?: number;
   completedMs?: number;
   latencyMs?: number;
-  httpStatus?: number;
   outcome: Outcome;
-  failureCode?: string;
+  /** Business state of a definitive response (original or replay). */
+  state?: 'PROCESSED' | 'REJECTED';
+  httpStatus?: number;
+  /** Stable failure or error code returned by the API, when any. */
+  code?: string;
   error?: string;
 }
 
@@ -56,6 +66,8 @@ export function summarize(
     (last, r) => (r.completedMs! > last ? r.completedMs! : last),
     window.windowEndMs,
   );
+  // Single definition used by errorRate and the report: anything that is not a business result.
+  const errors = outcomes.error + outcomes.conflict + outcomes.pending;
   const elapsedSeconds = (lastCompletion - window.windowStartMs) / 1000;
   const latencies = completed.map((r) => r.latencyMs!);
   const byOutcome = (outcome: Outcome) =>
@@ -68,13 +80,14 @@ export function summarize(
     notIssued: outcomes.not_issued,
     completed: completed.length,
     outcomes,
-    failureCodes: countBy(measured.filter((r) => r.failureCode).map((r) => r.failureCode!)),
+    codes: countBy(measured.filter((r) => r.code).map((r) => r.code!)),
     httpStatuses: countBy(issued.map((r) => String(r.httpStatus ?? 'transport'))),
     offeredRps: measured.length / windowSeconds,
     issuedRps: issued.length / windowSeconds,
     completedRps: completed.length / elapsedSeconds,
     financialRps: (outcomes.processed + outcomes.rejected) / elapsedSeconds,
-    errorRate: issued.length ? (outcomes.error + outcomes.conflict) / issued.length : 0,
+    errors,
+    errorRate: issued.length ? errors / issued.length : 0,
     drainAfterWindowMs: Math.round(lastCompletion - window.windowEndMs),
     latencyMs: latency(latencies),
     /** From the scheduled instant: includes generator/backlog delay hidden by service latency. */

@@ -1,24 +1,42 @@
 import { describe, expect, test } from 'bun:test';
-import { classifyResponse, type Outcome } from '../load/classify';
+import type { SendResult } from '../load/generator';
+import { classifySubmission } from '../load/submission';
 import { percentile, summarize, type RequestRecord } from '../load/stats';
 import { parsePrometheus, sumMetric } from '../load/prometheus';
 
-describe('response classification', () => {
+describe('HTTP submission classification', () => {
   test('separates business results, replays and technical errors', () => {
-    const cases: [number, unknown, Outcome][] = [
-      [200, { status: 'PROCESSED', idempotentReplay: false }, 'processed'],
-      [200, { status: 'PROCESSED', idempotentReplay: true }, 'replay'],
-      [422, { failureCode: 'INSUFFICIENT_FUNDS', idempotentReplay: true }, 'replay'],
-      [422, { failureCode: 'INSUFFICIENT_FUNDS', idempotentReplay: false }, 'rejected'],
-      [202, { status: 'PENDING_REFERENCE', idempotentReplay: false }, 'pending'],
-      [409, { code: 'IDEMPOTENCY_CONFLICT' }, 'conflict'],
-      [503, { code: 'INFRASTRUCTURE_UNAVAILABLE' }, 'error'],
-      [500, {}, 'error'],
-      [401, {}, 'error'],
-      [200, 'not json', 'error'],
+    const definitive = (state: 'PROCESSED' | 'REJECTED', replay: boolean) => ({
+      outcome: 'definitive' as const,
+      state,
+      replay,
+    });
+    const cases: [number, unknown, Partial<SendResult>][] = [
+      [200, { status: 'PROCESSED', idempotentReplay: false }, definitive('PROCESSED', false)],
+      [200, { status: 'PROCESSED', idempotentReplay: true }, definitive('PROCESSED', true)],
+      [
+        422,
+        { status: 'REJECTED', failureCode: 'INSUFFICIENT_FUNDS', idempotentReplay: true },
+        { ...definitive('REJECTED', true), code: 'INSUFFICIENT_FUNDS' },
+      ],
+      [
+        422,
+        { failureCode: 'INSUFFICIENT_FUNDS', idempotentReplay: false },
+        { ...definitive('REJECTED', false), code: 'INSUFFICIENT_FUNDS' },
+      ],
+      [202, { status: 'PENDING_REFERENCE', idempotentReplay: false }, { outcome: 'pending' }],
+      [
+        409,
+        { code: 'IDEMPOTENCY_CONFLICT' },
+        { outcome: 'conflict', code: 'IDEMPOTENCY_CONFLICT' },
+      ],
+      [503, { code: 'INFRASTRUCTURE_UNAVAILABLE' }, { outcome: 'error' }],
+      [500, {}, { outcome: 'error' }],
+      [401, {}, { outcome: 'error' }],
+      [200, 'not json', { outcome: 'error' }],
     ];
-    for (const [status, body, outcome] of cases)
-      expect(classifyResponse(status, body)).toBe(outcome);
+    for (const [status, body, expected] of cases)
+      expect(classifySubmission(status, body)).toMatchObject({ ...expected, httpStatus: status });
   });
 });
 
@@ -70,6 +88,7 @@ describe('latency statistics', () => {
         record({ index: 2, instance: 1, latencyMs: 20, outcome: 'rejected', completedMs: 900 }),
         record({ index: 3, latencyMs: 30, outcome: 'replay', completedMs: 1000 }),
         record({ index: 4, instance: 1, latencyMs: 40, outcome: 'error', completedMs: 1200 }),
+        record({ phase: 'warmup', outcome: 'pending' }),
         record({
           index: 5,
           outcome: 'not_issued',
@@ -84,6 +103,7 @@ describe('latency statistics', () => {
     expect(summary.issued).toBe(4);
     expect(summary.notIssued).toBe(1);
     expect(summary.outcomes).toMatchObject({ processed: 1, rejected: 1, replay: 1, error: 1 });
+    expect(summary.errors).toBe(1);
     expect(summary.offeredRps).toBe(5);
     expect(summary.completedRps).toBeCloseTo(4 / 1.2);
     expect(summary.financialRps).toBeCloseTo(2 / 1.2);

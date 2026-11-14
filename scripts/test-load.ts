@@ -1,33 +1,34 @@
 import { mkdir } from 'node:fs/promises';
 import { resolve } from 'node:path';
 import { parseArgs } from 'node:util';
-import { SCENARIOS, type Scenario } from '../tests/load/plan';
+import { centsToAmount, isScenario, SCENARIOS } from '../tests/load/plan';
 import { renderReport } from '../tests/load/report';
 import {
-  cleanupActiveRuns,
   collectEnvironment,
+  DEFAULT_LOAD_OPTIONS as D,
   runScenario,
   type LoadOptions,
   type LoadRun,
 } from '../tests/load/runner';
+import { closeOpenTopologies } from '../tests/load/topology';
 
 const { values } = parseArgs({
   options: {
-    scenarios: { type: 'string', default: SCENARIOS.join(',') },
-    instances: { type: 'string', default: '1,3' },
-    rate: { type: 'string', default: '100,500' },
-    duration: { type: 'string', default: '30' },
-    warmup: { type: 'string', default: '5' },
-    seed: { type: 'string', default: '20261113' },
-    wallets: { type: 'string', default: '100' },
-    opening: { type: 'string', default: '1000000' },
-    'oversized-ratio': { type: 'string', default: '0.02' },
-    'duplicate-ratio': { type: 'string', default: '0.3' },
-    'duplicate-window': { type: 'string', default: '20' },
-    'max-in-flight': { type: 'string', default: '256' },
-    'request-timeout': { type: 'string', default: '20000' },
-    'sample-ms': { type: 'string', default: '200' },
-    'outbox-drain-timeout': { type: 'string', default: '30000' },
+    scenarios: { type: 'string', default: D.scenarios.join(',') },
+    instances: { type: 'string', default: D.instances.join(',') },
+    rate: { type: 'string', default: D.rates.join(',') },
+    duration: { type: 'string', default: String(D.durationS) },
+    warmup: { type: 'string', default: String(D.warmupS) },
+    seed: { type: 'string', default: String(D.seed) },
+    wallets: { type: 'string', default: String(D.wallets) },
+    opening: { type: 'string', default: centsToAmount(D.openingCents) },
+    'oversized-ratio': { type: 'string', default: String(D.oversizedRatio) },
+    'duplicate-ratio': { type: 'string', default: String(D.duplicateRatio) },
+    'duplicate-window': { type: 'string', default: String(D.duplicateWindow) },
+    'max-in-flight': { type: 'string', default: String(D.maxInFlight) },
+    'request-timeout': { type: 'string', default: String(D.requestTimeoutMs) },
+    'sample-ms': { type: 'string', default: String(D.sampleMs) },
+    'outbox-drain-timeout': { type: 'string', default: String(D.outboxDrainTimeoutMs) },
     out: { type: 'string' },
   },
 });
@@ -42,9 +43,11 @@ const number = (key: keyof typeof values, min: number, max = Number.MAX_SAFE_INT
     throw new Error(`--${key} must be between ${min} and ${max}`);
   return parsed;
 };
-const scenarios = list(values.scenarios!) as Scenario[];
-for (const scenario of scenarios)
-  if (!SCENARIOS.includes(scenario)) throw new Error(`Unknown scenario ${scenario}`);
+const scenarios = list(values.scenarios!).map((scenario) => {
+  if (!isScenario(scenario))
+    throw new Error(`Unknown scenario ${scenario}; expected ${SCENARIOS.join(', ')}`);
+  return scenario;
+});
 const positive = (raw: string, label: string) =>
   list(raw).map((item) => {
     const parsed = Number(item);
@@ -60,7 +63,7 @@ const options: LoadOptions = {
   warmupS: number('warmup', 0, 600),
   seed: number('seed', 0, 2 ** 32 - 1),
   wallets: number('wallets', 1, 10000),
-  openingCents: BigInt(Math.round(number('opening', 1, 1e12) * 100)),
+  openingCents: BigInt(Math.round(number('opening', 0.01, 1e12) * 100)),
   oversizedRatio: number('oversized-ratio', 0, 1),
   duplicateRatio: number('duplicate-ratio', 0, 0.95),
   duplicateWindow: number('duplicate-window', 1, 10000),
@@ -74,7 +77,7 @@ const options: LoadOptions = {
 for (const signal of ['SIGINT', 'SIGTERM'] as const)
   process.once(signal, () => {
     console.error(`Interrupted (${signal}); stopping APIs and dropping disposable resources.`);
-    void cleanupActiveRuns().finally(() => process.exit(130));
+    void closeOpenTopologies().finally(() => process.exit(130));
   });
 await mkdir(options.outDir, { recursive: true });
 const environment = await collectEnvironment(options);
@@ -93,7 +96,7 @@ for (const rate of options.rates)
       runs.push(await runScenario(scenario, instances, rate, options));
       await persist();
     }
-const failed = runs.filter((run) => !run.invariants.ok);
+const failed = runs.filter((run) => !run.verification.ok);
 console.log(`Load report: ${resolve(options.outDir, 'report.md')}`);
 if (failed.length) {
   console.error(`Invariant failures: ${failed.map((run) => run.name).join(', ')}`);

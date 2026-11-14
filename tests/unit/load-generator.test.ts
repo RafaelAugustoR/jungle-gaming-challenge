@@ -1,5 +1,7 @@
 import { expect, test } from 'bun:test';
-import { runOpenLoop } from '../load/generator';
+import { runOpenLoop, type SendResult } from '../load/generator';
+
+const processed: SendResult = { outcome: 'definitive', state: 'PROCESSED', replay: false };
 
 test('open loop keeps the offered schedule and records requests it cannot issue', async () => {
   const release: (() => void)[] = [];
@@ -12,8 +14,8 @@ test('open loop keeps the offered schedule and records requests it cannot issue'
     send: (index) =>
       new Promise((resolve) => {
         // The first two requests stay in flight, saturating the generator's concurrency cap.
-        if (index < 2) release.push(() => resolve({ status: 200, body: { status: 'PROCESSED' } }));
-        else resolve({ status: 200, body: { status: 'PROCESSED', idempotentReplay: false } });
+        if (index < 2) release.push(() => resolve(processed));
+        else resolve(processed);
       }),
     onScheduleComplete: () => release.forEach((done) => done()),
   });
@@ -40,10 +42,18 @@ test('open loop turns thrown requests into technical errors without stopping the
     instances: 1,
     send: async (index) => {
       if (index === 1) throw new Error('socket hang up');
-      return { status: 422, body: { failureCode: 'INSUFFICIENT_FUNDS', idempotentReplay: false } };
+      return {
+        outcome: 'definitive',
+        state: 'REJECTED',
+        replay: index === 2,
+        httpStatus: 422,
+        code: 'INSUFFICIENT_FUNDS',
+      };
     },
   });
-  expect(result.records.map((r) => r.outcome)).toEqual(['rejected', 'error', 'rejected']);
+  expect(result.records.map((r) => r.outcome)).toEqual(['rejected', 'error', 'replay']);
+  expect(result.records.map((r) => r.state)).toEqual(['REJECTED', undefined, 'REJECTED']);
+  expect(result.records[0]).toMatchObject({ httpStatus: 422, code: 'INSUFFICIENT_FUNDS' });
   expect(result.records[1]!.error).toBe('socket hang up');
   expect(result.records.every((r) => r.latencyMs !== undefined)).toBe(true);
 });
@@ -56,7 +66,7 @@ test('open loop yields while behind schedule so completed requests free capacity
     warmupCount: 0,
     maxInFlight: 1,
     instances: 1,
-    send: async () => ({ status: 200, body: { status: 'PROCESSED', idempotentReplay: false } }),
+    send: async () => processed,
   });
   expect(result.records.filter((r) => r.outcome === 'not_issued')).toHaveLength(0);
 });

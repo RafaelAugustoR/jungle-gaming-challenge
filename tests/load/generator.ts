@@ -1,5 +1,10 @@
-import { classifyResponse } from './classify';
-import type { RequestRecord } from './stats';
+import type { Outcome, RequestRecord } from './stats';
+
+/** Transport-agnostic result an adapter returns for one submission. */
+export type SendResult = (
+  | { outcome: 'definitive'; state: 'PROCESSED' | 'REJECTED'; replay: boolean }
+  | { outcome: 'pending' | 'conflict' | 'error' }
+) & { httpStatus?: number; code?: string };
 
 export interface OpenLoopOptions {
   total: number;
@@ -9,8 +14,14 @@ export interface OpenLoopOptions {
   /** Generator concurrency cap; operations due while it is reached are recorded as not issued. */
   maxInFlight: number;
   instances: number;
-  send: (index: number, instance: number) => Promise<{ status: number; body: unknown }>;
+  send: (index: number, instance: number) => Promise<SendResult>;
   onScheduleComplete?: () => void;
+}
+
+function outcomeOf(result: SendResult): Outcome {
+  if (result.outcome !== 'definitive') return result.outcome;
+  if (result.replay) return 'replay';
+  return result.state === 'PROCESSED' ? 'processed' : 'rejected';
 }
 
 /**
@@ -45,12 +56,11 @@ export async function runOpenLoop(options: OpenLoopOptions) {
     const task = options
       .send(index, instance)
       .then(
-        ({ status, body }) => {
-          record.httpStatus = status;
-          record.outcome = classifyResponse(status, body);
-          const value = body as { failureCode?: unknown; code?: unknown } | null;
-          const code = value?.failureCode ?? value?.code;
-          if (typeof code === 'string') record.failureCode = code;
+        (result) => {
+          record.outcome = outcomeOf(result);
+          if (result.outcome === 'definitive') record.state = result.state;
+          if (result.httpStatus !== undefined) record.httpStatus = result.httpStatus;
+          if (result.code !== undefined) record.code = result.code;
         },
         (error: unknown) => {
           record.outcome = 'error';

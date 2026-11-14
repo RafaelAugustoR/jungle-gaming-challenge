@@ -1,6 +1,8 @@
 /** Deterministic workload plans: the same options and seed always yield the same operations. */
 export const SCENARIOS = ['hot-wallet', 'distributed', 'duplicates'] as const;
 export type Scenario = (typeof SCENARIOS)[number];
+export const isScenario = (value: string): value is Scenario =>
+  (SCENARIOS as readonly string[]).includes(value);
 
 /** Larger than any balance a load wallet can reach, so the rejection is known before the run. */
 export const OVERSIZED_BET = '9000000000000000.00';

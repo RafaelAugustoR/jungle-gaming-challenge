@@ -111,20 +111,23 @@ cenário distribuído sem replays saturou em 423. Com uma API o p95 subiu para 5
 rejeição gera um, ou seja, ~200 eventos/s a 100 ops/s. O publisher publicou ~26–36
 eventos/s no total e ~1,3–1,7 eventos/s na wallet quente. **Nenhuma execução drenou
 a outbox nos 30 s após a carga**, e a idade do evento mais antigo cresceu com a
-duração da execução (~33 s). A causa está no código e não depende do gerador:
+duração da execução (~33 s). Há duas causas independentes no código, e nenhuma
+depende do gerador:
 
-- `OutboxRepository.claim` reserva apenas o evento cabeça de cada agregado (ordem
-  por wallet garantida pela ADR 0013), então uma wallet publica no máximo um evento
-  por iteração;
-- `runWorker` dorme `OUTBOX_POLL_MS` (500 ms) depois de toda iteração, mesmo quando
-  o lote veio cheio; o teto é de ~2 eventos/s por wallet e `OUTBOX_BATCH_SIZE`/0,5 s
-  = 40 eventos/s no total.
+1. **Sleep fixo após lote cheio.** `runWorker` dorme `OUTBOX_POLL_MS` (500 ms)
+   depois de toda iteração, mesmo quando o lote veio cheio. Isso limita o total a
+   `OUTBOX_BATCH_SIZE`/0,5 s = 40 eventos/s. É ajuste no loop do worker: a ADR 0013
+   não trata de poll. Será corrigido num PR pequeno separado, antes da entrega.
+2. **Uma cabeça por agregado por iteração.** `OutboxRepository.claim` reserva apenas
+   o evento cabeça de cada wallet, para preservar a ordem por agregado. Com o sleep
+   atual, uma wallet publica no máximo ~2 eventos/s; sem ele, continua limitada a um
+   evento por ciclo de reserva, envio e confirmação. Reservar cadeias por agregado
+   muda a ADR 0013 e está na [issue #27](https://github.com/RafaelAugustoR/jungle-gaming-challenge/issues/27).
 
 O caminho financeiro não é afetado (respostas não esperam a publicação e as
 invariantes passaram), mas consumidores de eventos veem atraso crescente sob carga
 sustentada. Um segundo publisher aumentaria o teto global com `skip locked`, sem
-ajudar a wallet quente; isso não foi medido. Mudar a política de poll ou reservar
-cadeias por agregado altera a ADR 0013 e fica como follow-up, fora desta issue.
+ajudar a wallet quente; isso não foi medido.
 
 ## Limitações desta medição
 
