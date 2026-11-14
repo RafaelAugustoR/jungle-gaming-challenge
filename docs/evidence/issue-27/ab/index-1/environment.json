@@ -1,0 +1,70 @@
+{
+  "at": "2026-11-14T17:14:41.327Z",
+  "commit": "5193a786153142da2e9f748c6b23298244b9d2ed",
+  "dirtyWorkingTree": false,
+  "bun": "1.3.14",
+  "os": {
+    "platform": "linux",
+    "release": "6.6.87.2-microsoft-standard-WSL2",
+    "arch": "x64"
+  },
+  "cpu": {
+    "model": "AMD Ryzen 7 7700 8-Core Processor",
+    "logicalCores": 16
+  },
+  "memoryGiB": 23.5,
+  "images": [
+    "postgres:16.6-alpine",
+    "localstack/localstack:4.0.3",
+    "quay.io/keycloak/keycloak:26.0.7",
+    "postgres:16.6-alpine",
+    "prom/prometheus:v3.5.0",
+    "grafana/grafana:12.1.1"
+  ],
+  "postgres": {
+    "version": "PostgreSQL 16.6 on x86_64-pc-linux-musl, compiled by gcc (Alpine 14.2.0) 14.2.0, 64-bit",
+    "max_connections": "100",
+    "shared_buffers": "128MB"
+  },
+  "application": {
+    "poolPerProcess": {
+      "min": 0,
+      "max": 5,
+      "acquireTimeoutMillis": 10000
+    },
+    "financialLockTimeoutMs": 3000,
+    "financialStatementTimeoutMs": 5000,
+    "financialDeadlineMs": 15000,
+    "outboxPublisher": "src/bootstrap/outbox-publisher.ts with production defaults"
+  },
+  "generator": {
+    "model": "open (constant arrival rate), single Bun process on the same host as the SUT",
+    "distribution": "client-side round-robin by operation index; no load balancer",
+    "options": {
+      "scenarios": [
+        "hot-wallet",
+        "distributed"
+      ],
+      "instances": [
+        1
+      ],
+      "rates": [
+        100
+      ],
+      "durationS": 15,
+      "warmupS": 3,
+      "seed": 20261113,
+      "wallets": 100,
+      "openingCents": "1000000.00",
+      "oversizedRatio": 0.02,
+      "duplicateRatio": 0.3,
+      "duplicateWindow": 20,
+      "maxInFlight": 256,
+      "requestTimeoutMs": 20000,
+      "sampleMs": 200,
+      "outboxDrainTimeoutMs": 10000,
+      "outDir": "/tmp/claude-1000/-home-rafael-projects-jungle-gaming-challenge/b08ab289-d0c5-4a9b-a123-19a8573546f4/scratchpad/ab2/index-1"
+    }
+  },
+  "note": "Everything (generator, APIs, PostgreSQL, LocalStack, Keycloak) shares one host."
+}
