@@ -17,6 +17,7 @@ import {
   expectedBalances,
   type FinalState,
   type Plan,
+  type PlannedOperation,
   type Scenario,
 } from './plan';
 import { parsePrometheus, sumMetric, type Sample } from './prometheus';
@@ -309,8 +310,20 @@ export async function runScenario(
         walletLockConflicts: delta(before, after, 'wallet_lock_conflicts_total'),
         financialRetries: delta(before, after, 'jungle_retries_total', { component: 'financial' }),
       };
-      const finalStates = await resolveFinalStates(plan, result.records, apis[0]!.base, provider);
-      invariants = await checkInvariants(plan, finalStates, wallets, apis[0]!.base, demo, sql);
+      const finalStates = await resolveFinalStates(
+        plan,
+        result.records,
+        apis[0]!.base,
+        () => provider,
+      );
+      invariants = await checkInvariants(
+        plan,
+        finalStates,
+        wallets,
+        apis[0]!.base,
+        () => demo,
+        sql,
+      );
     } catch (error) {
       invariants = failedInvariants(error);
     }
@@ -350,10 +363,11 @@ type Invariants = Awaited<ReturnType<typeof checkInvariants>> & { error?: string
 function failedInvariants(error: unknown): Invariants {
   return {
     ok: false,
-    error: error instanceof Error ? error.message : String(error),
+    error: error instanceof Error ? (error.stack ?? error.message) : String(error),
     checks: { harnessCompleted: false } as unknown as Invariants['checks'],
     finalStates: { PROCESSED: 0, REJECTED: 0, NOT_APPLIED: 0 },
     readBackAfterUncertainResponse: 0,
+    neverSent: 0,
     database: {},
     reconciliation: { wallets: 0, consistent: 0, failures: [] },
   };
@@ -439,44 +453,57 @@ function summarizeSamples(
 }
 
 /**
- * Final state of every unique operation, taken from any definitive response (original or
- * replay) and otherwise read back by external identity, so uncertain outcomes are resolved.
+ * Final state of every unique operation: an operation never sent (no copy issued) is not
+ * applied; otherwise it comes from any definitive response (original or replay), and uncertain
+ * outcomes are read back by external identity. SQL counts later cross-check all three cases.
  */
 async function resolveFinalStates(
   plan: Plan,
   records: RequestRecord[],
   base: string,
-  token: string,
+  token: () => string,
 ) {
   const states = new Map<number, FinalState>();
   const firstEffects = new Map<number, number>();
+  const issued = new Set<number>();
   for (const record of records) {
     const op = plan.operations[record.index]!;
     const original = op.duplicateOf ?? op.index;
+    if (record.outcome !== 'not_issued') issued.add(original);
     if (record.outcome === 'processed' || record.outcome === 'rejected')
       firstEffects.set(original, (firstEffects.get(original) ?? 0) + 1);
     if (['processed', 'rejected', 'replay'].includes(record.outcome))
       states.set(original, record.httpStatus === 200 ? 'PROCESSED' : 'REJECTED');
   }
-  let readBack = 0;
+  const uncertain: PlannedOperation[] = [];
+  let neverSent = 0;
   for (const op of plan.operations) {
     if (op.duplicateOf !== undefined || states.has(op.index)) continue;
-    readBack++;
+    if (!issued.has(op.index)) {
+      neverSent++;
+      states.set(op.index, 'NOT_APPLIED');
+    } else uncertain.push(op);
+  }
+  await inBatches(uncertain, 16, async (op) => {
     const response = await fetch(
       `${base}/providers/${PROVIDER_ID}/wagering/transactions/${op.externalTransactionId}`,
-      { headers: headers(token) },
+      { headers: headers(token()) },
     );
-    if (response.status === 404) {
-      states.set(op.index, 'NOT_APPLIED');
-      continue;
-    }
-    const body = (await response.json()) as { status?: string };
+    if (response.status === 404) return void states.set(op.index, 'NOT_APPLIED');
+    const body = (await response.json().catch(() => ({}))) as { status?: string };
     if (response.status !== 200 || (body.status !== 'PROCESSED' && body.status !== 'REJECTED'))
-      throw new Error(`Unresolved final state for ${op.externalTransactionId}: ${body.status}`);
+      throw new Error(
+        `Unresolved final state for ${op.externalTransactionId}: HTTP ${response.status} ${body.status}`,
+      );
     states.set(op.index, body.status);
-  }
+  });
   const multipleFirstEffects = [...firstEffects.values()].filter((count) => count > 1).length;
-  return Object.assign(states, { readBack, multipleFirstEffects });
+  return Object.assign(states, { readBack: uncertain.length, neverSent, multipleFirstEffects });
+}
+
+async function inBatches<T>(items: T[], size: number, work: (item: T) => Promise<void>) {
+  for (let i = 0; i < items.length; i += size)
+    await Promise.all(items.slice(i, i + size).map(work));
 }
 
 async function checkInvariants(
@@ -484,22 +511,30 @@ async function checkInvariants(
   states: Awaited<ReturnType<typeof resolveFinalStates>>,
   wallets: Wallet[],
   base: string,
-  token: string,
+  token: () => string,
   sql: (query: string) => Promise<any[]>,
 ) {
   const expected = expectedBalances(plan, states).map(centsToAmount);
-  const reconciliation = await Promise.all(
-    wallets.map(async (wallet, i) => {
+  const reconciliation: {
+    ok: boolean;
+    expected?: string;
+    stored?: string;
+    calculated?: string;
+  }[] = [];
+  await inBatches(
+    wallets.map((wallet, i) => ({ wallet, i })),
+    16,
+    async ({ wallet, i }) => {
       const response = await fetch(`${base}/wallets/${wallet.id}/reconciliation`, {
         method: 'POST',
-        headers: headers(token),
+        headers: headers(token()),
       });
       const body = (await response.json()) as {
         consistent?: boolean;
         storedBalance?: { amount: string };
         calculatedBalance?: { amount: string };
       };
-      return {
+      reconciliation[i] = {
         ok:
           response.status === 200 &&
           body.consistent === true &&
@@ -509,7 +544,7 @@ async function checkInvariants(
         stored: body.storedBalance?.amount,
         calculated: body.calculatedBalance?.amount,
       };
-    }),
+    },
   );
   const counts = { PROCESSED: 0, REJECTED: 0, NOT_APPLIED: 0 };
   for (const state of states.values()) counts[state]++;
@@ -542,6 +577,7 @@ async function checkInvariants(
     checks,
     finalStates: counts,
     readBackAfterUncertainResponse: states.readBack,
+    neverSent: states.neverSent,
     database,
     reconciliation: {
       wallets: reconciliation.length,
