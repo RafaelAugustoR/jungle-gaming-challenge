@@ -1,6 +1,7 @@
 import { Money } from '../../shared/domain/money';
 import type { IntegrationEvent } from '../../shared/domain/events/integration-event';
 import { WalletBalanceChanged } from '../../modules/wallets/domain/events/wallet-balance-changed';
+import type { OpeningTransactionProcessed } from '../../modules/wallets/domain/events/opening-processed';
 import {
   WagerTransactionProcessed,
   WagerTransactionRejected,
@@ -13,7 +14,9 @@ type Envelope<E extends IntegrationEvent<unknown>> =
   E extends IntegrationEvent<unknown>
     ? Omit<ReturnType<E['toJSON']>, 'eventType'> & { eventType: E['eventType']; sequence: number }
     : never;
-export type IntegrationEnvelope = Envelope<WalletBalanceChanged | WagerResultEvent>;
+export type IntegrationEnvelope = Envelope<
+  WalletBalanceChanged | WagerResultEvent | OpeningTransactionProcessed
+>;
 export class InvalidIntegrationEvent extends Error {
   constructor() {
     super('INVALID_INTEGRATION_EVENT');
@@ -70,6 +73,26 @@ export function parseIntegrationEvent(raw: string): IntegrationEnvelope {
       Money.rehydrate(event.data.balanceBefore);
       const balance = Money.rehydrate(event.data.balanceAfter);
       if (balance.isNegative()) throw new Error();
+    } catch {
+      throw new InvalidIntegrationEvent();
+    }
+  } else if (event.data.kind === 'OPENING') {
+    // Internal OPENING result: processed only, and never with a provider identity.
+    const data = event.data;
+    const external = data as unknown as Record<string, unknown>;
+    if (
+      event.eventType !== WagerTransactionProcessed.eventType ||
+      !isUuid(data.transactionId) ||
+      !isUuid(data.walletId) ||
+      typeof data.playerId !== 'string' ||
+      !data.playerId ||
+      ['providerId', 'externalTransactionId', 'roundId', 'gameId'].some((key) => key in external)
+    )
+      throw new InvalidIntegrationEvent();
+    try {
+      const money = Money.rehydrate(data.money);
+      if (money.isZero() || money.isNegative() || Money.rehydrate(data.balance).isNegative())
+        throw new Error();
     } catch {
       throw new InvalidIntegrationEvent();
     }

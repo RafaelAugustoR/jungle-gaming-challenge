@@ -119,7 +119,7 @@ integration(
       debits: 1,
       invalid_pairs: 0,
       receipts: 1,
-      processed_events: 1,
+      processed_events: 2, // OPENING + BET
       rejected_events: 0,
       balance_events: 2,
     });
@@ -169,7 +169,7 @@ integration(
       debits: 1,
       invalid_pairs: 0,
       receipts: 2,
-      processed_events: 1,
+      processed_events: 2, // OPENING + BET
       rejected_events: 1,
       balance_events: 2,
     });

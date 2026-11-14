@@ -101,7 +101,7 @@ export async function recoveryHarness() {
       expect(response.status).toBe(201);
       const value = (await response.json()) as WalletFixture;
       expected.set(value.id, '100.00');
-      facts.events++;
+      facts.events += 2; // WalletBalanceChanged + WagerTransactionProcessed of the OPENING
       facts.journalEntries++;
       facts.pairedAmount = facts.pairedAmount.plus('100.00');
       return value;

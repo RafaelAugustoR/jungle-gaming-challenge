@@ -308,9 +308,11 @@ integration('reconciliation formats ledger aggregates beyond the wallet input bo
     for (const walletVersion of [2, 3]) {
       const transactionId = crypto.randomUUID();
       await em.execute(
-        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status)
-         values(?,?,'BRL','9999999999999999.99','WIN','PROCESSED')`,
-        [transactionId, wallet.id],
+        `insert into wagering.transactions(id,wallet_id,currency,amount,kind,status,provider_id,external_transaction_id,
+           idempotency_key,request_hash,player_id,round_id,game_id,processed_at)
+         select ?,?,'BRL','9999999999999999.99','WIN','PROCESSED','divergence',?,?,repeat('a',64),player_id,'round','game',clock_timestamp()
+         from wagering.wallets where id=?`,
+        [transactionId, wallet.id, transactionId, transactionId, wallet.id],
       );
       await em.execute(
         `insert into wagering.journal(id,transaction_id,wallet_id,currency,amount,debit_account_id,credit_account_id,balance_before,balance_after,wallet_version)

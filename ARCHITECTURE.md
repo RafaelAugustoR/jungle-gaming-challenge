@@ -152,7 +152,12 @@ versão nova.
 
 Subclasses de `IntegrationEvent`: `WagerTransactionProcessed` (inclusive LOSS),
 `WagerTransactionRejected`, `WagerTransactionPendingReference` e `WalletBalanceChanged` (só quando o
-saldo muda, criado a partir do `JournalEntry`). O envelope tem `eventId`, `aggregateId` (= walletId),
+saldo muda, criado a partir do `JournalEntry`). A abertura positiva é uma transação aplicada (§11):
+grava `WalletBalanceChanged` (sequência 1) e `WagerTransactionProcessed` (sequência 2). Como `OPENING`
+não vem de provedor, o `data` desse resultado é a variante `kind: 'OPENING'` — `transactionId`,
+`walletId`, `playerId`, `money`, `balance`, sem `providerId`/`externalTransactionId`/`roundId`/`gameId`.
+A subclasse `OpeningTransactionProcessed` fica no módulo de wallets (wagering depende de wallets, não o
+inverso) e o consumidor valida cada variante pelo `kind`. O envelope tem `eventId`, `aggregateId` (= walletId),
 `correlationId`, `causationId`, `occurredAt`, `eventType`, `version` e `data`, com valores em
 `MoneyProps`.
 
@@ -208,8 +213,9 @@ Verificadas em `migrations/`. O papel de runtime `jungle_runtime` não é dono d
 | ------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | Uma wallet por jogador e moeda              | `UNIQUE (player_id, currency)` em `wallets`                                                                                                                                                                                                                                                                                                                        |
 | Uma abertura por wallet                     | índice único parcial `one_opening_per_wallet` (`kind = 'OPENING'`)                                                                                                                                                                                                                                                                                                 |
-| Idempotência e identidade externa           | `UNIQUE (provider_id, idempotency_key)` e `UNIQUE (provider_id, external_transaction_id)`; `request_hash ~ '^[0-9a-f]{64}$'`                                                                                                                                                                                                                                       |
+| Idempotência e identidade externa           | `UNIQUE (provider_id, idempotency_key)` e `UNIQUE (provider_id, external_transaction_id)`; `request_hash ~ '^[0-9a-f]{64}$'`; `external_identity_complete`: só `OPENING` omite a identidade externa, todo outro tipo a exige completa (NULL não escapa das UNIQUE)                                                                                                 |
 | Um lançamento por transação                 | `UNIQUE journal.transaction_id`; FK `(transaction_id, wallet_id, currency, amount)` para a transação                                                                                                                                                                                                                                                               |
+| Evento de resultado por transação           | trigger diferido `external_submission_consistency`: recibo para operação externa e evento de resultado (`WagerTransactionProcessed`/`Rejected`/`PendingReference`) para toda transação nesses estados, inclusive `OPENING`                                                                                                                                         |
 | Versões de wallet sem duplicata             | `UNIQUE (wallet_id, wallet_version)` no journal                                                                                                                                                                                                                                                                                                                    |
 | Uma reversão aplicada por referência e tipo | índice único parcial `one_reversal_per_kind (reference_transaction_id, kind) where kind in ('REFUND','ROLLBACK') and status = 'PROCESSED'`                                                                                                                                                                                                                         |
 | Não-negatividade                            | domínio `money_amount` (`>= 0`) em `balance`, `amount`, `balance_before`, `balance_after`; `amount > 0` no journal; `check` em `result_balance`                                                                                                                                                                                                                    |
@@ -271,7 +277,8 @@ Não há cache em memória: toda decisão de idempotência vem do banco.
   REFUND 20, ROLLBACK da BET 20 → saldo 120). Documentado e testado; não afirmamos que seja regra
   universal.
 - Valor zero é aceito: gera o evento de resultado, mas não ledger, versão nova nem
-  `WalletBalanceChanged`. Abertura zero não cria transação `OPENING`.
+  `WalletBalanceChanged`. Abertura zero não cria transação `OPENING`; abertura positiva gera
+  `WalletBalanceChanged` e `WagerTransactionProcessed`.
 
 **Referências fora de ordem** ([ADR 0010](docs/adr/0010-reference-state-policy.md),
 [ADR 0011](docs/adr/0011-reference-wait-policy.md)):

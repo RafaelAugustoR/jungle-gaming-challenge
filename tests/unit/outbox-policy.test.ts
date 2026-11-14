@@ -113,3 +113,30 @@ test('consumer accepts every canonical wager kind without a duplicate local list
       expect(parsed.data.kind).toBe(kind);
   }
 });
+
+test('consumer accepts the internal OPENING result and rejects it with provider identity or another type', async () => {
+  const { Wallet } = await import('../../src/modules/wallets/domain/wallet');
+  const { Money } = await import('../../src/shared/domain/money');
+  const { parseIntegrationEvent } = await import('../../src/messaging/events/integration-envelope');
+  const opened = Wallet.open({
+    playerId: 'player',
+    initialBalance: Money.create('100.00', 'BRL'),
+    accountId: crypto.randomUUID(),
+    counterpartAccountId: crypto.randomUUID(),
+    occurredAt: new Date().toISOString(),
+    context: { correlationId: 'c' },
+  });
+  const [balanceChanged, processed] = opened.opening!.events;
+  const envelope = { ...processed.toJSON(), sequence: 2 };
+  expect(parseIntegrationEvent(JSON.stringify(envelope))).toEqual(envelope as never);
+  expect(
+    parseIntegrationEvent(JSON.stringify({ ...balanceChanged.toJSON(), sequence: 1 })).eventType,
+  ).toBe('WalletBalanceChanged');
+  for (const invalid of [
+    { ...envelope, eventType: 'WagerTransactionRejected' },
+    { ...envelope, data: { ...envelope.data, providerId: 'p' } },
+    { ...envelope, data: { ...envelope.data, money: { amount: '0.00', currency: 'BRL' } } },
+    { ...envelope, data: { ...envelope.data, playerId: '' } },
+  ])
+    expect(() => parseIntegrationEvent(JSON.stringify(invalid))).toThrow('INVALID_INTEGRATION_EVENT');
+});
