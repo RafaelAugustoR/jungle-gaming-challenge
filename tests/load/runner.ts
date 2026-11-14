@@ -130,6 +130,21 @@ export async function runScenario(
   const apis: Awaited<ReturnType<typeof apiProcess>>[] = [];
   let publisher: ReturnType<typeof spawnStaged> | undefined;
   let refresh: ReturnType<typeof setInterval> | undefined;
+  let cleaned: Promise<void> | undefined;
+  // Idempotent so an interrupt handler and the normal finally can both call it.
+  const cleanup = () =>
+    (cleaned ??= (async () => {
+      clearInterval(refresh);
+      await publisher?.stop('SIGTERM');
+      await Promise.allSettled(apis.map((api) => api.stop()));
+      await Promise.allSettled(
+        queues.map((QueueUrl) => sqs.send(new DeleteQueueCommand({ QueueUrl }))),
+      );
+      sqs.destroy();
+      await database.close();
+      activeCleanups.delete(cleanup);
+    })());
+  activeCleanups.add(cleanup);
   try {
     const queueName = `load-events-${crypto.randomUUID().slice(0, 8)}.fifo`;
     const events = await provisionEventQueues(sqs, queueName);
@@ -147,11 +162,16 @@ export async function runScenario(
         METRICS_PORT: '0',
       },
     );
-    const demo = await humanToken('demo-operator');
+    // Keycloak access tokens default to 5 minutes; refresh both well before expiry.
+    let demo = await humanToken('demo-operator');
     let provider = await providerToken('a');
     refresh = setInterval(() => {
       providerToken('a').then(
         (token) => (provider = token),
+        () => undefined,
+      );
+      humanToken('demo-operator').then(
+        (token) => (demo = token),
         () => undefined,
       );
     }, 60000);
@@ -173,37 +193,46 @@ export async function runScenario(
     let sampling = true;
     const sampler = (async () => {
       while (sampling) {
-        samples.push({ atMs: performance.now() - loadStart, ...(await sampleDatabase(sql)) });
+        const sample = await sampleDatabase(sql).catch(() => undefined);
+        // A failed sample is a gap, not a run failure; an interrupt may already have closed the DB.
+        if (sample) samples.push({ atMs: performance.now() - loadStart, ...sample });
         await Bun.sleep(options.sampleMs);
       }
     })();
-    const result = await runOpenLoop({
-      total: plan.operations.length,
-      ratePerSecond: rate,
-      warmupCount,
-      maxInFlight: options.maxInFlight,
-      instances,
-      send: async (index, instance) => {
-        const op = plan.operations[index]!;
-        const wallet = wallets[op.walletIndex]!;
-        const response = await fetch(`${apis[instance]!.base}/wagering/transactions`, {
-          method: 'POST',
-          headers: { ...headers(provider), 'Idempotency-Key': op.idempotencyKey },
-          body: JSON.stringify({
-            providerId: PROVIDER_ID,
-            externalTransactionId: op.externalTransactionId,
-            playerId: wallet.playerId,
-            walletId: wallet.id,
-            roundId: op.roundId,
-            gameId: 'load-game',
-            kind: op.kind,
-            money: { amount: op.amount, currency: 'BRL' },
-          }),
-          signal: AbortSignal.timeout(options.requestTimeoutMs),
-        });
-        return { status: response.status, body: await response.json().catch(() => null) };
-      },
-    });
+    let result: Awaited<ReturnType<typeof runOpenLoop>>;
+    try {
+      result = await runOpenLoop({
+        total: plan.operations.length,
+        ratePerSecond: rate,
+        warmupCount,
+        maxInFlight: options.maxInFlight,
+        instances,
+        send: async (index, instance) => {
+          const op = plan.operations[index]!;
+          const wallet = wallets[op.walletIndex]!;
+          const response = await fetch(`${apis[instance]!.base}/wagering/transactions`, {
+            method: 'POST',
+            headers: { ...headers(provider), 'Idempotency-Key': op.idempotencyKey },
+            body: JSON.stringify({
+              providerId: PROVIDER_ID,
+              externalTransactionId: op.externalTransactionId,
+              playerId: wallet.playerId,
+              walletId: wallet.id,
+              roundId: op.roundId,
+              gameId: 'load-game',
+              kind: op.kind,
+              money: { amount: op.amount, currency: 'BRL' },
+            }),
+            signal: AbortSignal.timeout(options.requestTimeoutMs),
+          });
+          return { status: response.status, body: await response.json().catch(() => null) };
+        },
+      });
+    } catch (error) {
+      sampling = false;
+      await sampler;
+      throw error;
+    }
     const loadEndMs = performance.now() - loadStart;
     // Publication is measured separately: financial responses never wait for the outbox.
     const outbox = () =>
@@ -236,34 +265,7 @@ export async function runScenario(
     };
     sampling = false;
     await sampler;
-    const after = await scrape(apis, demo);
-
-    const summary = summarize(result.records, {
-      windowStartMs: result.windowStartMs,
-      windowEndMs: result.windowEndMs,
-      instances,
-    });
-    const finalStates = await resolveFinalStates(plan, result.records, apis[0]!.base, provider);
-    const invariants = await checkInvariants(plan, finalStates, wallets, apis[0]!.base, demo, sql);
-    const run = {
-      name,
-      scenario,
-      instances,
-      rate,
-      apiPids: apis.map((api) => api.pid),
-      wallets: plan.wallets,
-      operations: plan.operations.length,
-      uniqueOperations: plan.operations.filter((op) => op.duplicateOf === undefined).length,
-      summary,
-      database: summarizeSamples(samples, result.windowStartMs, result.windowEndMs, loadEndMs),
-      outboxDrain,
-      processMetrics: {
-        walletLockConflicts: delta(before, after, 'wallet_lock_conflicts_total'),
-        financialRetries: delta(before, after, 'jungle_retries_total', { component: 'financial' }),
-        note: 'Per-process counters scraped from each API via /internal/metrics before/after.',
-      },
-      invariants,
-    };
+    // Raw results are persisted before any check that could fail.
     await Bun.write(
       resolve(directory, 'requests.ndjson.gz'),
       Bun.gzipSync(
@@ -285,23 +287,77 @@ export async function runScenario(
       resolve(directory, 'db-samples.ndjson.gz'),
       Bun.gzipSync(samples.map((s) => JSON.stringify(s)).join('\n') + '\n'),
     );
+    const summary = summarize(result.records, {
+      windowStartMs: result.windowStartMs,
+      windowEndMs: result.windowEndMs,
+      instances,
+    });
+    let processMetrics: {
+      walletLockConflicts: number | null;
+      financialRetries: number | null;
+      note: string;
+    } = {
+      walletLockConflicts: null,
+      financialRetries: null,
+      note: 'Per-process counters scraped from each API via /internal/metrics before/after.',
+    };
+    let invariants: Invariants;
+    try {
+      const after = await scrape(apis, demo);
+      processMetrics = {
+        ...processMetrics,
+        walletLockConflicts: delta(before, after, 'wallet_lock_conflicts_total'),
+        financialRetries: delta(before, after, 'jungle_retries_total', { component: 'financial' }),
+      };
+      const finalStates = await resolveFinalStates(plan, result.records, apis[0]!.base, provider);
+      invariants = await checkInvariants(plan, finalStates, wallets, apis[0]!.base, demo, sql);
+    } catch (error) {
+      invariants = failedInvariants(error);
+    }
+    const run = {
+      name,
+      scenario,
+      instances,
+      rate,
+      apiPids: apis.map((api) => api.pid),
+      wallets: plan.wallets,
+      operations: plan.operations.length,
+      uniqueOperations: plan.operations.filter((op) => op.duplicateOf === undefined).length,
+      summary,
+      database: summarizeSamples(samples, result.windowStartMs, result.windowEndMs, loadEndMs),
+      outboxDrain,
+      processMetrics,
+      invariants,
+    };
     await Bun.write(resolve(directory, 'run.json'), JSON.stringify(run, null, 2) + '\n');
     log(
       `LOAD_RESULT ${name}: ${formatLine(summary)} invariants=${invariants.ok ? 'ok' : 'FAILED'}`,
     );
     return run;
   } finally {
-    clearInterval(refresh);
-    await publisher?.stop('SIGTERM');
-    await Promise.allSettled(apis.map((api) => api.stop()));
-    await Promise.allSettled(
-      queues.map((QueueUrl) => sqs.send(new DeleteQueueCommand({ QueueUrl }))),
-    );
-    sqs.destroy();
-    await database.close();
+    await cleanup();
   }
 }
 export type LoadRun = Awaited<ReturnType<typeof runScenario>>;
+
+const activeCleanups = new Set<() => Promise<void>>();
+/** Stops child processes and drops disposable databases/queues of runs still in progress. */
+export async function cleanupActiveRuns() {
+  await Promise.allSettled([...activeCleanups].map((cleanup) => cleanup()));
+}
+
+type Invariants = Awaited<ReturnType<typeof checkInvariants>> & { error?: string };
+function failedInvariants(error: unknown): Invariants {
+  return {
+    ok: false,
+    error: error instanceof Error ? error.message : String(error),
+    checks: { harnessCompleted: false } as unknown as Invariants['checks'],
+    finalStates: { PROCESSED: 0, REJECTED: 0, NOT_APPLIED: 0 },
+    readBackAfterUncertainResponse: 0,
+    database: {},
+    reconciliation: { wallets: 0, consistent: 0, failures: [] },
+  };
+}
 
 async function createWallet(base: string, token: string, amount: string): Promise<Wallet> {
   const response = await fetch(`${base}/wallets`, {
@@ -467,8 +523,7 @@ async function checkInvariants(
       (select count(*)::int from wagering.transactions where status not in ('PROCESSED','REJECTED')) non_terminal,
       (select count(*)::int from wagering.journal) journal_entries,
       (select count(*)::int from wagering.journal j join wagering.accounts d on d.id=j.debit_account_id join wagering.accounts c on c.id=j.credit_account_id where j.amount<=0 or d.id=c.id or d.currency<>j.currency or c.currency<>j.currency) invalid_pairs,
-      (select count(*)::int from wagering.outbox) events,
-      (select count(distinct event_id)::int from wagering.outbox) unique_events`);
+      (select count(*)::int from wagering.transactions t where t.kind<>'OPENING' and ((select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type=case t.status when 'PROCESSED' then 'WagerTransactionProcessed' else 'WagerTransactionRejected' end)<>1 or (select count(*) from wagering.outbox o where o.transaction_id=t.id and o.event_type='WalletBalanceChanged')<>case when t.status='PROCESSED' then 1 else 0 end)) invalid_event_sets`);
   const openingEntries = plan.options.openingCents > 0n ? wallets.length : 0;
   const checks = {
     reconciledWallets: reconciliation.every((r) => r.ok),
@@ -478,7 +533,7 @@ async function checkInvariants(
     noNonTerminalTransactions: database.non_terminal === 0,
     journalEntriesMatch: database.journal_entries === openingEntries + counts.PROCESSED,
     balancedPairs: database.invalid_pairs === 0,
-    uniqueEvents: database.events === database.unique_events,
+    oneEventSetPerTransaction: database.invalid_event_sets === 0,
     noDuplicateFinancialEffect: states.multipleFirstEffects === 0,
     oversizedNeverProcessed: oversizedProcessed === 0,
   };

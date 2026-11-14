@@ -33,6 +33,24 @@ describe('latency statistics', () => {
     expect(percentile([], 50)).toBeNull();
   });
 
+  test('large sample sets do not overflow the argument stack', () => {
+    const values = Array.from({ length: 300_000 }, (_, i) => i);
+    expect(percentile(values, 100)).toBe(299_999);
+    const records = values.map((i) => ({
+      index: i,
+      instance: 0,
+      phase: 'measure' as const,
+      scheduledMs: i,
+      sentMs: i,
+      completedMs: i + 1,
+      latencyMs: 1,
+      outcome: 'processed' as const,
+    }));
+    expect(
+      summarize(records, { windowStartMs: 0, windowEndMs: 300_000, instances: 1 }).latencyMs.max,
+    ).toBe(1);
+  });
+
   test('summary excludes warmup and keeps rejections, replays and errors apart', () => {
     const record = (overrides: Partial<RequestRecord>): RequestRecord => ({
       index: 0,
@@ -71,6 +89,7 @@ describe('latency statistics', () => {
     expect(summary.financialRps).toBeCloseTo(2 / 1.2);
     expect(summary.errorRate).toBeCloseTo(1 / 4);
     expect(summary.latencyMs).toMatchObject({ p50: 20, p95: 40, p99: 40, max: 40 });
+    expect(summary.intendedLatencyMs).toMatchObject({ p50: 900, p95: 1200, max: 1200 });
     expect(summary.drainAfterWindowMs).toBe(200);
     expect(summary.perInstance).toEqual([
       { instance: 0, issued: 2, p95: 30 },

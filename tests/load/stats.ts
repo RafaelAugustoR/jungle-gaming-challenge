@@ -30,7 +30,7 @@ export function latency(values: number[]) {
     p50: round(percentile(values, 50)),
     p95: round(percentile(values, 95)),
     p99: round(percentile(values, 99)),
-    max: round(values.length ? Math.max(...values) : null),
+    max: round(values.length ? values.reduce((a, b) => (b > a ? b : a)) : null),
   };
 }
 
@@ -52,7 +52,10 @@ export function summarize(
   };
   for (const record of measured) outcomes[record.outcome]++;
   const windowSeconds = (window.windowEndMs - window.windowStartMs) / 1000;
-  const lastCompletion = Math.max(window.windowEndMs, ...completed.map((r) => r.completedMs!));
+  const lastCompletion = completed.reduce(
+    (last, r) => (r.completedMs! > last ? r.completedMs! : last),
+    window.windowEndMs,
+  );
   const elapsedSeconds = (lastCompletion - window.windowStartMs) / 1000;
   const latencies = completed.map((r) => r.latencyMs!);
   const byOutcome = (outcome: Outcome) =>
@@ -74,6 +77,8 @@ export function summarize(
     errorRate: issued.length ? (outcomes.error + outcomes.conflict) / issued.length : 0,
     drainAfterWindowMs: Math.round(lastCompletion - window.windowEndMs),
     latencyMs: latency(latencies),
+    /** From the scheduled instant: includes generator/backlog delay hidden by service latency. */
+    intendedLatencyMs: latency(completed.map((r) => r.completedMs! - r.scheduledMs)),
     latencyByOutcomeMs: {
       processed: byOutcome('processed'),
       rejected: byOutcome('rejected'),

@@ -4,6 +4,7 @@ import { parseArgs } from 'node:util';
 import { SCENARIOS, type Scenario } from '../tests/load/plan';
 import { renderReport } from '../tests/load/report';
 import {
+  cleanupActiveRuns,
   collectEnvironment,
   runScenario,
   type LoadOptions,
@@ -70,6 +71,11 @@ const options: LoadOptions = {
   outDir: resolve(values.out ?? `artifacts/load/${stamp}`),
 };
 
+for (const signal of ['SIGINT', 'SIGTERM'] as const)
+  process.once(signal, () => {
+    console.error(`Interrupted (${signal}); stopping APIs and dropping disposable resources.`);
+    void cleanupActiveRuns().finally(() => process.exit(130));
+  });
 await mkdir(options.outDir, { recursive: true });
 const environment = await collectEnvironment(options);
 await Bun.write(

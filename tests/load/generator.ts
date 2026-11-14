@@ -28,7 +28,8 @@ export async function runOpenLoop(options: OpenLoopOptions) {
   for (let index = 0; index < options.total; index++) {
     const scheduledMs = index * intervalMs;
     const wait = scheduledMs - now();
-    if (wait > 1) await Bun.sleep(wait);
+    // Yield even when overdue so completions can release in-flight capacity.
+    await Bun.sleep(wait > 1 ? wait : 0);
     const instance = index % options.instances;
     const record: RequestRecord = {
       index,

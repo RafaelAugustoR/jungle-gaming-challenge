@@ -47,3 +47,16 @@ test('open loop turns thrown requests into technical errors without stopping the
   expect(result.records[1]!.error).toBe('socket hang up');
   expect(result.records.every((r) => r.latencyMs !== undefined)).toBe(true);
 });
+
+test('open loop yields while behind schedule so completed requests free capacity', async () => {
+  // At this rate every operation is already overdue; completions must still be observed.
+  const result = await runOpenLoop({
+    total: 50,
+    ratePerSecond: 1_000_000,
+    warmupCount: 0,
+    maxInFlight: 1,
+    instances: 1,
+    send: async () => ({ status: 200, body: { status: 'PROCESSED', idempotentReplay: false } }),
+  });
+  expect(result.records.filter((r) => r.outcome === 'not_issued')).toHaveLength(0);
+});
