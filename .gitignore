@@ -9,3 +9,7 @@ artifacts/
 .DS_Store
 
 .taste-skill/
+.playwright-mcp/
+.impeccable/live/
+.impeccable/review/
+.impeccable/questions/

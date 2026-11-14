@@ -1,0 +1,611 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-14T19:24:56.356Z",
+  "title": "Design System: Lastro · Console de prova",
+  "extensions": {
+    "colorMeta": {
+      "rail": {
+        "role": "primary",
+        "displayName": "Tinta Violeta de Segurança",
+        "canonical": "oklch(25.7% 0.099 288.8)",
+        "tonalRamp": [
+          "oklch(15% 0.060 288.8)",
+          "oklch(26% 0.072 288.8)",
+          "oklch(37% 0.084 288.8)",
+          "oklch(48% 0.096 288.8)",
+          "oklch(60% 0.099 288.8)",
+          "oklch(72% 0.086 288.8)",
+          "oklch(84% 0.072 288.8)",
+          "oklch(95% 0.060 288.8)"
+        ]
+      },
+      "rail-deep": {
+        "role": "primary",
+        "displayName": "Violeta Noturno",
+        "canonical": "oklch(21.0% 0.081 289.1)",
+        "tonalRamp": [
+          "oklch(15% 0.050 289.1)",
+          "oklch(26% 0.060 289.1)",
+          "oklch(37% 0.070 289.1)",
+          "oklch(48% 0.079 289.1)",
+          "oklch(60% 0.081 289.1)",
+          "oklch(72% 0.070 289.1)",
+          "oklch(84% 0.060 289.1)",
+          "oklch(95% 0.050 289.1)"
+        ]
+      },
+      "rail-2": {
+        "role": "primary",
+        "displayName": "Violeta de Realce",
+        "canonical": "oklch(32.2% 0.125 287.5)",
+        "tonalRamp": [
+          "oklch(15% 0.075 287.5)",
+          "oklch(26% 0.090 287.5)",
+          "oklch(37% 0.105 287.5)",
+          "oklch(48% 0.120 287.5)",
+          "oklch(60% 0.123 287.5)",
+          "oklch(72% 0.106 287.5)",
+          "oklch(84% 0.090 287.5)",
+          "oklch(95% 0.075 287.5)"
+        ]
+      },
+      "rail-ink": {
+        "role": "neutral",
+        "displayName": "Branco Lavanda",
+        "canonical": "oklch(96.2% 0.020 295.2)",
+        "tonalRamp": [
+          "oklch(15% 0.016 295.2)",
+          "oklch(26% 0.019 295.2)",
+          "oklch(37% 0.020 295.2)",
+          "oklch(48% 0.020 295.2)",
+          "oklch(60% 0.020 295.2)",
+          "oklch(72% 0.020 295.2)",
+          "oklch(84% 0.019 295.2)",
+          "oklch(95% 0.016 295.2)"
+        ]
+      },
+      "rail-muted": {
+        "role": "neutral",
+        "displayName": "Lilás Esmaecido",
+        "canonical": "oklch(79.4% 0.071 293.0)",
+        "tonalRamp": [
+          "oklch(15% 0.045 293.0)",
+          "oklch(26% 0.053 293.0)",
+          "oklch(37% 0.062 293.0)",
+          "oklch(48% 0.070 293.0)",
+          "oklch(60% 0.071 293.0)",
+          "oklch(72% 0.062 293.0)",
+          "oklch(84% 0.053 293.0)",
+          "oklch(95% 0.045 293.0)"
+        ]
+      },
+      "rail-rule": {
+        "role": "neutral",
+        "displayName": "Fio Translúcido",
+        "canonical": "rgb(255 255 255 / 0.14)",
+        "tonalRamp": [
+          "rgb(255 255 255 / 0.02)",
+          "rgb(255 255 255 / 0.05)",
+          "rgb(255 255 255 / 0.08)",
+          "rgb(255 255 255 / 0.11)",
+          "rgb(255 255 255 / 0.14)",
+          "rgb(255 255 255 / 0.22)",
+          "rgb(255 255 255 / 0.32)",
+          "rgb(255 255 255 / 0.45)"
+        ]
+      },
+      "ticket": {
+        "role": "secondary",
+        "displayName": "Amarelo Bilhete",
+        "canonical": "oklch(87.9% 0.162 90.9)",
+        "tonalRamp": [
+          "oklch(15% 0.096 90.9)",
+          "oklch(26% 0.115 90.9)",
+          "oklch(37% 0.135 90.9)",
+          "oklch(48% 0.154 90.9)",
+          "oklch(60% 0.158 90.9)",
+          "oklch(72% 0.136 90.9)",
+          "oklch(84% 0.115 90.9)",
+          "oklch(95% 0.096 90.9)"
+        ]
+      },
+      "ticket-ink": {
+        "role": "secondary",
+        "displayName": "Tinta sobre Amarelo",
+        "canonical": "oklch(25.9% 0.053 89.1)",
+        "tonalRamp": [
+          "oklch(15% 0.035 89.1)",
+          "oklch(26% 0.041 89.1)",
+          "oklch(37% 0.047 89.1)",
+          "oklch(48% 0.053 89.1)",
+          "oklch(60% 0.053 89.1)",
+          "oklch(72% 0.048 89.1)",
+          "oklch(84% 0.041 89.1)",
+          "oklch(95% 0.035 89.1)"
+        ]
+      },
+      "held": {
+        "role": "tertiary",
+        "displayName": "Verde que Valida",
+        "canonical": "oklch(51.0% 0.123 154.8)",
+        "tonalRamp": [
+          "oklch(15% 0.074 154.8)",
+          "oklch(26% 0.089 154.8)",
+          "oklch(37% 0.104 154.8)",
+          "oklch(48% 0.119 154.8)",
+          "oklch(60% 0.122 154.8)",
+          "oklch(72% 0.105 154.8)",
+          "oklch(84% 0.089 154.8)",
+          "oklch(95% 0.074 154.8)"
+        ]
+      },
+      "held-bg": {
+        "role": "tertiary",
+        "displayName": "Via Validada",
+        "canonical": "oklch(94.7% 0.025 160.6)",
+        "tonalRamp": [
+          "oklch(15% 0.019 160.6)",
+          "oklch(26% 0.022 160.6)",
+          "oklch(37% 0.025 160.6)",
+          "oklch(48% 0.025 160.6)",
+          "oklch(60% 0.025 160.6)",
+          "oklch(72% 0.025 160.6)",
+          "oklch(84% 0.022 160.6)",
+          "oklch(95% 0.019 160.6)"
+        ]
+      },
+      "void": {
+        "role": "tertiary",
+        "displayName": "Vermelho que Anula",
+        "canonical": "oklch(49.5% 0.185 21.3)",
+        "tonalRamp": [
+          "oklch(15% 0.109 21.3)",
+          "oklch(26% 0.131 21.3)",
+          "oklch(37% 0.153 21.3)",
+          "oklch(48% 0.176 21.3)",
+          "oklch(60% 0.180 21.3)",
+          "oklch(72% 0.155 21.3)",
+          "oklch(84% 0.131 21.3)",
+          "oklch(95% 0.109 21.3)"
+        ]
+      },
+      "void-bg": {
+        "role": "tertiary",
+        "displayName": "Via Anulada",
+        "canonical": "oklch(93.7% 0.028 6.7)",
+        "tonalRamp": [
+          "oklch(15% 0.021 6.7)",
+          "oklch(26% 0.024 6.7)",
+          "oklch(37% 0.027 6.7)",
+          "oklch(48% 0.028 6.7)",
+          "oklch(60% 0.028 6.7)",
+          "oklch(72% 0.028 6.7)",
+          "oklch(84% 0.024 6.7)",
+          "oklch(95% 0.021 6.7)"
+        ]
+      },
+      "void-on-rail": {
+        "role": "tertiary",
+        "displayName": "Vermelho sobre Trilho",
+        "canonical": "oklch(74.0% 0.161 13.8)",
+        "tonalRamp": [
+          "oklch(15% 0.095 13.8)",
+          "oklch(26% 0.115 13.8)",
+          "oklch(37% 0.134 13.8)",
+          "oklch(48% 0.154 13.8)",
+          "oklch(60% 0.157 13.8)",
+          "oklch(72% 0.136 13.8)",
+          "oklch(84% 0.115 13.8)",
+          "oklch(95% 0.095 13.8)"
+        ]
+      },
+      "pending": {
+        "role": "tertiary",
+        "displayName": "Âmbar de Espera",
+        "canonical": "oklch(49.4% 0.109 66.9)",
+        "tonalRamp": [
+          "oklch(15% 0.066 66.9)",
+          "oklch(26% 0.079 66.9)",
+          "oklch(37% 0.093 66.9)",
+          "oklch(48% 0.106 66.9)",
+          "oklch(60% 0.108 66.9)",
+          "oklch(72% 0.094 66.9)",
+          "oklch(84% 0.079 66.9)",
+          "oklch(95% 0.066 66.9)"
+        ]
+      },
+      "pending-bg": {
+        "role": "tertiary",
+        "displayName": "Via Pendente",
+        "canonical": "oklch(95.6% 0.059 91.4)",
+        "tonalRamp": [
+          "oklch(15% 0.038 91.4)",
+          "oklch(26% 0.045 91.4)",
+          "oklch(37% 0.052 91.4)",
+          "oklch(48% 0.059 91.4)",
+          "oklch(60% 0.059 91.4)",
+          "oklch(72% 0.053 91.4)",
+          "oklch(84% 0.045 91.4)",
+          "oklch(95% 0.038 91.4)"
+        ]
+      },
+      "pending-on-rail": {
+        "role": "tertiary",
+        "displayName": "Âmbar sobre Trilho",
+        "canonical": "oklch(87.9% 0.162 90.9)",
+        "tonalRamp": [
+          "oklch(15% 0.096 90.9)",
+          "oklch(26% 0.115 90.9)",
+          "oklch(37% 0.135 90.9)",
+          "oklch(48% 0.154 90.9)",
+          "oklch(60% 0.158 90.9)",
+          "oklch(72% 0.136 90.9)",
+          "oklch(84% 0.115 90.9)",
+          "oklch(95% 0.096 90.9)"
+        ]
+      },
+      "paper": {
+        "role": "neutral",
+        "displayName": "Papel de Segurança Lavanda",
+        "canonical": "oklch(94.9% 0.016 297.5)",
+        "tonalRamp": [
+          "oklch(15% 0.014 297.5)",
+          "oklch(26% 0.016 297.5)",
+          "oklch(37% 0.016 297.5)",
+          "oklch(48% 0.016 297.5)",
+          "oklch(60% 0.016 297.5)",
+          "oklch(72% 0.016 297.5)",
+          "oklch(84% 0.016 297.5)",
+          "oklch(95% 0.014 297.5)"
+        ]
+      },
+      "sheet": {
+        "role": "neutral",
+        "displayName": "Folha Bilhete",
+        "canonical": "oklch(99.0% 0.005 297.7)",
+        "tonalRamp": [
+          "oklch(15% 0.005 297.7)",
+          "oklch(26% 0.005 297.7)",
+          "oklch(37% 0.005 297.7)",
+          "oklch(48% 0.005 297.7)",
+          "oklch(60% 0.005 297.7)",
+          "oklch(72% 0.005 297.7)",
+          "oklch(84% 0.005 297.7)",
+          "oklch(95% 0.005 297.7)"
+        ]
+      },
+      "ink": {
+        "role": "neutral",
+        "displayName": "Tinta Grafite Violácea",
+        "canonical": "oklch(20.2% 0.049 288.6)",
+        "tonalRamp": [
+          "oklch(15% 0.032 288.6)",
+          "oklch(26% 0.038 288.6)",
+          "oklch(37% 0.044 288.6)",
+          "oklch(48% 0.049 288.6)",
+          "oklch(60% 0.049 288.6)",
+          "oklch(72% 0.045 288.6)",
+          "oklch(84% 0.038 288.6)",
+          "oklch(95% 0.032 288.6)"
+        ]
+      },
+      "ink-2": {
+        "role": "neutral",
+        "displayName": "Grafite Secundário",
+        "canonical": "oklch(41.0% 0.055 292.1)",
+        "tonalRamp": [
+          "oklch(15% 0.036 292.1)",
+          "oklch(26% 0.042 292.1)",
+          "oklch(37% 0.049 292.1)",
+          "oklch(48% 0.055 292.1)",
+          "oklch(60% 0.055 292.1)",
+          "oklch(72% 0.050 292.1)",
+          "oklch(84% 0.042 292.1)",
+          "oklch(95% 0.036 292.1)"
+        ]
+      },
+      "rule": {
+        "role": "neutral",
+        "displayName": "Fio Claro",
+        "canonical": "oklch(87.6% 0.033 297.1)",
+        "tonalRamp": [
+          "oklch(15% 0.024 297.1)",
+          "oklch(26% 0.028 297.1)",
+          "oklch(37% 0.032 297.1)",
+          "oklch(48% 0.033 297.1)",
+          "oklch(60% 0.033 297.1)",
+          "oklch(72% 0.032 297.1)",
+          "oklch(84% 0.028 297.1)",
+          "oklch(95% 0.024 297.1)"
+        ]
+      },
+      "rule-strong": {
+        "role": "neutral",
+        "displayName": "Fio de Picote",
+        "canonical": "oklch(71.8% 0.061 294.6)",
+        "tonalRamp": [
+          "oklch(15% 0.039 294.6)",
+          "oklch(26% 0.047 294.6)",
+          "oklch(37% 0.054 294.6)",
+          "oklch(48% 0.061 294.6)",
+          "oklch(60% 0.061 294.6)",
+          "oklch(72% 0.055 294.6)",
+          "oklch(84% 0.047 294.6)",
+          "oklch(95% 0.039 294.6)"
+        ]
+      },
+      "focus": {
+        "role": "neutral",
+        "displayName": "Violeta de Foco",
+        "canonical": "oklch(49.9% 0.221 283.2)",
+        "tonalRamp": [
+          "oklch(15% 0.129 283.2)",
+          "oklch(26% 0.155 283.2)",
+          "oklch(37% 0.182 283.2)",
+          "oklch(48% 0.209 283.2)",
+          "oklch(60% 0.214 283.2)",
+          "oklch(72% 0.185 283.2)",
+          "oklch(84% 0.155 283.2)",
+          "oklch(95% 0.129 283.2)"
+        ]
+      }
+    },
+    "typographyMeta": {
+      "display": {
+        "displayName": "Display",
+        "purpose": "Saldo da wallet no trilho; único uso de tamanho display."
+      },
+      "headline": {
+        "displayName": "Headline",
+        "purpose": "Frase da landing."
+      },
+      "headline-stage": {
+        "displayName": "Headline de palco",
+        "purpose": "Garantia como título de cada prova; títulos de Bilhetes e Ledger."
+      },
+      "title": {
+        "displayName": "Title",
+        "purpose": "Frase do veredito."
+      },
+      "figure": {
+        "displayName": "Figure",
+        "purpose": "Valores dentro do bilhete e da faixa de saldo."
+      },
+      "body": {
+        "displayName": "Body",
+        "purpose": "Texto corrido; numerais tabulares."
+      },
+      "label-stamp": {
+        "displayName": "Label carimbo",
+        "purpose": "Só o carimbo do veredito."
+      },
+      "label-section": {
+        "displayName": "Label de seção",
+        "purpose": "Metades do bilhete, cabeçalho de tabela, grupos do trilho, tipo de operação."
+      },
+      "mono": {
+        "displayName": "Mono",
+        "purpose": "IDs, external IDs, serial e códigos crus de status."
+      }
+    },
+    "shadows": [
+      {
+        "name": "landing-ticket-lift",
+        "value": "0 18px 40px rgb(10 4 30 / 0.35)",
+        "purpose": "Só o bilhete de apresentação sobre o painel violeta da landing; o console é plano."
+      }
+    ],
+    "motion": [
+      {
+        "name": "ease-out",
+        "value": "cubic-bezier(0.16, 1, 0.3, 1)",
+        "purpose": "Easing de todas as transições e do carimbo."
+      },
+      {
+        "name": "control-transition",
+        "value": "160ms",
+        "purpose": "Fundo e cor de botões."
+      },
+      {
+        "name": "validation-tone",
+        "value": "400ms",
+        "purpose": "Troca do fundo tonal da via de validação quando o estado muda."
+      },
+      {
+        "name": "stamp-press",
+        "value": "520ms",
+        "purpose": "Carimbo pressionado uma vez: escala 1.35→1, desfoque 1.5px→0, opacidade .25→1, girado −4°."
+      },
+      {
+        "name": "mark-wait",
+        "value": "1.2s linear infinite",
+        "purpose": "Marca pendente gira 90° enquanto a prova executa."
+      },
+      {
+        "name": "reduced-motion",
+        "value": "animation/transition: none",
+        "purpose": "prefers-reduced-motion desliga tudo."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "md",
+        "value": "960px"
+      },
+      {
+        "name": "sm",
+        "value": "640px"
+      }
+    ],
+    "textures": [
+      {
+        "name": "guilloche",
+        "value": "SVG 120×120: seis elipses 58×22 giradas de 30° + círculos r40 e r26, traço branco 0.8 a 7,5%",
+        "purpose": "Só atrás do saldo da wallet."
+      },
+      {
+        "name": "perforation",
+        "value": "linha tracejada 1.5px × 8px em rule-strong + meios-furos de 16px preenchidos com paper",
+        "purpose": "Separa canhoto e via no bilhete."
+      },
+      {
+        "name": "punch-holes",
+        "value": "máscara radial 4px a cada 14px na borda esquerda",
+        "purpose": "Borda destacável do bilhete."
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Botão primário",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Ação principal em tinta violeta; variante grande executa a prova.",
+      "html": "<button class=\"ds-btn-primary\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"square\" aria-hidden=\"true\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg>Executar prova</button>",
+      "css": ".ds-btn-primary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:0;font-family:'Archivo', system-ui, sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),color 160ms cubic-bezier(0.16, 1, 0.3, 1);min-height:48px;padding:0 22px;font-size:16px;background:var(--rail, #24164f);border:1px solid var(--rail, #24164f);color:var(--rail-ink, #f3f0ff);}.ds-btn-primary:hover{background:var(--rail-2, #33226e);}.ds-btn-primary:focus-visible{outline:2px solid var(--focus, #5b3fd9);outline-offset:2px;}.ds-btn-primary:disabled{opacity:.5;cursor:not-allowed;}"
+    },
+    {
+      "name": "Botão secundário",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Botão padrão: borda de tinta sobre papel.",
+      "html": "<button class=\"ds-btn-secondary\">Atualizar</button>",
+      "css": ".ds-btn-secondary{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:0;font-family:'Archivo', system-ui, sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),color 160ms cubic-bezier(0.16, 1, 0.3, 1);background:transparent;border:1px solid var(--ink, #16122b);color:var(--ink, #16122b);}.ds-btn-secondary:hover{background:#e4dff5;}.ds-btn-secondary:active{background:#d6cff0;}.ds-btn-secondary:focus-visible{outline:2px solid var(--focus, #5b3fd9);outline-offset:2px;}"
+    },
+    {
+      "name": "Botão ghost no trilho",
+      "kind": "button",
+      "refersTo": "button-ghost-on-rail",
+      "description": "Ação secundária sobre a tinta violeta (ex.: Sair).",
+      "html": "<div class=\"ds-railbg\"><button class=\"ds-btn-ghost\">Sair</button></div>",
+      "css": ".ds-railbg{background:var(--rail-deep, #190e3a);padding:12px;}.ds-btn-ghost{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:0;font-family:'Archivo', system-ui, sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),color 160ms cubic-bezier(0.16, 1, 0.3, 1);min-height:34px;padding:0 12px;background:transparent;border:1px solid var(--rail-rule, rgb(255 255 255 / 0.14));color:var(--rail-ink, #f3f0ff);}.ds-btn-ghost:hover{background:var(--rail-2, #33226e);}.ds-btn-ghost:focus-visible{outline:2px solid var(--ticket, #ffd23f);outline-offset:2px;}"
+    },
+    {
+      "name": "Campo de dinheiro",
+      "kind": "input",
+      "refersTo": "input",
+      "description": "Campo reto com prefixo R$ dentro da borda; numerais tabulares.",
+      "html": "<label class=\"ds-field\"><span class=\"ds-label\">Saldo inicial</span><span class=\"ds-money\"><span>R$</span><input value=\"100,00\" inputmode=\"decimal\"></span></label>",
+      "css": ".ds-field{display:grid;gap:6px;font-family:'Archivo', system-ui, sans-serif;width:220px;}.ds-label{font-size:13px;font-weight:600;color:var(--ink, #16122b);}.ds-money{display:flex;align-items:stretch;border:1px solid var(--rule-strong, #a69dc7);background:#fff;}.ds-money:focus-within{outline:2px solid var(--focus, #5b3fd9);border-color:var(--focus, #5b3fd9);}.ds-money span{display:grid;place-items:center;padding-left:12px;color:var(--ink-2, #4b4566);font-weight:600;}.ds-money input{width:100%;min-height:42px;border:0;outline:none;padding:0 12px 0 6px;font:inherit;font-variant-numeric:tabular-nums;color:var(--ink, #16122b);background:transparent;}"
+    },
+    {
+      "name": "Item do trilho",
+      "kind": "nav",
+      "refersTo": "rail-item",
+      "description": "Navegação de provas: número, marca de estado, rótulo; o item atual vira amarelo bilhete.",
+      "html": "<nav class=\"ds-rail\"><div class=\"ds-rail-h\">Provas <span class=\"ds-score\">2/5</span></div><button class=\"ds-rail-item\"><span class=\"ds-n\">1</span><span class=\"ds-mark ds-mark-held\"></span><span>Disputa pelo saldo</span></button><button class=\"ds-rail-item\" aria-current=\"page\"><span class=\"ds-n\">2</span><span class=\"ds-mark ds-mark-pending\"></span><span>Repetição idempotente</span></button><button class=\"ds-rail-item\"><span class=\"ds-n\">3</span><span class=\"ds-mark ds-mark-none\"></span><span>Referência fora de ordem</span></button></nav>",
+      "css": ".ds-rail{display:grid;gap:2px;width:268px;padding:16px;background:var(--rail, #24164f);font-family:'Archivo', system-ui, sans-serif;}.ds-rail-h{display:flex;justify-content:space-between;padding:0 8px 6px;font-size:12px;font-stretch:70%;font-weight:700;text-transform:uppercase;letter-spacing:.1em;color:var(--rail-muted, #bdb4e6);}.ds-score{padding:1px 7px;background:var(--ticket, #ffd23f);color:var(--ticket-ink, #2e2200);letter-spacing:.02em;}.ds-rail-item{display:grid;grid-template-columns:18px 16px 1fr;gap:10px;align-items:center;min-height:40px;padding:0 10px;border:0;border-radius:0;background:transparent;color:var(--rail-ink, #f3f0ff);font:500 15px 'Archivo', system-ui, sans-serif;text-align:left;cursor:pointer;}.ds-rail-item:hover{background:var(--rail-2, #33226e);}.ds-rail-item:focus-visible{outline:2px solid var(--ticket, #ffd23f);outline-offset:2px;}.ds-rail-item[aria-current=page]{background:var(--ticket, #ffd23f);color:var(--ticket-ink, #2e2200);font-weight:650;}.ds-n{font-weight:700;color:var(--rail-muted, #bdb4e6);}.ds-rail-item[aria-current=page] .ds-n{color:var(--ticket-ink, #2e2200);}.ds-mark{width:16px;height:16px;border:1.5px solid currentColor;}.ds-mark-held{background:var(--held, #0b7a45);border-color:var(--rail-ink, #f3f0ff);}.ds-mark-pending{border-style:dashed;border-color:var(--pending, #8a5300);}.ds-mark-none{opacity:.55;}"
+    },
+    {
+      "name": "Marca de estado",
+      "kind": "chip",
+      "refersTo": "state-mark",
+      "description": "Célula fixa de 16px: cheia mantida, tracejada pendente, riscada anulada; sempre com texto.",
+      "html": "<div class=\"ds-marks\"><span class=\"ds-st ds-st-held\"><span class=\"ds-m\"></span>Processada <code>PROCESSED</code></span><span class=\"ds-st ds-st-pend\"><span class=\"ds-m\"></span>Aguardando referência <code>PENDING_REFERENCE</code></span><span class=\"ds-st ds-st-void\"><span class=\"ds-m\"><svg width=\"14\" height=\"14\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"square\" aria-hidden=\"true\"><path d=\"M6 6l12 12M18 6L6 18\"/></svg></span>Recusada <code>REJECTED</code></span></div>",
+      "css": ".ds-marks{display:grid;gap:10px;font:400 15px 'Archivo', system-ui, sans-serif;color:var(--ink, #16122b);}.ds-st{display:inline-flex;align-items:center;gap:8px;}.ds-st code{font-family:'JetBrains Mono', ui-monospace, monospace;font-size:11.5px;color:var(--ink-2, #4b4566);}.ds-m{display:inline-grid;place-items:center;width:16px;height:16px;border:1.5px solid currentColor;}.ds-st-held .ds-m{background:var(--held, #0b7a45);border-color:var(--held, #0b7a45);}.ds-st-pend{color:var(--pending, #8a5300);font-weight:650;}.ds-st-pend .ds-m{border-style:dashed;}.ds-st-void{color:var(--void, #b3192f);font-weight:650;}"
+    },
+    {
+      "name": "Carimbo",
+      "kind": "custom",
+      "refersTo": "stamp-held",
+      "description": "Veredito pressionado uma vez: caixa alta condensada, borda dupla, −4°.",
+      "html": "<div class=\"ds-stamps\"><span class=\"ds-stamp ds-stamp-held\"><span>Garantia mantida</span></span><span class=\"ds-stamp ds-stamp-void\"><span>Garantia violada</span></span><span class=\"ds-stamp ds-stamp-pend\"><span>Inconclusivo</span></span></div>",
+      "css": ".ds-stamps{display:flex;flex-wrap:wrap;gap:28px;padding:16px;background:var(--paper, #efecf8);}.ds-stamp{display:inline-block;padding:3px;border:2px solid currentColor;transform:rotate(-4deg);animation:ds-press 520ms cubic-bezier(0.16, 1, 0.3, 1) both;}.ds-stamp span{display:block;padding:8px 14px;border:1px solid currentColor;font:850 19px/1 'Archivo', system-ui, sans-serif;font-stretch:62%;text-transform:uppercase;letter-spacing:.08em;white-space:nowrap;}.ds-stamp-held{color:var(--held, #0b7a45);background:rgb(224 243 232 / .7);}.ds-stamp-void{color:var(--void, #b3192f);background:rgb(252 227 231 / .7);}.ds-stamp-pend{color:var(--pending, #8a5300);background:rgb(255 240 196 / .7);}@keyframes ds-press{from{opacity:.25;transform:rotate(-4deg) scale(1.35);filter:blur(1.5px);}to{opacity:1;transform:rotate(-4deg) scale(1);filter:blur(0);}}@media (prefers-reduced-motion:reduce){.ds-stamp{animation:none;}}"
+    },
+    {
+      "name": "Bilhete",
+      "kind": "card",
+      "refersTo": "ticket-head",
+      "description": "Canhoto com o recibo original, picote, via de validação com o estado atual em fundo tonal.",
+      "html": "<article class=\"ds-ticket\"><header class=\"ds-th\"><span class=\"ds-tl\">Aposta A</span><span class=\"ds-tk\">BET</span><span class=\"ds-ta\">R$ 80,00</span><code class=\"ds-ts\">demo-226ad366-race-a</code></header><div class=\"ds-tb\"><div class=\"ds-half\"><h4>Canhoto <span>recibo original</span></h4><dl><div><dt>Estado</dt><dd>Pendente</dd></div><div><dt>Saldo após</dt><dd>—</dd></div></dl></div><div class=\"ds-perf\"></div><div class=\"ds-half ds-val\"><h4>Via de validação <span>estado atual</span></h4><dl><div><dt>Estado</dt><dd>Processada <em class=\"ds-chg\">mudou</em></dd></div><div><dt>Saldo após</dt><dd>R$ 20,00</dd></div></dl></div></div></article>",
+      "css": ".ds-ticket{max-width:640px;border:1px solid var(--rule-strong, #a69dc7);background:var(--sheet, #fcfbff);font:400 15px/1.55 'Archivo', system-ui, sans-serif;color:var(--ink, #16122b);font-variant-numeric:tabular-nums;-webkit-mask:radial-gradient(circle at 0 50%,transparent 4px,#000 4.5px) 0 0/10px 14px repeat-y,linear-gradient(#000 0 0) 10px 0/calc(100% - 10px) 100% no-repeat;mask:radial-gradient(circle at 0 50%,transparent 4px,#000 4.5px) 0 0/10px 14px repeat-y,linear-gradient(#000 0 0) 10px 0/calc(100% - 10px) 100% no-repeat;}.ds-th{display:flex;flex-wrap:wrap;align-items:baseline;gap:6px 14px;padding:8px 14px 8px 22px;background:var(--rail, #24164f);color:var(--rail-ink, #f3f0ff);}.ds-tl{font-weight:650;}.ds-tk{padding:0 6px;background:var(--ticket, #ffd23f);color:var(--ticket-ink, #2e2200);font-size:12px;font-weight:800;font-stretch:70%;letter-spacing:.06em;}.ds-ta{font-size:18px;font-weight:700;font-stretch:72%;}.ds-ts{margin-left:auto;font-family:'JetBrains Mono', ui-monospace, monospace;font-size:11.5px;color:var(--rail-muted, #bdb4e6);}.ds-tb{display:grid;grid-template-columns:1fr 28px 1.15fr;}.ds-half{padding:14px 16px 16px 22px;}.ds-val{padding-left:16px;background:var(--held-bg, #e0f3e8);}.ds-half h4{display:flex;justify-content:space-between;margin:0 0 10px;font-size:12px;font-stretch:72%;font-weight:750;text-transform:uppercase;letter-spacing:.08em;color:var(--ink-2, #4b4566);}.ds-half h4 span{font-weight:500;text-transform:none;letter-spacing:0;font-stretch:100%;}.ds-half dl{display:grid;gap:6px;margin:0;}.ds-half dl div{display:grid;grid-template-columns:112px 1fr;gap:10px;}.ds-half dt{font-size:12.5px;color:var(--ink-2, #4b4566);}.ds-half dd{margin:0;font-weight:550;}.ds-chg{padding:0 6px;background:var(--ticket, #ffd23f);color:var(--ticket-ink, #2e2200);font-style:normal;font-size:12px;font-weight:700;}.ds-perf{position:relative;background:linear-gradient(var(--rule-strong, #a69dc7) 50%,transparent 50%) center/1.5px 8px repeat-y;}.ds-perf::before,.ds-perf::after{content:'';position:absolute;left:50%;width:16px;height:16px;border:1px solid var(--rule-strong, #a69dc7);border-radius:50%;background:var(--paper, #efecf8);transform:translateX(-50%);}.ds-perf::before{top:-9px;}.ds-perf::after{bottom:-9px;}"
+    },
+    {
+      "name": "Faixa de saldo",
+      "kind": "custom",
+      "refersTo": "balance-strip",
+      "description": "Saldo antes → depois em figuras condensadas sobre tinta violeta.",
+      "html": "<div class=\"ds-strip\"><div><span>Antes</span><strong>R$ 100,00</strong></div><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"square\" aria-hidden=\"true\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg><div><span>Depois</span><strong>R$ 20,00</strong></div></div>",
+      "css": ".ds-strip{display:flex;align-items:center;gap:20px;padding:12px 18px;background:var(--rail, #24164f);color:var(--rail-ink, #f3f0ff);font-family:'Archivo', system-ui, sans-serif;font-variant-numeric:tabular-nums;}.ds-strip div{display:grid;}.ds-strip span{font-size:12px;color:var(--rail-muted, #bdb4e6);}.ds-strip strong{font-size:28px;font-stretch:70%;font-weight:700;letter-spacing:-.02em;}.ds-strip svg{color:var(--ticket, #ffd23f);}"
+    },
+    {
+      "name": "Barra de execução",
+      "kind": "card",
+      "refersTo": "run-bar",
+      "description": "Folha com fio amarelo de 3px no topo; nota à esquerda, ação à direita.",
+      "html": "<form class=\"ds-run\" onsubmit=\"return false\"><p>A reconciliação só lê o ledger. Ela não altera saldo.</p><button class=\"ds-run-btn\"><svg width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.75\" stroke-linecap=\"square\" aria-hidden=\"true\"><path d=\"M5 12h14M13 6l6 6-6 6\"/></svg>Executar de novo</button></form>",
+      "css": ".ds-run{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:16px;padding:16px 18px;background:var(--sheet, #fcfbff);border:1px solid var(--rule, #d8d2ea);border-top:3px solid var(--ticket, #ffd23f);font-family:'Archivo', system-ui, sans-serif;}.ds-run p{margin:0;max-width:52ch;color:var(--ink-2, #4b4566);}.ds-run-btn{display:inline-flex;align-items:center;justify-content:center;gap:8px;min-height:40px;padding:0 16px;border-radius:0;font-family:'Archivo', system-ui, sans-serif;font-size:15px;font-weight:600;cursor:pointer;transition:background-color 160ms cubic-bezier(0.16, 1, 0.3, 1),color 160ms cubic-bezier(0.16, 1, 0.3, 1);min-height:46px;padding:0 22px;font-size:15.5px;background:var(--rail, #24164f);border:1px solid var(--rail, #24164f);color:var(--rail-ink, #f3f0ff);}.ds-run-btn:hover{background:var(--rail-2, #33226e);}.ds-run-btn:focus-visible{outline:2px solid var(--focus, #5b3fd9);outline-offset:2px;}"
+    }
+  ],
+  "narrative": {
+    "northStar": "Bilhete Validado",
+    "overview": "O console é impressão de segurança de bilhete de loteria aplicada a uma ferramenta de prova. Cada garantia financeira sai como um bilhete conferido: o recibo original fica no canhoto, o estado atual fica na via de validação, os dois separados por um picote, e o veredito chega como um carimbo pressionado. A moldura é tinta violeta (topo, trilho, cabeçalhos de bilhete, faixa de saldo); o conteúdo é papel de segurança lavanda e folhas quase brancas. O amarelo de bilhete marca o que está ativo agora. Verde valida, vermelho anula, âmbar espera.\n\nA densidade é de documento conferido, não de painel: fios de 1px, cantos retos, poucas superfícies, numerais grandes e condensados onde há valor. A tipografia é uma família só, Archivo, cujo eixo de largura carrega a hierarquia: largura normal para leitura, condensada para carimbos, saldos, rótulos e tipos de operação. Mono (JetBrains Mono) aparece só em IDs, seriais e códigos de status. A guilhoche, a rosácea de segurança, existe só atrás do saldo da wallet, onde o valor está impresso.\n\nO mundo recusa o dashboard de cards de KPI e a tabela crua de recibos. A evidência é mostrada como objeto (bilhete, carimbo, faixa antes→depois, linha de ledger que fecha), e cada estado é sempre forma + texto, nunca só cor.",
+    "keyCharacteristics": [
+      "Moldura em tinta violeta, conteúdo em papel lavanda; amarelo só para o ativo.",
+      "Cantos retos em tudo; os únicos círculos são os furos do picote.",
+      "Archivo com eixo de largura: quanto mais condensado, mais \"impresso\" é o elemento.",
+      "Marcas de estado em célula fixa: cheia mantida, tracejada pendente, riscada anulada.",
+      "Um gesto assinatura: o carimbo pressionado uma vez quando o veredito chega."
+    ],
+    "rules": [
+      {
+        "name": "The Ink Frame Rule",
+        "body": "O violeta emoldura, o papel contém. Topo, trilho, cabeçalho de bilhete e faixa de saldo são tinta; tudo o que é lido como evidência fica em `paper` ou `sheet`.",
+        "section": "colors"
+      },
+      {
+        "name": "The One Ticket Rule",
+        "body": "Amarelo marca o único item ativo ou ganho na tela: a prova atual, a barra de execução, o tipo da operação, o que mudou, o placar. Nunca é fundo de seção nem decoração.",
+        "section": "colors"
+      },
+      {
+        "name": "The Three Inks Rule",
+        "body": "Verde mantém, vermelho anula, âmbar espera, e nenhuma das três aparece sem a marca de forma e o texto do estado ao lado.",
+        "section": "colors"
+      },
+      {
+        "name": "The Width Axis Rule",
+        "body": "A hierarquia se faz pela largura antes do tamanho: títulos a 78–92%, figuras a 70–72%, carimbo a 62%. Texto de leitura fica em 100%.",
+        "section": "typography"
+      },
+      {
+        "name": "The Serial-Only Mono Rule",
+        "body": "Mono é só para o que seria número de série num bilhete: UUIDs, external IDs, códigos `PROCESSED`/`PENDING_REFERENCE`. Rótulos e valores em dinheiro ficam em Archivo.",
+        "section": "typography"
+      },
+      {
+        "name": "The Printed Flat Rule",
+        "body": "Superfícies do console não têm sombra. Separação vem de fio de 1px ou de troca de tinta; estado vem de fundo tonal.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Guilloche Behind Value Rule",
+        "body": "A rosácea de segurança aparece só atrás de onde há valor impresso (o saldo da wallet). Não vira padrão de fundo de página nem de outras superfícies.",
+        "section": "elevation"
+      },
+      {
+        "name": "The Square Corner Rule",
+        "body": "Nenhum raio de canto. Se é redondo, é um furo no papel.",
+        "section": "shapes"
+      }
+    ],
+    "dos": [
+      "**Do** emoldurar com `rail`/`rail-deep` e manter a evidência em `paper`/`sheet` (The Ink Frame Rule).",
+      "**Do** usar o amarelo `ticket` só no item ativo, no tipo da operação, no que mudou e no placar (The One Ticket Rule).",
+      "**Do** acompanhar toda cor de estado com a marca de célula fixa e o texto do estado (The Three Inks Rule).",
+      "**Do** mostrar recibo original e estado atual em lados opostos de um picote, nunca na mesma célula.",
+      "**Do** usar o eixo de largura da Archivo para hierarquia: 62% no carimbo, ~70% em valores, 78–92% em títulos, 100% em leitura.",
+      "**Do** manter mono restrito a IDs, seriais e códigos crus de status.",
+      "**Do** colocar o resultado logo abaixo da barra de execução: veredito, carimbo, faixa antes→depois, bilhetes.",
+      "**Do** manter foco de 2px visível (violeta no papel, amarelo no trilho) e desligar animações e transições sob `prefers-reduced-motion`."
+    ],
+    "donts": [
+      "**Don't** usar raio de canto; os únicos círculos são furos de picote e de destaque.",
+      "**Don't** pôr sombra em superfícies do console; a única sombra é a do bilhete de apresentação da landing.",
+      "**Don't** montar cards de KPI ou tabelas cruas de recibos como mensagem principal; o veredito vem antes do dado.",
+      "**Don't** espalhar a guilhoche por fundos; ela fica atrás do saldo.",
+      "**Don't** animar o carimbo mais de uma vez nem usar outro movimento decorativo; só o carimbo, a marca girando enquanto executa e as transições de estado.",
+      "**Don't** usar o nome, logo ou cores da Jungle Gaming nem de casa de aposta real."
+    ]
+  }
+}
