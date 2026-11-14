@@ -13,8 +13,10 @@ verifica, para cada evento pendente, se existe um evento anterior não publicado
 agregado. O índice único `(aggregate_id, sequence)` encontra os anteriores, mas o filtro
 `published_at is null` era aplicado linha a linha sobre todo o histórico já publicado.
 
-`explain-claim.ts` reproduz o cenário num banco descartável: uma wallet com 3 000 BETs
-(6 001 eventos), metade publicada, mais 20 wallets pequenas.
+`scripts/explain-outbox-claim.ts` monta o backlog num banco descartável e roda
+`EXPLAIN (ANALYZE, BUFFERS)` da própria constante `PUBLISHABLE_HEADS`, com o limite como
+parâmetro. A medição abaixo usou uma wallet com 3 000 BETs (6 001 eventos), metade
+publicada, mais 20 wallets pequenas.
 
 | | Tempo da reserva | Buffers | Probe por evento pendente |
 | --- | --- | --- | --- |
@@ -22,13 +24,16 @@ agregado. O índice único `(aggregate_id, sequence)` encontra os anteriores, ma
 | Com `outbox_unpublished_by_aggregate` | ~10 ms | ~10 mil | 1 entrada do índice parcial |
 
 ```sh
-bun docs/evidence/issue-27/explain-claim.ts 3000 0.5         # baseline: remove o índice
-bun docs/evidence/issue-27/explain-claim.ts 3000 0.5 index   # com o índice
+bun scripts/explain-outbox-claim.ts --bets 3000 --published 0.5 --baseline  # sem o índice
+bun scripts/explain-outbox-claim.ts --bets 3000 --published 0.5             # com o índice
+bun scripts/explain-outbox-claim.ts --bets 5 --wallets 300 --published 0.5  # muitas wallets
 ```
 
-A correção é a migration reversível `Migration202611150010`: índice parcial
+A correção é a migration reversível `Migration202611140010`: índice parcial
 `(aggregate_id, sequence) where published_at is null`. Não muda semântica, ordem,
-leases nem deduplicação. O teste de integração
+leases nem deduplicação. Com histórico publicado grande (1 500 BETs, 97% publicados), o
+planner também usa esse índice na varredura externa: 91 pendentes lidos, 0,6 ms. O seq
+scan só aparece com tabela pequena, quando é de fato mais barato. O teste de integração
 `claiming a head does not rescan the published history of a deep single-wallet backlog`
 mede buffers do `EXPLAIN ANALYZE` da consulta real (300 publicados + 301 pendentes numa
 wallet): 51 284 buffers sem o índice (falha, limite 20 000), poucos milhares com ele.
@@ -38,7 +43,8 @@ wallet): 51 284 buffers sem o índice (falha, limite 20 000), poucos milhares co
 `bun run test:load --scenarios hot-wallet,distributed --instances 1 --rate 100
 --duration 15 --warmup 3 --outbox-drain-timeout 10000`, alternando `main` (`1f8f0e4`,
 já com o #28) e este branch (`5193a78`) três vezes. Resumos, ambiente e relatório de cada
-rodada estão em [`ab/`](ab/); `ab/host.log` registra o load average antes de cada uma.
+rodada estão em [`ab/`](ab/); [`ab/host.txt`](ab/host.txt) registra o load average antes de
+cada uma. O A/B foi feito antes da remoção do `outbox_publishable` (seção seguinte).
 
 | 1 API, 100 ops/s | `main` (3 rodadas) | Com índice (3 rodadas) |
 | --- | --- | --- |
@@ -70,6 +76,33 @@ acima vêm de uma janela sem outras suítes em execução; os containers ociosos
 projetos continuaram ativos com baixo consumo, e o desenho intercalado distribui esse
 ruído igualmente entre os dois lados.
 
-Ainda não tratado: a parte externa da reserva varre a tabela inteira de outbox a cada
-ciclo, inclusive eventos publicados, e não há expurgo. O custo cresce com o histórico;
-está registrado na ADR 0013 para avaliar junto de uma política de retenção.
+## `outbox_publishable` removido
+
+O índice `(next_attempt_at, occurred_at) where published_at is null and blocked_at is null`
+(Migration202611130006) foi criado para a reserva, mas nenhuma consulta o usou nos
+formatos medidos com `scripts/explain-outbox-claim.ts`:
+
+| Formato | Plano da reserva | Tempo |
+| --- | --- | --- |
+| 1 wallet, 1 500 BETs, 97% publicados | `outbox_unpublished_by_aggregate` (externa e probe) | 0,6 ms |
+| 300 wallets × 5 BETs, 50% publicados | seq scan + probe | 2,9 ms |
+| 300 wallets × 5 BETs, 95% dos pendentes em backoff (queda do SQS) | seq scan + hash anti join | 1,5 ms |
+
+As outras consultas ao outbox também não o usam: updates são por `event_id`, a sequência
+usa o índice único e o coletor de métricas conta eventos bloqueados, o que o predicado do
+índice exclui. Ele só custava uma entrada a mais em todo insert da transação financeira.
+A mesma migration o remove; o `down` o recria para que a reversão das migrations
+anteriores continue válida.
+
+Rodada de sanidade após a remoção, mesma configuração do A/B e host nas mesmas condições
+(uma rodada, não A/B): wallet quente a 100 ops/s com p50 de 11 ms e ~91 eventos/s
+publicados; distribuído drenando em 0,2 s; invariantes ok. Dentro da faixa medida acima.
+
+## Próximo passo, se a wallet quente virar requisito
+
+A reserva ainda avalia todos os pendentes de cada wallet para achar a cabeça (~10 ms com
+3 000 pendentes, quase o ciclo inteiro a ~96 eventos/s), então provavelmente segue sendo o
+limite da wallet quente. A divisão do ciclo entre reserva, envio e confirmação **não foi
+medida**. A ADR 0013 registra a ordem: medir essa divisão; se o limite for a reserva,
+selecionar a cabeça por agregado (custo por wallet, não por evento); só então considerar
+reservar cadeias.

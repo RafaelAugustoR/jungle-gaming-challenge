@@ -660,11 +660,11 @@ integration(
       {
         'QUERY PLAN': [plan],
       },
-    ] = await database.owner.em
-      .fork()
-      .execute(
-        `explain (analyze, buffers, format json) ${PUBLISHABLE_HEADS.replace('limit ?', 'limit 20')}`,
-      );
+    ] = await database.owner.em.fork().execute(
+      `explain (analyze, buffers, format json) ${PUBLISHABLE_HEADS}`,
+      // The same bound limit the repository passes; EXPLAIN accepts it as a parameter.
+      [20],
+    );
     // Quadratic plans touch pending × published index entries (~90 000 here); bounded ones ~1 000s.
     expect(plan['Plan']['Shared Hit Blocks'] + plan['Plan']['Shared Read Blocks']).toBeLessThan(
       20000,
